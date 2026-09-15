@@ -1,0 +1,93 @@
+{
+  "version": 1,
+  "tool": {
+    "name": "rig",
+    "version": "0.0.0-test"
+  },
+  "resolver": {
+    "lib": "test/resolver",
+    "version": "0",
+    "git/sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "locked_at": "2026-01-01T00:00:00Z",
+  "workspace": {
+    "modules": [
+      ".",
+      "modules/app"
+    ],
+    "manifest_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "cooldown": {
+    "default": "48h",
+    "repos": null
+  },
+  "artifacts": [
+    {
+      "id": "org.clojure/clojure:1.11.0:jar",
+      "kind": "mvn",
+      "group": "org.clojure",
+      "name": "clojure",
+      "version": "1.11.0",
+      "extension": "jar",
+      "classifier": null,
+      "repository": "central",
+      "url": "https://example.invalid/clojure-1.11.0.jar",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "published_at": null,
+      "git": null
+    }
+  ],
+  "skipped": null,
+  "modules": {
+    ".": {
+      "manifest_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "lib": "test/-",
+      "version": "0.0.1",
+      "jvm-opts": null,
+      "classpath": [
+        "org.clojure/clojure:1.11.0:jar"
+      ],
+      "aliases": null,
+      "build": {
+        "src-dirs": null,
+        "java-src-dirs": null,
+        "class-dir": "target/classes",
+        "jar": false,
+        "uberjar": null
+      },
+      "publish": {
+        "enabled": false,
+        "repo": "",
+        "sign-releases?": false
+      },
+      "test": {
+        "enabled": true
+      }
+    },
+    "modules/app": {
+      "manifest_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "lib": "test/modules-app",
+      "version": "0.0.1",
+      "jvm-opts": null,
+      "classpath": [
+        "org.clojure/clojure:1.11.0:jar"
+      ],
+      "aliases": null,
+      "build": {
+        "src-dirs": null,
+        "java-src-dirs": null,
+        "class-dir": "target/classes",
+        "jar": false,
+        "uberjar": null
+      },
+      "publish": {
+        "enabled": false,
+        "repo": "",
+        "sign-releases?": false
+      },
+      "test": {
+        "enabled": true
+      }
+    }
+  }
+}

@@ -1,0 +1,11 @@
+{:rig/lib example/app
+ :rig/version "0.1.0"
+ :rig/main app.core
+ :rig/uberjar? true
+ :rig/uberjar-file "target/app-uber.jar"
+ :paths ["src"]
+ :deps {org.clojure/clojure {:mvn/version "1.11.0"}}
+ :aliases
+ {:test {:extra-deps {lambdaisland/kaocha {:mvn/version "1.66.1034"}}
+         :extra-paths ["test"]
+         :exec-fn kaocha.runner/exec-fn}}}

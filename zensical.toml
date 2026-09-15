@@ -1,0 +1,118 @@
+[project]
+site_url = "https://brutasse.github.io/rig/"
+site_name = "rig"
+site_description = "Cargo for Clojure — build and run Clojure projects, the obvious way"
+site_author = "Bruno Renié"
+copyright = "&copy; 2026 Bruno Renié"
+
+repo_url = "https://github.com/brutasse/rig"
+repo_name = "brutasse/rig"
+edit_uri = "edit/main/docs/"
+
+nav = [
+  { "Home" = "index.md" },
+  { "Getting started" = "getting-started.md" },
+  { "Concepts" = [
+    "concepts/index.md",
+    "concepts/lockfile.md",
+    "concepts/security.md",
+    "concepts/workspace.md",
+  ] },
+  { "Workflows" = [
+    "workflows/daily.md",
+    "workflows/dependencies.md",
+    "workflows/pier.md",
+    "workflows/build-publish.md",
+    "workflows/ci.md",
+    "workflows/docker.md",
+  ] },
+  { "Reference" = [
+    "reference/commands.md",
+    "reference/config.md",
+  ] },
+  { "Migration" = [
+    "migration/index.md",
+    "migration/tools-project.md",
+    "migration/deps-modules.md",
+    "migration/plain-tools-deps.md",
+  ] },
+  { "Internals" = [
+    "internals/index.md",
+    "internals/resolution.md",
+    "internals/closed-build.md",
+  ] },
+]
+
+[project.theme]
+language = "en"
+features = [
+  "content.action.edit",
+  "content.code.annotate",
+  "content.code.copy",
+  "content.code.select",
+  "content.footnote.tooltips",
+  "content.tabs.link",
+  "content.tooltips",
+  "navigation.footer",
+  "navigation.indexes",
+  "navigation.instant",
+  "navigation.instant.prefetch",
+  "navigation.sections",
+  "navigation.tabs",
+  "navigation.tabs.sticky",
+  "navigation.top",
+  "navigation.tracking",
+  "search.highlight",
+  "toc.follow",
+]
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme)"
+toggle.icon = "lucide/sun-moon"
+toggle.name = "Switch to light mode"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: light)"
+scheme = "default"
+toggle.icon = "lucide/sun"
+toggle.name = "Switch to dark mode"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: dark)"
+scheme = "slate"
+toggle.icon = "lucide/moon"
+toggle.name = "Switch to system preference"
+
+[[project.extra.social]]
+icon = "fontawesome/brands/github"
+link = "https://github.com/brutasse/rig"
+
+[project.markdown_extensions]
+abbr = {}
+admonition = {}
+attr_list = {}
+def_list = {}
+footnotes = {}
+md_in_html = {}
+toc.permalink = true
+pymdownx.arithmatex.generic = true
+pymdownx.betterem = {}
+pymdownx.caret = {}
+pymdownx.details = {}
+pymdownx.emoji.emoji_generator = "zensical.extensions.emoji.to_svg"
+pymdownx.emoji.emoji_index = "zensical.extensions.emoji.twemoji"
+pymdownx.highlight.anchor_linenums = true
+pymdownx.highlight.line_spans = "__span"
+pymdownx.highlight.pygments_lang_class = true
+pymdownx.inlinehilite = {}
+pymdownx.keys = {}
+pymdownx.magiclink = {}
+pymdownx.mark = {}
+pymdownx.smartsymbols = {}
+pymdownx.superfences.custom_fences = [
+  { name = "mermaid", class = "mermaid", format = "pymdownx.superfences.fence_code_format" },
+]
+pymdownx.tabbed.alternate_style = true
+pymdownx.tabbed.combine_header_slug = true
+pymdownx.tasklist.custom_checkbox = true
+pymdownx.tilde = {}

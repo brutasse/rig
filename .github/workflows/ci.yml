@@ -1,0 +1,164 @@
+# CI: full test suite on every branch push; on tags, the release job runs
+# once the test job is green.
+#
+# Trigger:
+#   - push to any branch → test
+#   - push a tag vX.Y.Z (e.g. git push origin v0.2.0) → test, then release
+#
+# What test does:
+#   1. gofmt -w rig/ — fixes formatting in place; if anything changed,
+#      pushes a bot commit back to the branch (never fails)
+#   2. go vet
+#   3. make test — kernel kaocha + Go suite, E2E vs the freshly built jar
+#
+# What release does:
+#   1. builds the kernel jar at the tag version, stamps it into the kernel
+#      pin (GitHub release URL + git sha + jar sha256)
+#   2. cross-compiles rig for linux/darwin amd64/arm64 with version stamps
+#   3. builds and pushes the multi-arch Docker image (rig binary +
+#      hash-pinned kernel jar) to ghcr.io/brutasse/rig
+#   4. publishes a GitHub release with all binaries + kernel jar + SHA256SUMS
+#   5. re-pins the install one-liner's git sha in README.md on main
+#
+# The kernel jar is served exclusively from the GitHub release (no Maven
+# repo): rig binaries fetch it by their compiled pin, hash-verified.
+
+name: CI
+
+on:
+  push:
+    branches:
+      - "**"
+    tags:
+      - "v*"
+    pull_request:
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27.x"
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: DeLaGuardo/setup-clojure@4c7a6f613e5089821bb3bb2a33a3ee115578580d # 13.6.1
+        with:
+          cli: "1.12.5.1664"
+      - name: gofmt (auto-fix)
+        run: |
+          gofmt -w rig/
+          if git diff --quiet; then
+            echo "already gofmt-clean"
+            exit 0
+          fi
+          git config user.name "rig-ci[bot]"
+          git config user.email "rig-ci@users.noreply.github.com"
+          git add rig/
+          git commit -m "style: gofmt"
+          case "$GITHUB_REF" in
+            refs/heads/*) git push origin HEAD:"${GITHUB_REF#refs/heads/}" ;;
+          esac
+
+      - name: go vet
+        run: cd rig && go vet ./...
+
+      - name: Test
+        run: make test
+
+  release:
+    runs-on: ubuntu-latest
+    needs:
+      - test
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27.x"
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: DeLaGuardo/setup-clojure@4c7a6f613e5089821bb3bb2a33a3ee115578580d # 13.6.1
+        with:
+          cli: "1.12.5.1664"
+
+      - name: Package release
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          case "$v" in
+            [0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "bad version: $v (want X.Y.Z)" >&2; exit 1 ;;
+          esac
+          make release V="${GITHUB_REF_NAME}"
+
+      - name: Record image build args
+        run: |
+          echo "release_sha=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+          echo "jar_sha=$(sha256sum rig/dist/release/rig-resolver-${{ github.ref_name }}.jar | cut -d' ' -f1)" >> "$GITHUB_ENV"
+
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+        with:
+          driver: docker-container
+          platforms: linux/amd64,linux/arm64
+
+      - name: Docker login
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/brutasse/rig:${{ github.ref_name }}
+            ghcr.io/brutasse/rig:latest
+          build-args: |
+            V=${{ github.ref_name }}
+            KERNEL_GITSHA=${{ env.release_sha }}
+            JARSHA=${{ env.jar_sha }}
+
+      - name: Image smoke test
+        run: docker run --rm ghcr.io/brutasse/rig:${{ github.ref_name }} rig jvm list
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          v="${{ github.ref_name }}"
+          jarsha=$(sha256sum "resolver/target/rig-resolver-$v.jar" | cut -d' ' -f1)
+          gh release create "$v" \
+            --title "$v" \
+            --notes "rig $v — binaries (linux/darwin, amd64/arm64) + resolver kernel jar (sha256 $jarsha). Install: see README (curl one-liner, pinned at the release git sha). Self-update: rig self-update." \
+            --verify rig/dist/release/*
+
+      - name: Pin install one-liner in README
+        run: |
+          sha=$(git rev-parse HEAD)
+          git fetch origin main
+          git checkout --detach origin/main
+          sed -i -E "s#brutasse/rig/([0-9a-f]{40}|PENDING-FIRST-RELEASE)/scripts#brutasse/rig/$sha/scripts#" README.md
+          if git diff --quiet; then
+            echo "README already pinned at $sha"
+          else
+            git config user.name "rig-release[bot]"
+            git config user.email "rig-release@users.noreply.github.com"
+            git add README.md
+            git commit -m "docs: pin install one-liner to ${{ github.ref_name }} ($sha)"
+            git push origin HEAD:main
+          fi

@@ -1,0 +1,7 @@
+target/
+*.jar
+rig/dist/
+.clj-kondo
+.lsp
+.cpcache
+site/

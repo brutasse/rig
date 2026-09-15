@@ -1,0 +1,201 @@
+{
+  "version": 1,
+  "tool": {
+    "name": "rig",
+    "version": "0.1.0"
+  },
+  "resolver": {
+    "lib": "io.github.brutasse/rig-resolver",
+    "version": "0.1.0",
+    "git/sha": "abcdef0123456789abcdef0123456789abcdef01"
+  },
+  "locked_at": "2026-09-15T12:34:56Z",
+  "workspace": {
+    "modules": [".", "modules/schemas", "modules/orchestrator"],
+    "manifest_sha256": "9b2f000000000000000000000000000000000000000000000000000000000000"
+  },
+  "cooldown": {
+    "default": "48h",
+    "repos": {
+      "corp": "72h"
+    }
+  },
+  "artifacts": [
+    {
+      "id": "org.clojure/clojure:1.11.0:jar",
+      "kind": "mvn",
+      "group": "org.clojure",
+      "name": "clojure",
+      "version": "1.11.0",
+      "extension": "jar",
+      "classifier": null,
+      "repository": "central",
+      "url": "https://repo1.maven.org/maven2/org/clojure/clojure/1.11.0/clojure-1.11.0.jar",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "published_at": "2023-05-31T09:12:00Z"
+    },
+    {
+      "id": "lambdaisland/kaocha:1.66.1034:jar",
+      "kind": "mvn",
+      "group": "lambdaisland",
+      "name": "kaocha",
+      "version": "1.66.1034",
+      "extension": "jar",
+      "classifier": null,
+      "repository": "clojars",
+      "url": "https://repo.clojars.org/lambdaisland/kaocha/1.66.1034/kaocha-1.66.1034.jar",
+      "sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+      "published_at": "2023-04-02T08:00:00Z"
+    },
+    {
+      "id": "org.clojure/test.check:1.1.0:jar",
+      "kind": "mvn",
+      "group": "org.clojure",
+      "name": "test.check",
+      "version": "1.1.0",
+      "extension": "jar",
+      "classifier": null,
+      "repository": "central",
+      "url": "https://repo1.maven.org/maven2/org/clojure/test.check/1.1.0/test.check-1.1.0.jar",
+      "sha256": "fcde2b2edf5479ccb4921c64b8200dc817cb40177b52575f52798f8aad778245",
+      "published_at": "2021-08-03T10:30:00Z"
+    },
+    {
+      "id": "com.example/widgets:d41dcc4:jar",
+      "kind": "git",
+      "group": "com.example",
+      "name": "widgets",
+      "version": "d41dcc4",
+      "extension": "jar",
+      "classifier": null,
+      "git": {
+        "url": "git@github.com:example/widgets.git",
+        "sha": "0123456789abcdef0123456789abcdef01234567"
+      },
+      "deps/root": "modules/entities"
+    }
+  ],
+  "skipped": [
+    {
+      "coord": "org.clojure/test.check",
+      "version": "1.1.5",
+      "reason": "cooldown",
+      "published_at": "2026-09-14T09:00:00Z",
+      "cooldown": "48h"
+    }
+  ],
+  "modules": {
+    ".": {
+      "manifest_sha256": "1111000000000000000000000000000000000000000000000000000000000000",
+      "lib": "",
+      "version": "1.0.0-SNAPSHOT",
+      "jvm-opts": [],
+      "classpath": [
+        "org.clojure/clojure:1.11.0:jar",
+        {
+          "local": "modules/schemas"
+        }
+      ],
+      "aliases": {},
+      "build": {
+        "src-dirs": [],
+        "java-src-dirs": [],
+        "class-dir": "target/classes",
+        "jar": false,
+        "uberjar": null
+      },
+      "publish": {
+        "enabled": false,
+        "repo": "",
+        "sign-releases?": false
+      },
+      "test": {
+        "enabled": true
+      }
+    },
+    "modules/schemas": {
+      "manifest_sha256": "2222000000000000000000000000000000000000000000000000000000000000",
+      "lib": "com.example/schemas",
+      "version": "1.0.0-SNAPSHOT",
+      "jvm-opts": [],
+      "classpath": [
+        "org.clojure/clojure:1.11.0:jar"
+      ],
+      "aliases": {},
+      "build": {
+        "src-dirs": ["src", "resources"],
+        "java-src-dirs": [],
+        "class-dir": "target/classes",
+        "jar": true,
+        "uberjar": null
+      },
+      "publish": {
+        "enabled": true,
+        "repo": "clojars",
+        "sign-releases?": false
+      },
+      "test": {
+        "enabled": false
+      }
+    },
+    "modules/orchestrator": {
+      "manifest_sha256": "3333000000000000000000000000000000000000000000000000000000000000",
+      "lib": "com.example/orchestrator",
+      "version": "1.0.0-SNAPSHOT",
+      "main": "com.example.main",
+      "jvm-opts": [],
+      "classpath": [
+        "org.clojure/clojure:1.11.0:jar",
+        {
+          "local": "modules/schemas"
+        },
+        "com.example/widgets:d41dcc4:jar"
+      ],
+      "aliases": {
+        "test": {
+          "classpath": [
+            "org.clojure/clojure:1.11.0:jar",
+            {
+              "local": "modules/schemas"
+            },
+            "lambdaisland/kaocha:1.66.1034:jar",
+            "org.clojure/test.check:1.1.0:jar"
+          ],
+          "jvm-opts": [],
+          "env": {},
+          "exec": {
+            "type": "exec-fn",
+            "fn": "kaocha.runner/exec-fn"
+          }
+        },
+        "dev": {
+          "classpath": [
+            "org.clojure/clojure:1.11.0:jar"
+          ],
+          "jvm-opts": [],
+          "env": {},
+          "exec": null
+        }
+      },
+      "build": {
+        "src-dirs": ["src", "resources"],
+        "java-src-dirs": [],
+        "class-dir": "target/classes",
+        "jar": true,
+        "uberjar": {
+          "file": "target/orchestrator.jar",
+          "main": "com.example.main",
+          "opts": {}
+        }
+      },
+      "publish": {
+        "enabled": true,
+        "repo": "clojars",
+        "sign-releases?": false
+      },
+      "test": {
+        "enabled": true
+      }
+    }
+  }
+}

@@ -1,0 +1,6 @@
+.git/
+site/
+resolver/target/
+*.md
+Dockerfile
+.dockerignore
