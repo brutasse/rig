@@ -175,18 +175,34 @@ byte-compare from step 1. When green, ship.
 
 ## Step 3 — adopt the workspace model
 
-Now the manifests themselves. For every `deps.edn`:
+Now the manifests themselves — and this step is not done by hand. `rig
+migrate` does the whole mechanical rewrite in one command (`--dry-run`
+first, then the real run), format-preserving, reporting every file it
+changes:
 
-1. Rename the `:exoscale.project/*` keys to `:rig/*` (the table above);
+```sh
+rig migrate --dry-run   # preview
+rig migrate             # apply
+```
+
+Per `deps.edn` it:
+
+1. renames the `:exoscale.project/*` keys to `:rig/*` (the table above);
    `:slipset.deps-deploy/exec-args` becomes `:rig/publish`
-   (default `{:repo "clojars" :sign-releases? false}`).
-2. Delete every `:project` alias (all of them — the copies drift, there is
-   no canonical one to keep).
-3. Delete the `:exoscale.deps/inherit` markers from every coordinate.
-4. In the root: rename `:exoscale.project/modules` → `:rig/modules`, lift
-   the managed versions into `:rig/deps` as plain requirements, and delete
+   (default `{:repo "clojars" :sign-releases? false}`);
+2. deletes every `:project` alias (all of them — the copies drift, there is
+   no canonical one to keep);
+3. deletes the `:exoscale.deps/inherit` markers from every coordinate; and
+4. in the root, renames `:exoscale.project/modules` → `:rig/modules`, lifts
+   the managed versions into `:rig/deps` as plain requirements, and deletes
    `:exoscale.deps/managed-dependencies`, `:exoscale.deps/managed-aliases`,
    and `:exoscale.project/extra-deps-files`.
+
+It reproduces the legacy merge's *effective* dependencies exactly: no
+version drift is introduced, and none is fixed — drift is what `check`
+surfaces below, not hidden. Blocking problems (unknown version-fn,
+`:sign-releases? true`, …) abort with nothing written; resolve them and
+re-run.
 
 The root's `:rig/deps` keeps full requirement maps — versions,
 exclusions, `:local/root`, `:git` — it is not a new format:
@@ -259,8 +275,8 @@ went through exactly these steps:
 2. Makefile and both GitHub workflows swapped to the rig verbs; locked
    classpath verified **byte-identical** to `clojure -Spath` on all
    module/alias combinations;
-3. all 8 manifests rewritten `:exoscale.*` → `:rig/*` (comments preserved,
-   zero legacy keys left); `rig check` surfaced the drift above;
+3. `rig migrate` rewrote all 8 manifests `:exoscale.*` → `:rig/*` (comments
+   preserved, zero legacy keys left); `rig check` surfaced the drift above;
    `rig update` settled it (test.check → 1.1.1 everywhere, the drifted
    coordinates → their intended versions);
 4. CI on the frozen gate: `rig verify --frozen &&
