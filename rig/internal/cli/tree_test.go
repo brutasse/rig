@@ -22,9 +22,9 @@ func TestTree(t *testing.T) {
 			t.Errorf("out missing %q; out: %s", want, out)
 		}
 	}
-	// Depth 1 gets one indent step, depth 2 two.
-	if !strings.Contains(out, "\n  org.clojure/clojure:1.11.0\n") {
-		t.Errorf("clojure not at depth 1; out: %s", out)
+	// The module's dep hangs off the root; its transitive deps one level down.
+	if !strings.Contains(out, "└── org.clojure/clojure:1.11.0\n    ├── org.clojure/spec.alpha:") {
+		t.Errorf("clojure not rendered as a direct dep with nested children; out: %s", out)
 	}
 }
 

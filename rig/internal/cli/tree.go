@@ -12,14 +12,6 @@ import (
 	"github.com/brutasse/rig/internal/workspace"
 )
 
-// treeNode is one dependency in the kernel's tree report. Via is the
-// ancestor chain, root first; Depth = len(Via).
-type treeNode struct {
-	Coord string   `json:"coord"`
-	Depth int      `json:"depth"`
-	Via   []string `json:"via"`
-}
-
 func newTreeCmd(o *opts) *cobra.Command {
 	var alias string
 	cmd := &cobra.Command{
@@ -77,20 +69,14 @@ func (o *opts) treePrint(ctx context.Context, root *workspace.Root, module, alia
 		}
 		return err
 	}
+	// The kernel renders the tree itself (it holds the resolved graph);
+	// this side is a dumb printer.
 	var parsed struct {
-		Root  string     `json:"root"`
-		Nodes []treeNode `json:"nodes"`
+		Tree string `json:"tree"`
 	}
 	if err := json.Unmarshal(out, &parsed); err != nil {
 		return fmt.Errorf("tree: bad kernel response: %w", err)
 	}
-	fmt.Println(parsed.Root)
-	if len(parsed.Nodes) == 0 {
-		fmt.Println("  (no dependencies)")
-		return nil
-	}
-	for _, n := range parsed.Nodes {
-		fmt.Printf("%*s%s\n", 2*(n.Depth-1)+2, "", n.Coord)
-	}
+	fmt.Println(parsed.Tree)
 	return nil
 }

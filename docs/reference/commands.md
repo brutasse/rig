@@ -189,8 +189,10 @@ mvxcvi/arrangement 1.2.0 -> 1.2.1 (latest 2.1.0, breaking)
 
 ### `rig tree`
 
-Print the resolved dependency graph for a module (`-p`), indented by
-depth; `--alias <a>` includes the alias's extra-deps.
+Print the resolved dependency tree for a module (`-p`), one line per
+occurrence with `├─`/`└─` connectors; an occurrence not in the classpath
+(conflict, exclusion, duplicate) is marked with its reason. `--alias <a>`
+includes the alias's extra-deps.
 
 ### `rig info` / `rig version`
 

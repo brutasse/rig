@@ -118,11 +118,13 @@ rig tree -p modules/orchestrator
 
 ```
 com.example/orchestrator:1.0.0-SNAPSHOT
-  org.clojure/clojure:1.11.0
-    org.clojure/spec.alpha:0.3.218
-    org.clojure/core.specs.alpha:0.2.62
-  …
+├── org.clojure/clojure:1.11.0
+│   ├── org.clojure/spec.alpha:0.3.218
+│   └── org.clojure/core.specs.alpha:0.2.62
+└── …
 ```
 
-The resolved dependency graph for a module; `--alias test` includes the
-test alias's extra-deps.
+The resolved dependency tree for a module, one line per occurrence; an
+occurrence not in the classpath (conflict, exclusion, duplicate) is
+marked with its reason. `--alias test` includes the test alias's
+extra-deps.
