@@ -12,7 +12,7 @@ pinned at the git sha of the latest release; the release workflow re-pins it
 after each release — `PENDING-FIRST-RELEASE` is replaced by the first one):
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/brutasse/rig/1357c1500e43de592cbbfa24b4ac3e4500f530f8/scripts/install-rig.sh | sh
+curl -fsSL https://raw.githubusercontent.com/brutasse/rig/29b0bb60817c7ce2db5d3a2775a3b64859f214f5/scripts/install-rig.sh | sh
 ```
 
 Installs to `~/.local/bin` (override: `INSTALL_DIR=…`), verifies the binary
