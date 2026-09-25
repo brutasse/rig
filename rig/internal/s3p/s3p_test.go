@@ -21,12 +21,12 @@ func TestParse(t *testing.T) {
 		prefix  string
 		wantErr bool
 	}{
-		{"s3p://exo-artifacts", "exo-artifacts", "", false},
-		{"s3p://exo-artifacts/releases", "exo-artifacts", "releases", false},
-		{"s3p://exo-artifacts/releases/", "exo-artifacts", "releases", false},
-		{"s3p://exo-artifacts/a/b", "exo-artifacts", "a/b", false},
+		{"s3p://my-bucket", "my-bucket", "", false},
+		{"s3p://my-bucket/releases", "my-bucket", "releases", false},
+		{"s3p://my-bucket/releases/", "my-bucket", "releases", false},
+		{"s3p://my-bucket/a/b", "my-bucket", "a/b", false},
 		{"s3p://", "", "", true},
-		{"https://exo-artifacts", "", "", true},
+		{"https://my-bucket", "", "", true},
 	}
 	for _, c := range cases {
 		got, err := Parse(c.in)
@@ -47,7 +47,7 @@ func TestParse(t *testing.T) {
 }
 
 func TestEscapePath(t *testing.T) {
-	if got := escapePath("releases/org/exoscale/app-1.0.0.jar"); got != "/releases/org/exoscale/app-1.0.0.jar" {
+	if got := escapePath("releases/org/example/app-1.0.0.jar"); got != "/releases/org/example/app-1.0.0.jar" {
 		t.Errorf("escapePath plain = %q", got)
 	}
 	if got := escapePath("releases/my app (x)/a b.txt"); got != "/releases/my%20app%20%28x%29/a%20b.txt" {
@@ -161,8 +161,8 @@ func TestChecksumsOf(t *testing.T) {
 
 func TestSignRequest(t *testing.T) {
 	amzDate := "20260919T120000Z"
-	host := "exo-artifacts.sos-ch-dk-2.exo.io"
-	path := "/releases/org/exoscale/app/1.0.0/app-1.0.0.jar"
+	host := "my-bucket." + endpoint
+	path := "/releases/org/example/app/1.0.0/app-1.0.0.jar"
 	creds := Creds{AccessKey: "AKIATEST", SecretKey: "secretkey"}
 
 	got, err := signRequest(creds, amzDate, host, path)

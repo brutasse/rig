@@ -1,10 +1,11 @@
 # Migration
 
-Three entry points, one strategy.
+Four entry points, one strategy.
 
 | You are using… | Read |
 |---|---|
 | tools.project (`clj -T:project …`), with or without deps-modules | [Migrating from tools.project](tools-project.md) |
+| Leiningen (`project.clj` + `lein`) | [Migrating from Leiningen](leiningen.md) |
 | deps-modules (managed dependencies / `merge-deps`) without tools.project | [Migrating from deps-modules](deps-modules.md) |
 | plain tools.deps (`deps.edn` + `clj`), single or multi-module | [Onboarding a tools.deps project](plain-tools-deps.md) |
 

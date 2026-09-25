@@ -22,11 +22,17 @@ func newMigrateCmd(o *opts) *cobra.Command {
 	var dryRun bool
 	cmd := &cobra.Command{
 		Use:   "migrate",
-		Short: "Migrate legacy deps.edn manifests to the :rig/* keys in place",
+		Short: "Migrate workspace manifests to the :rig/* keys in place",
 		Long: `Migrates every deps.edn in the workspace from the legacy
 exoscale.project / deps-modules keys to the :rig/* keys, rewriting the
 files in place. The migration is mechanical: it reproduces the effective
 (post-merge) dependencies exactly, without version drift.
+
+A workspace whose root manifest is a Leiningen project.clj (and that has
+no deps.edn) is converted instead: a new root deps.edn is written in the
+:rig/* model and project.clj is left untouched. Leiningen content with
+no rig equivalent (plugins, task aliases, native-image, non-test/dev
+profiles) is dropped with a warning. Re-running is a fixed point.
 
 --dry-run reports what would change without writing. When the kernel
 reports blocking problems, no file is written and the command exits 1.`,

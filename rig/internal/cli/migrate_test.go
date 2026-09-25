@@ -120,3 +120,61 @@ func TestMigrateProblemsBlockWrites(t *testing.T) {
 		t.Errorf("file was modified despite problems:\n%s", got)
 	}
 }
+
+// leinFixture is a minimal Leiningen project manifest.
+const leinFixture = `(defproject foo/bar "1.0"
+ :dependencies [[org.clojure/clojure "1.12.1"]
+                [aero "1.1.6"]]
+ :repositories {"my-registry" {:url "https://registry.example.com"}})` + "\n"
+
+func TestMigrateLeiningen(t *testing.T) {
+	setKernel(t)
+	dir := t.TempDir()
+	t.Chdir(dir)
+	writeFile(t, "project.clj", leinFixture)
+
+	code, out := runCLI(t, "migrate", "--cache-dir", t.TempDir())
+	if code != 0 {
+		t.Fatalf("migrate exit = %d, want 0; out: %s", code, out)
+	}
+	if !strings.Contains(out, "deps.edn: migrated") {
+		t.Errorf("out = %q", out)
+	}
+	got, err := os.ReadFile("deps.edn")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{":rig/lib foo/bar", `:rig/version "1.0"`} {
+		if !strings.Contains(string(got), want) {
+			t.Errorf("migrated manifest missing %q:\n%s", want, got)
+		}
+	}
+
+	// Re-running is a fixed point: the generated manifest has no legacy
+	// keys, so the deps.edn path finds nothing to migrate.
+	code, out = runCLI(t, "migrate", "--cache-dir", t.TempDir())
+	if code != 0 {
+		t.Fatalf("second migrate exit = %d, want 0; out: %s", code, out)
+	}
+	if !strings.Contains(out, "nothing to migrate") {
+		t.Errorf("out = %q", out)
+	}
+}
+
+func TestMigrateLeiningenDryRun(t *testing.T) {
+	setKernel(t)
+	dir := t.TempDir()
+	t.Chdir(dir)
+	writeFile(t, "project.clj", leinFixture)
+
+	code, out := runCLI(t, "migrate", "--dry-run", "--cache-dir", t.TempDir())
+	if code != 0 {
+		t.Fatalf("migrate --dry-run exit = %d, want 0; out: %s", code, out)
+	}
+	if !strings.Contains(out, "deps.edn: would change") {
+		t.Errorf("out = %q", out)
+	}
+	if _, err := os.ReadFile("deps.edn"); !os.IsNotExist(err) {
+		t.Errorf("dry-run wrote deps.edn: %v", err)
+	}
+}

@@ -71,6 +71,42 @@ func TestFindSingleModule(t *testing.T) {
 	}
 }
 
+func TestFindLeiningenFallback(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "project.clj"), "(defproject x/standalone \"1.0.0\")\n")
+
+	r, err := Find(filepath.Join(root, "src"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Workspace {
+		t.Error("don't want workspace")
+	}
+	if r.Lock != nil {
+		t.Error("don't want lock")
+	}
+	if r.Dir != root {
+		t.Errorf("dir = %s, want %s", r.Dir, root)
+	}
+	if got := r.Modules(); len(got) != 1 || got[0] != "." {
+		t.Errorf("modules = %v", got)
+	}
+}
+
+func TestFindDepsEdnBeatsProjectClj(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "project.clj"), "(defproject x/old \"1.0.0\")\n")
+	writeFile(t, filepath.Join(dir, "deps.edn"), "{:rig/lib x/new}\n")
+
+	r, err := Find(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := r.Modules(); len(got) != 1 || got[0] != "." {
+		t.Errorf("modules = %v", got)
+	}
+}
+
 func TestFindWorkspaceBootstrapNoLock(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "deps.edn"), "{:rig/modules [\"modules/app\"]}\n")
