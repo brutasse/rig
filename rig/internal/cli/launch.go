@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -17,6 +16,7 @@ import (
 	"github.com/brutasse/rig/internal/cache"
 	"github.com/brutasse/rig/internal/classpath"
 	"github.com/brutasse/rig/internal/fetch"
+	"github.com/brutasse/rig/internal/jdk"
 	"github.com/brutasse/rig/internal/jvm"
 	"github.com/brutasse/rig/internal/lockfile"
 	"github.com/brutasse/rig/internal/workspace"
@@ -292,7 +292,7 @@ func launchPlanFor(o *opts, lock *lockfile.Document, root *workspace.Root, m, ab
 		if v == "" {
 			v = lock.JVM.Requested
 		}
-		java = featureVersion(v)
+		java = jdk.FeatureVersion(v)
 	}
 	return launchPlan{main: main, jvmOpts: mod.JVMOpts, uber: isUber, java: java}, nil
 }
@@ -377,7 +377,7 @@ func checkJavaVersion(java string, want int) error {
 	if err != nil {
 		return exitf(1, "cannot determine the java version: %v", err)
 	}
-	got := featureVersion(v)
+	got := jdk.FeatureVersion(v)
 	if !javaVersionOK(got, want) {
 		if got == 0 {
 			return exitf(2, "cannot determine the java feature version from %s", v)
@@ -393,20 +393,6 @@ func checkJavaVersion(java string, want int) error {
 // to check).
 func javaVersionOK(got, want int) bool {
 	return want == 0 || got == want
-}
-
-// featureVersion is the JVM feature version of a version string:
-// "21.0.12" → 21, "1.8.0_422" → 8. 0 when unparseable.
-func featureVersion(v string) int {
-	parts := strings.SplitN(v, ".", 3)
-	if parts[0] == "1" && len(parts) > 1 {
-		parts = parts[1:]
-	}
-	n, err := strconv.Atoi(parts[0])
-	if err != nil {
-		return 0
-	}
-	return n
 }
 
 // launchCP assembles the non-uber launch classpath: the module's locked

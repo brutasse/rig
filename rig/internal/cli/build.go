@@ -19,6 +19,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/brutasse/rig/internal/classpath"
+	"github.com/brutasse/rig/internal/jdk"
 	"github.com/brutasse/rig/internal/jvm"
 	"github.com/brutasse/rig/internal/kernel"
 	"github.com/brutasse/rig/internal/lockfile"
@@ -144,7 +145,7 @@ func (e *hotEnv) buildOne(ctx context.Context, m string, uber bool) (string, err
 			"uber":     buildUber,
 		}
 		if v, err := jvm.Version(e.java); err == nil {
-			launch["java"] = featureVersion(v)
+			launch["java"] = jdk.FeatureVersion(v)
 		}
 		cfg["launch"] = launch
 	}
@@ -426,7 +427,7 @@ func javacOptsOf(jvm *lockfile.JVM, opts []string) []string {
 	if jvm == nil || controlsSourceLevel(opts) {
 		return opts
 	}
-	if n := featureVersion(jvm.Requested); n > 0 {
+	if n := jdk.FeatureVersion(jvm.Requested); n > 0 {
 		return append([]string{"--release", strconv.Itoa(n)}, opts...)
 	}
 	return opts

@@ -15,21 +15,6 @@ import (
 	"github.com/brutasse/rig/internal/workspace"
 )
 
-func TestFeatureVersion(t *testing.T) {
-	for in, want := range map[string]int{
-		"21.0.12":   21,
-		"1.8.0_422": 8,
-		"17.0.9":    17,
-		"11.0.1+2":  11,
-		"25":        25,
-		"garbage":   0,
-	} {
-		if got := featureVersion(in); got != want {
-			t.Errorf("featureVersion(%q) = %d, want %d", in, got, want)
-		}
-	}
-}
-
 func TestLaunchFlagsOrder(t *testing.T) {
 	// No GC in :jvm-opts: all defaults first, module opts last (JVM
 	// last-wins).

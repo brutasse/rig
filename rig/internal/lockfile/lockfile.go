@@ -13,6 +13,11 @@ import (
 
 const SupportedVersion = 1
 
+// JVMFloor is the lowest JVM feature version the resolver kernel runs on:
+// the kernel jar is built for Java 11 (its cheshire JSON backend tigris
+// ships v55 classes), so a pin below it cannot load the kernel.
+const JVMFloor = 11
+
 type Document struct {
 	Version   int               `json:"version"`
 	Tool      Tool              `json:"tool"`
@@ -221,6 +226,9 @@ func (d *Document) Validate() error {
 		}
 		if !jdk.ValidRequested(d.JVM.Requested) {
 			return fmt.Errorf("jvm: bad requested %q", d.JVM.Requested)
+		}
+		if n := jdk.FeatureVersion(d.JVM.Requested); n > 0 && n < JVMFloor {
+			return fmt.Errorf("jvm: requested %q is below the kernel floor: the kernel requires JVM %d or newer", d.JVM.Requested, JVMFloor)
 		}
 		if d.JVM.Version != "" && !jdk.Satisfies(d.JVM.Requested, d.JVM.Version) {
 			return fmt.Errorf("jvm: locked version %q does not satisfy requested %q", d.JVM.Version, d.JVM.Requested)

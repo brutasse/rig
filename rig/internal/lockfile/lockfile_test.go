@@ -172,6 +172,31 @@ func TestValidateCorruption(t *testing.T) {
 	}
 }
 
+func TestJVMFloor(t *testing.T) {
+	for requested, wantErr := range map[string]bool{
+		"8":   true,
+		"1.8": true,
+		"10":  true,
+		"11":  false,
+		"21":  false,
+	} {
+		t.Run(requested, func(t *testing.T) {
+			d, err := Load(fixturePath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			d.JVM = &JVM{Vendor: "temurin", Requested: requested}
+			err = d.Validate()
+			if wantErr && (err == nil || !strings.Contains(err.Error(), "kernel floor")) {
+				t.Errorf("requested %q: err = %v, want a kernel floor error", requested, err)
+			}
+			if !wantErr && err != nil {
+				t.Errorf("requested %q: err = %v, want none", requested, err)
+			}
+		})
+	}
+}
+
 func TestLoadBadJSON(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "deps.lock")
