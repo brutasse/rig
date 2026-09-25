@@ -137,11 +137,11 @@ hello rig
 project:	/home/…/demo
 type:	workspace
 modules:	., modules/demo
-lock:	2026-09-18T10:00:00Z by io.github.brutasse/rig-resolver 0.1.0 (546d868c4d1c), 29 artifacts
+lock:	2026-09-18T10:00:00Z by io.github.brutasse/rig-resolver v0.1.0 (546d868c4d1c), 29 artifacts
 java:	/usr/bin/java (21.0.12.1)
 cache:	/home/…/.local/share/rig
 rig:	dev (dev)
-kernel:	io.github.brutasse/rig-resolver 0.1.0 (546d868c4d1c)
+kernel:	io.github.brutasse/rig-resolver v0.1.0 (546d868c4d1c)
 ```
 
 `rig version` prints the project version: the `VERSION` file of the target
