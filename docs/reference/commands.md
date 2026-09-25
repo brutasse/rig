@@ -131,8 +131,9 @@ What it does, mechanically:
 - Drops `:exoscale.deps/managed-aliases` (only the `:project` alias exists;
   rig has no alias inheritance) and the `:project` aliases themselves.
 - Rewrites `:slipset.deps-deploy/exec-args` into `:rig/publish?` +
-  `:rig/publish` (`:repo`, `:sign-releases?`; s3p URLs carry over as
-  `:mvn/repos` entries).
+  `:rig/publish` (`:repo`, `:sign-releases?`); a deploy repo with an
+  `s3p://` URL is a blocking problem (rig publishes to http/https
+  repositories only).
 
 `--dry-run` runs the same analysis and reports per-file changes without
 writing anything. Blocking problems (e.g. an inherit marker on a coord that
@@ -326,20 +327,12 @@ with a `:rig/lib` without `-p`.
 ### `rig publish`
 
 Deploy the module jar(s) to the remote repository from `:rig/publish`.
-Only `:rig/publish?` modules; network required. Two transports:
-
-- **HTTP repos** (the default, `:repo` is a `:mvn/repos` id or `clojars`):
-  jar + POM uploaded with credentials from `~/.m2/settings.xml`; a repo
-  marked `:auth :oidc` is uploaded with the bearer of the gate that
-  fronts its `:url` (the gate's `RIG_TOKEN_<GATE>`, cached token, or
-  negotiated) instead.
-- **`s3p://` repos** (`:mvn/repos` entry whose URL is
-  `s3p://<bucket>[/<prefix>]`): a direct SigV4 write to the bucket —
-  jar, POM and their `.sha1`/`.md5` sidecars under `<prefix>/<maven-path>`.
-  Credentials: the settings.xml server for the repo id, then the AWS
-  environment (`AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`
-  [+ `AWS_SESSION_TOKEN`]), then `~/.aws/credentials` / `~/.aws/config`
-  (`AWS_PROFILE` honored).
+Only `:rig/publish?` modules; network required. The repo (`:repo` is a
+`:mvn/repos` id or `clojars`) must be an http/https Maven repository:
+jar + POM uploaded with credentials from `~/.m2/settings.xml`; a repo
+marked `:auth :oidc` is uploaded with the bearer of the gate that
+fronts its `:url` (the gate's `RIG_TOKEN_<GATE>`, cached token, or
+negotiated) instead.
 
 ### `rig release`
 

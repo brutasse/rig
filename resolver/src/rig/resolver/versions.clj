@@ -56,8 +56,8 @@
       (throw (ex-info (str "bad duration: " s) {:duration s})))))
 
 (defn- supported-url?
-  "true when the JVM can open url directly. Maven transports such as
-  s3p:// are not installed here; repos on them are skipped, not probed
+  "true when the JVM can open url directly. Maven transports the JVM
+  cannot open (no installed protocol handler) are skipped, not probed
   (probing them would throw MalformedURLException)."
   [url]
   (let [u (try (io/as-url url) (catch Exception _ nil))]

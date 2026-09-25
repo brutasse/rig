@@ -252,26 +252,16 @@
     (is (= {:extra-paths ["test"]}
            (get (get (file-edn ws "modules/m/deps.edn") :aliases) :test)))))
 
-(deftest s3p-exec-args-become-id-based-publish
-  (let [ws (temp-ws {"deps.edn" root-with-managed
-                     "modules/m/deps.edn"
-                     "{:exoscale.project/lib m/lib\n :mvn/repos {\"my-registry\" {:url \"https://artifacts.example\"}}\n :slipset.deps-deploy/exec-args {:repository {\"releases\" {:url \"s3p://bucket/prefix\"}}\n                                 :installer :remote\n                                 :sign-releases? false}}\n"})
+(deftest s3p-repo-is-a-problem
+  "An s3p:// deploy url has no rig equivalent (rig publishes to http/https
+  only): the migration is blocked and nothing is written."
+  (let [text "{:exoscale.project/lib m/lib\n :slipset.deps-deploy/exec-args {:repository {\"releases\" {:url \"s3p://bucket/prefix\"}}\n                                 :installer :remote\n                                 :sign-releases? false}}\n"
+        ws (temp-ws {"deps.edn" root-with-managed
+                     "modules/m/deps.edn" text})
         r (run ws)]
-    (is (empty? (problems r)))
-    (let [d (file-edn ws "modules/m/deps.edn")]
-      (is (= {:repo "bucket"} (get d :rig/publish)))
-      (is (= {:url "s3p://bucket/prefix"} (get (get d :mvn/repos) "bucket")))
-      (is (= {:url "https://artifacts.example"} (get (get d :mvn/repos) "my-registry")))
-      (is (nil? (get d :slipset.deps-deploy/exec-args))))))
-
-(deftest s3p-url-trailing-slash-is-normalized
-  (let [ws (temp-ws {"deps.edn" root-with-managed
-                     "modules/m/deps.edn"
-                     "{:exoscale.project/lib m/lib\n :slipset.deps-deploy/exec-args {:repository {\"releases\" {:url \"s3p://bucket/prefix/\"}}\n                                           :sign-releases? false}}\n"})]
-    (is (empty? (problems (run ws))))
-    (is (= "s3p://bucket/prefix"
-           (get-in (file-edn ws "modules/m/deps.edn")
-                   [:mvn/repos "bucket" :url])))))
+    (is (some #(re-find #"s3p://bucket/prefix" %) (problems r)))
+    (is (some #(re-find #"http/https" %) (problems r)))
+    (is (= text (file-text ws "modules/m/deps.edn")))))
 
 (deftest sign-releases-true-is-a-problem
   (let [text "{:exoscale.project/lib m/lib :slipset.deps-deploy/exec-args {:repository \"any\" :sign-releases? true}}\n"
@@ -385,7 +375,7 @@
 (def sample-project
   "(def version (.trim (try (slurp \"VERSION\") (catch Exception _ \"1.0.0-SNAPSHOT\"))))
 (defproject com.example/example version
- :deploy-repositories [[\"releases\" {:url \"s3p://my-bucket/releases\" :no-auth true :sign-releases false}]]
+ :deploy-repositories [[\"releases\" {:url \"https://repo.example.com/m2\" :no-auth true :sign-releases false}]]
  :repositories {\"my-registry\" {:url \"https://registry.example.com\"}}
  :profiles {:test {:plugins [[lein-test-report-junit-xml \"0.2.0\"]]}
             :dev {:jvm-opts [\"-Dexample.debug=true\"]
@@ -415,8 +405,8 @@
       (is (nil? (get d :rig/version)))
       (is (nil? (get d :rig/version-file)))
       (is (= true (get d :rig/uberjar?)))
-      (is (= {:repo "my-bucket"} (get d :rig/publish)))
-      (is (= "s3p://my-bucket/releases" (get-in d [:mvn/repos "my-bucket" :url])))
+      (is (= {:repo "repo-example-com"} (get d :rig/publish)))
+      (is (= "https://repo.example.com/m2" (get-in d [:mvn/repos "repo-example-com" :url])))
       (is (= "https://registry.example.com" (get-in d [:mvn/repos "my-registry" :url])))
       (is (= ["src" "resources"] (get d :paths)))
       (is (nil? (get d :rig/src-dirs)))
@@ -468,10 +458,20 @@
 
 (deftest leiningen-sign-releases-is-a-problem
   (let [text "(defproject foo/bar \"1.0\"
- :deploy-repositories [[\"releases\" {:url \"s3p://bkt\" :sign-releases true}]])\n"
+ :deploy-repositories [[\"releases\" {:url \"https://bkt.example\" :sign-releases true}]])\n"
         ws (temp-ws {"project.clj" text})
         r (run ws)]
     (is (some #(re-find #"sign-releases" %) (problems r)))
+    (is (empty? (get r "edits")))
+    (is (false? (.exists (io/file ws "deps.edn"))))))
+
+(deftest leiningen-s3p-deploy-repo-is-a-problem
+  (let [text "(defproject foo/bar \"1.0\"
+ :deploy-repositories [[\"releases\" {:url \"s3p://bkt/rel\"}]])\n"
+        ws (temp-ws {"project.clj" text})
+        r (run ws)]
+    (is (some #(re-find #":deploy-repositories s3p://bkt/rel" %) (problems r)))
+    (is (some #(re-find #"http/https" %) (problems r)))
     (is (empty? (get r "edits")))
     (is (false? (.exists (io/file ws "deps.edn"))))))
 
@@ -538,8 +538,8 @@
 (deftest leiningen-extra-deploy-repos-are-dropped-with-a-warning
   (let [ws (temp-ws {"project.clj"
                      "(defproject foo/bar \"1.0\"
- :deploy-repositories [[\"snapshots\" {:url \"s3p://bkt/snap\"}]
-                       [\"releases\" {:url \"s3p://bkt/rel\"}]])\n"})
+ :deploy-repositories [[\"snapshots\" {:url \"https://bkt.example/snap\"}]
+                       [\"releases\" {:url \"https://bkt.example/rel\"}]])\n"})
         r (run ws)]
     (is (empty? (problems r)))
     (is (some #(re-find #"(?i)first :deploy-repositories" %) (warnings r)))))
