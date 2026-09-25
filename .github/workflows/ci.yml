@@ -142,10 +142,11 @@ jobs:
         run: |
           v="${{ github.ref_name }}"
           jarsha=$(sha256sum "resolver/target/rig-resolver-$v.jar" | cut -d' ' -f1)
+          (cd rig/dist/release && sha256sum -c SHA256SUMS)
           gh release create "$v" \
             --title "$v" \
             --notes "rig $v — binaries (linux/darwin, amd64/arm64) + resolver kernel jar (sha256 $jarsha). Install: see README (curl one-liner, pinned at the release git sha). Self-update: rig self-update." \
-            --verify rig/dist/release/*
+            rig/dist/release/*
 
       - name: Pin install one-liner in README
         run: |

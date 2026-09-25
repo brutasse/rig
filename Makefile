@@ -68,7 +68,7 @@ release: kernel pin release-binaries
 	cp $(JAR) rig/dist/release/
 	cd rig/dist/release && sha256sum rig-linux-amd64 rig-linux-arm64 rig-darwin-amd64 rig-darwin-arm64 rig-resolver-$(V).jar > SHA256SUMS
 	@echo "release artifacts in rig/dist/release/ — publish with:"
-	@echo "  gh release create $(V) --verify rig/dist/release/*"
+	@echo "  (cd rig/dist/release && sha256sum -c SHA256SUMS) && gh release create $(V) rig/dist/release/*"
 
 # release-binaries: cross-compile rig for the release matrix with version
 # stamps (Version, GitSHA via ldflags). Each artifact is checked against its
