@@ -72,6 +72,7 @@ Limitations of this setup:
 | `:exoscale.project/target-dir` | `:rig/target-dir` |
 | `:exoscale.project/src-dirs` | `:rig/src-dirs` |
 | `:exoscale.project/java-src-dirs` | `:rig/java-src-dirs` |
+| `:exoscale.project/javac-opts` | `:rig/compile-opts` |
 | `:exoscale.project/extra-clean-targets` | drop — `rig clean` removes the target directory; use `rig exec` for anything else |
 | `:exoscale.project/modules` | `:rig/modules` |
 | `:exoscale.deps/managed-dependencies` + `:exoscale.deps/inherit` + `merge-deps` | `:rig/deps` (requirements) + `deps.lock` (pins) — no on-disk rewriting |

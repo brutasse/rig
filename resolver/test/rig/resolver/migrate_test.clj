@@ -47,6 +47,17 @@
         (is (nil? (get d :exoscale.project/version-file)))
         (is (nil? (get d :exoscale.project/deploy?)))))))
 
+(deftest version-and-javac-opts-are-renamed
+  (let [ws (temp-ws {"deps.edn"
+                     "{:exoscale.project/lib x/y\n :exoscale.project/version \"1.2.3\"\n :exoscale.project/javac-opts [\"-source\" \"11\" \"-target\" \"11\"]}\n"})]
+    (let [r (run ws)]
+      (is (empty? (problems r)))
+      (let [d (file-edn ws "deps.edn")]
+        (is (= "1.2.3" (get d :rig/version)))
+        (is (= ["-source" "11" "-target" "11"] (get d :rig/compile-opts)))
+        (is (nil? (get d :exoscale.project/version)))
+        (is (nil? (get d :exoscale.project/javac-opts)))))))
+
 (deftest bypass-test-is-inverted
   (doseq [[legacy expected] [[true false] [false true]]]
     (let [ws (temp-ws {"deps.edn"

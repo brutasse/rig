@@ -217,3 +217,33 @@
       (is (nil? (launch-entry jar-file)))
       (finally
         (delete-tree ws-dir)))))
+
+(deftest javac-receives-compile-opts
+  "b/javac receives :compile-opts from the build config: a valid opt compiles,
+  an unknown one fails the build (proving the opts reach the javac line)."
+  (let [ws-dir (temp-dir)
+        ws (str ws-dir)
+        src-root (io/file ws-dir "src")
+        java-root (io/file ws-dir "java")
+        java-file (io/file java-root "example" "Greeter.java")
+        javac (io/file (System/getProperty "java.home") "bin" "javac")]
+    (when (.exists javac)
+      (io/make-parents (io/file src-root "example" "core.clj"))
+      (spit (io/file src-root "example" "core.clj") "(ns example.core)\n(def x 1)\n")
+      (io/make-parents java-file)
+      (spit java-file "package example;\n\npublic class Greeter {\n  public static String greet(String n) {\n    return \"hi \" + n;\n  }\n}\n")
+      (let [cfg (-> (cfg ws src-root (io/file ws-dir "resources") false)
+                    (dissoc :main)
+                    (assoc :java-src-dirs [(str java-root)]
+                           :compile-opts ["-encoding" "UTF-8"]))]
+        (try
+          (let [result (build/build {:args {:builds {"." cfg}}})
+                jar-file (str ws "/target/fixture.jar")]
+            (is (= jar-file (get-in result [:results 0 :jar])))
+            (is (contains? (zip-names jar-file) "example/Greeter.class"))
+          (is (thrown? Exception
+                       (build/build {:args {:builds {"."
+                                                     (assoc cfg :compile-opts ["--definitely-not-a-javac-flag"])}}}))
+               "bogus compile opt must reach javac and fail the build"))
+          (finally
+            (delete-tree ws-dir)))))))

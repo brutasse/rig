@@ -160,6 +160,7 @@ type Exec struct {
 type Build struct {
 	SrcDirs     []string `json:"src-dirs"`
 	JavaSrcDirs []string `json:"java-src-dirs"`
+	CompileOpts []string `json:"compile-opts,omitempty"`
 	ClassDir    string   `json:"class-dir"`
 	NsCompile   []string `json:"ns-compile,omitempty"`
 	Jar         bool     `json:"jar"`
