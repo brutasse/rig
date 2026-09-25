@@ -18,6 +18,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/brutasse/rig/internal/classpath"
+	"github.com/brutasse/rig/internal/jvm"
 	"github.com/brutasse/rig/internal/kernel"
 	"github.com/brutasse/rig/internal/lockfile"
 )
@@ -125,6 +126,23 @@ func (e *hotEnv) buildOne(ctx context.Context, m string, uber bool) (string, err
 			cfg["exclude"] = ex
 		}
 		warnDuplicateEntries(entries)
+	}
+	// Bake the launch plan into the artifact (META-INF/rig/launch.json) so
+	// `rig launch <jar>` can run it without the workspace. Rig's production
+	// defaults are not baked in — the launching rig applies them; only the
+	// module's own :jvm-opts travel with the artifact.
+	if main, _ := cfg["main"].(string); main != "" {
+		launch := map[string]any{
+			"version":  1,
+			"rig":      Version,
+			"main":     main,
+			"jvm-opts": mod.JVMOpts,
+			"uber":     buildUber,
+		}
+		if v, err := jvm.Version(e.java); err == nil {
+			launch["java"] = featureVersion(v)
+		}
+		cfg["launch"] = launch
 	}
 
 	resp, err := kernel.Call(ctx, e.kernel, e.java, kernel.Request{

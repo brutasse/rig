@@ -127,6 +127,7 @@ func Execute() int {
 		newTestCmd(o),
 		newRunCmd(o),
 		newReplCmd(o),
+		newLaunchCmd(o),
 		newBuildCmd(o),
 		newInstallCmd(o),
 		newPublishCmd(o),

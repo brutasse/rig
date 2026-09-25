@@ -65,7 +65,10 @@ COPY --from=ghcr.io/brutasse/rig:latest /root/.local/share/rig /root/.local/shar
 ```
 
 See [Docker in the docs](https://brutasse.github.io/rig/workflows/docker.html)
-(pinned JVMs, non-root users, offline builds).
+(pinned JVMs, non-root users, offline builds). For a production
+entrypoint, `rig launch` runs the built artifact with rig's JVM flag set —
+the rig image is both build base and runtime, or the jar alone + a JRE in
+a slim image.
 
 ## Local development
 

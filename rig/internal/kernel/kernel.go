@@ -33,12 +33,12 @@ type Pin struct {
 var Current = Pin{
 	Lib:     "io.github.brutasse/rig-resolver",
 	Version: "v0.1.0",
-	GitSHA:  "1357c1500e43de592cbbfa24b4ac3e4500f530f8",
+	GitSHA:  "f705018de3631a52fc6942a428c7a355951a3fa7",
 	URL:     "https://github.com/brutasse/rig/releases/download/0.1.0/rig-resolver-0.1.0.jar",
 	// SHA256 of the release kernel jar; 'make pin V=…' stamps this whole
 	// block (version, git sha, URL, jar sha) per release. Local builds:
 	// RIG_KERNEL_JAR must match JARSHA.
-	JARSHA: "17aa5dc93ecb2d181df003e2cb79762dc033e2626a3dc3012a6b0ea93434463e",
+	JARSHA: "ce65538583a29fcbcaa827cd659bb9b95a0f193d828b93c45a7b53b5fefdf27c",
 }
 
 type Request struct {

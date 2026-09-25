@@ -4,6 +4,7 @@
  :rig/uberjar? true
  :rig/uberjar-file "target/app-uber.jar"
  :paths ["src"]
+ :jvm-opts ["-XX:+UseZGC" "-XX:+PrintCommandLineFlags"]
  :deps {org.clojure/clojure {:mvn/version "1.11.0"}}
  :aliases
  {:test {:extra-deps {lambdaisland/kaocha {:mvn/version "1.66.1034"}}

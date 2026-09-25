@@ -34,7 +34,7 @@ Set in each module's `deps.edn`. All optional unless noted.
 | `:rig/version-file` | `"VERSION"` | Path to the version file (module dir, then workspace root) used when the module's version is recorded in the lock. Commonly `"../../VERSION"` in submodules of a shared-version project. |
 | `:rig/version-fn` | — | Dynamic version, keyword only (the kernel jar cannot load user code): `:git-count-revs` — the template's `GENERATED_VERSION` marker replaced with the commit count since the repo root; or `:epoch` — the current unix time in seconds. Used when neither `:rig/version` nor a version file is present. The version moves with the repo, so the lock records the snapshot taken at lock time. |
 | `:rig/version-template-file` | `"VERSION_TEMPLATE"` | The template file read by `:rig/version-fn :git-count-revs` (module dir, then workspace root). |
-| `:rig/main` | — | The namespace `rig run` launches (`-main`). |
+| `:rig/main` | — | The namespace `rig run` (and `rig launch`, via the baked launch descriptor) launches (`-main`). |
 | `:rig/uberjar?` | `false` (true if `:rig/uberjar-file` is set) | Build an uberjar (with `rig build --uber`). |
 | `:rig/uberjar-file` | `target/<name>-<version>.jar` | Uberjar output path, relative to the module. |
 | `:rig/uber-opts` | `{}` | tools.build uberjar options (currently `:exclude`), e.g. `{:exclude ["META-INF/license/.*"]}`. |
@@ -195,6 +195,61 @@ always come through the proxy.
   override, like `RIG_KERNEL_JAR`).
 
 Vendor: Temurin (Eclipse Adoptium), GA releases only.
+
+## Production launch (`rig launch`)
+
+`rig launch` runs the built artifact with rig's production JVM flag set.
+The flag order is fixed:
+
+1. **rig's defaults** — G1 garbage collection (`-XX:+UseG1GC`), exit on
+   out-of-memory (`-XX:+ExitOnOutOfMemoryError`, plus
+   `-XX:+HeapDumpOnOutOfMemoryError`), and JMX on port **10101**
+   (`-Dcom.sun.management.jmxremote`, `authenticate=false`, `ssl=false`).
+   There is no `MaxRAMPercentage` and no GC logging in the defaults.
+2. **the module's `:jvm-opts`** (the standard tools.deps key, from the
+   module manifest) — later flags override rig's defaults (last JVM flag
+   wins; a repeated `-D` re-sets the property). A garbage collector in
+   `:jvm-opts` (e.g. `-XX:+UseZGC`) *replaces* the G1 default: the JVM
+   refuses to start with two collectors selected, so rig drops its own
+   rather than pass both.
+
+The JMX port is fixed at 10101; if it collides in your environment,
+override it from `:jvm-opts`
+(`-Dcom.sun.management.jmxremote.port=…`).
+
+### The launch descriptor
+
+`rig build` bakes the artifact's launch plan into every jar and uberjar as
+`META-INF/rig/launch.json`:
+
+```json
+{"version": 1, "rig": "0.4.0", "main": "app.core",
+ "jvm-opts": ["-Xmx2g"], "java": 21, "uber": true}
+```
+
+`main`, `jvm-opts`, `java` (the build JVM's feature version) and `uber` —
+all taken from the lock at build time. rig's production defaults are *not*
+baked in: the launching rig applies them, so the policy follows rig
+upgrades even for old artifacts. `rig launch <jar>` reads the descriptor
+first, so a built jar launches standalone, without the workspace.
+
+### Behavior
+
+- **Jar selection.** The first positional is the jar, when it names an
+  existing file; otherwise (in a workspace) the jar is the target module's
+  build output from the lock (the uberjar when one is declared) and all
+  positionals go to the main.
+- **Non-uber jars** launch with the locked classpath, the module's own
+  source paths replaced by the built jar — which is why they only launch
+  inside the workspace.
+- **Java version.** A launch JVM older than the descriptor's `java`
+  (bytecode is forward-compatible, never backward) is an error (exit 2)
+  with a hint (`rig jvm install <n>`, or `JAVA_HOME`).
+- **Offline by definition.** `rig launch` never touches the network: no
+  JDK auto-install, no artifact fetch, no update notice. The lock is inert
+  data — launch never checks staleness, never re-locks, and `--frozen` has
+  no effect on it.
+- The child's exit code is rig's.
 
 ## What is *not* configured
 

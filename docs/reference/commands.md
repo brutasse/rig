@@ -15,6 +15,7 @@ documentation of record; this page is the map.
 | `check` | cold+hot | Lock-vs-manifest consistency + namespace load per module. Never re-locks. |
 | `test [opt value…]` | hot | Run the modules' test exec-fns on locked classpaths. |
 | `run [args…]` | hot | Run the module's `:rig/main` on the (alias) classpath. |
+| `launch [jar] [args…]` | hot | Launch the built artifact with rig's production JVM flags (G1, exit-on-OOM, JMX on 10101), overridable via `:jvm-opts`. The jar's baked launch plan, or the lock, supplies the main. Never re-locks, never uses the network. |
 | `repl` | hot | `clojure.main` REPL on the (alias) classpath. |
 | `exec <cmd> [args…]` | hot | Run a command with the locked classpath as `CLASSPATH`. |
 | `build [--uber]` | cold | Jar / uberjar via the locked classpath. |
@@ -41,7 +42,9 @@ documentation of record; this page is the map.
 *Hot* commands run from the lock (lock → hash-check → launch), re-locking
 only when the lock is stale and `--frozen` is not set. *Cold* commands do
 deeper kernel work (resolve, build, publish, edit) and may write the lock
-or manifests.
+or manifests. `launch` is hot in that it never touches the kernel, but it
+treats the lock as inert data: it never checks staleness, never re-locks,
+and never uses the network.
 
 ## Locking and dependency changes
 
@@ -228,6 +231,42 @@ rig run [args…]
 Launch the module's `:rig/main` on the (alias) classpath. Program flags
 after `--` pass through: `rig run -p modules/app -- --env dev`.
 `--alias <a>` selects the classpath. No main → usage error.
+
+### `rig launch`
+
+```
+rig launch [jar] [args…]
+```
+
+Launch the built artifact with rig's production JVM flags — the entrypoint
+for a deployed app. Flags, in order:
+
+1. **rig's production defaults**: G1 garbage collection
+   (`-XX:+UseG1GC`), exit on out-of-memory
+   (`-XX:+ExitOnOutOfMemoryError`, plus
+   `-XX:+HeapDumpOnOutOfMemoryError`), and JMX on port **10101**
+   (`-Dcom.sun.management.jmxremote` with `authenticate=false`,
+   `ssl=false`).
+2. **the module's `:jvm-opts`** — later flags override the defaults
+   (last JVM flag wins). A garbage collector in `:jvm-opts` (e.g.
+   `-XX:+UseZGC`) *replaces* the G1 default: the JVM refuses to start with
+   two collectors selected, so rig drops its own rather than pass both.
+3. `-jar <uberjar>`, or `-cp <locked classpath> <main>` for the plain jar.
+
+The first positional is the jar, when it names an existing file; otherwise
+(in a workspace) all positionals go to the main and the jar is the target
+module's build output from the lock (the uberjar when one is declared).
+
+The launch plan (main, `:jvm-opts`, build JVM) comes from
+`META-INF/rig/launch.json` — the descriptor `rig build` bakes into every
+jar — so `rig launch <jar>` works outside the workspace (a standalone
+container). Without the descriptor, the lock is the plan.
+
+`rig launch` never re-locks and never uses the network: the lock is inert
+data for it (a stale lock is ignored, `--frozen` is a no-op), JDKs are
+never auto-installed, and classpath artifacts must already be cached. A
+java older than the build JVM is an error (exit 2), as is a missing
+artifact. The child's exit code is rig's.
 
 ### `rig repl`
 
@@ -418,4 +457,5 @@ rig --autocomplete | Invoke-Expression  # PowerShell
 | 5 | cooldown refused — retry with `--force` |
 
 Commands that launch a child process (`test`, `run`, `repl`, `exec`,
-`lint`, `fmt`) propagate the child's exit code verbatim, above these.
+`launch`, `lint`, `fmt`) propagate the child's exit code verbatim, above
+these.

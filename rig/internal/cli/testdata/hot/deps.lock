@@ -465,11 +465,14 @@
       }
     },
     "modules/app": {
-      "manifest_sha256": "3fc2f0b1ea99138761e45b9b301357fba54ac292c17f23087874080253b99c5e",
+      "manifest_sha256": "f47a3a6349bb22a3b75b674010040fdc8c60c603f0123bf9fdd941b4c25ff96d",
       "lib": "example/app",
       "version": "0.1.0",
       "main": "app.core",
-      "jvm-opts": [],
+      "jvm-opts": [
+        "-XX:+UseZGC",
+        "-XX:+PrintCommandLineFlags"
+      ],
       "paths": [
         "src"
       ],

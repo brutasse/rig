@@ -5,7 +5,8 @@
   from the Go side, and is turned into a tools.build basis. Each module is
   compiled (and optionally java-compiled), then jarred and/or ubered per the
   :rig/build config recorded in the lock."
-  (:require [clojure.java.io :as io]
+  (:require [cheshire.core :as json]
+            [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.tools.build.api :as b]
             [clojure.tools.build.util.file :as file]
@@ -25,6 +26,17 @@
                  (for [e classpath
                        :when (not (str/starts-with? (get e :id) "paths:"))]
                    [(get e :id) {:paths (into #{} (:paths e))}]))}))
+
+(defn- write-launch-descriptor
+  "Writes the build's :launch config into the class-dir, where the jar and
+  the uber pick it up as META-INF/rig/launch.json — the artifact's own
+  launch plan (`rig launch` reads it). Absent when :launch is not in the
+  config."
+  [class-dir launch]
+  (when launch
+    (let [f (io/file class-dir "META-INF/rig/launch.json")]
+      (io/make-parents f)
+      (spit f (json/encode launch)))))
 
 (defn- build-module [cfg]
   (let [basis (basis (get cfg :classpath))
@@ -55,6 +67,7 @@
                                             extra))))))
     (when (seq java-src-dirs)
       (b/javac {:basis basis :src-dirs java-src-dirs :class-dir class-dir}))
+    (write-launch-descriptor class-dir (get cfg :launch))
     (cond-> {:class-dir class-dir}
       (get cfg :jar?)
       (assoc :jar (do
