@@ -255,13 +255,13 @@
 (deftest s3p-exec-args-become-id-based-publish
   (let [ws (temp-ws {"deps.edn" root-with-managed
                      "modules/m/deps.edn"
-                     "{:exoscale.project/lib m/lib\n :mvn/repos {\"exoscale\" {:url \"https://artifacts.example\"}}\n :slipset.deps-deploy/exec-args {:repository {\"releases\" {:url \"s3p://bucket/prefix\"}}\n                                 :installer :remote\n                                 :sign-releases? false}}\n"})
+                     "{:exoscale.project/lib m/lib\n :mvn/repos {\"my-registry\" {:url \"https://artifacts.example\"}}\n :slipset.deps-deploy/exec-args {:repository {\"releases\" {:url \"s3p://bucket/prefix\"}}\n                                 :installer :remote\n                                 :sign-releases? false}}\n"})
         r (run ws)]
     (is (empty? (problems r)))
     (let [d (file-edn ws "modules/m/deps.edn")]
       (is (= {:repo "bucket"} (get d :rig/publish)))
       (is (= {:url "s3p://bucket/prefix"} (get (get d :mvn/repos) "bucket")))
-      (is (= {:url "https://artifacts.example"} (get (get d :mvn/repos) "exoscale")))
+      (is (= {:url "https://artifacts.example"} (get (get d :mvn/repos) "my-registry")))
       (is (nil? (get d :slipset.deps-deploy/exec-args))))))
 
 (deftest s3p-url-trailing-slash-is-normalized
@@ -293,11 +293,11 @@
 (deftest url-repository-matches-an-existing-repo
   (let [ws (temp-ws {"deps.edn" root-with-managed
                      "modules/m/deps.edn"
-                     "{:exoscale.project/lib m/lib\n :mvn/repos {\"exoscale\" {:url \"https://artifacts.example\"}}\n :slipset.deps-deploy/exec-args {:repository {\"releases\" {:url \"https://artifacts.example\"}}}}\n"})]
+                     "{:exoscale.project/lib m/lib\n :mvn/repos {\"my-registry\" {:url \"https://artifacts.example\"}}\n :slipset.deps-deploy/exec-args {:repository {\"releases\" {:url \"https://artifacts.example\"}}}}\n"})]
     (is (empty? (problems (run ws))))
     (let [d (file-edn ws "modules/m/deps.edn")]
-      (is (= {:repo "exoscale"} (get d :rig/publish)))
-      (is (= {"exoscale" {:url "https://artifacts.example"}} (get d :mvn/repos))))))
+      (is (= {:repo "my-registry"} (get d :rig/publish)))
+      (is (= {"my-registry" {:url "https://artifacts.example"}} (get d :mvn/repos))))))
 
 (deftest url-repository-derives-a-slugified-id
   (let [ws (temp-ws {"deps.edn" root-with-managed
@@ -379,3 +379,191 @@
     (is (every? false? (map #(get % "changed") (get r2 "edits"))))
     (doseq [[f t] before]
       (is (= t (file-text ws f))))))
+
+;; --- leiningen (project.clj) ---
+
+(def sample-project
+  "(def version (.trim (try (slurp \"VERSION\") (catch Exception _ \"1.0.0-SNAPSHOT\"))))
+(defproject com.example/example version
+ :deploy-repositories [[\"releases\" {:url \"s3p://my-bucket/releases\" :no-auth true :sign-releases false}]]
+ :repositories {\"my-registry\" {:url \"https://registry.example.com\"}}
+ :profiles {:test {:plugins [[lein-test-report-junit-xml \"0.2.0\"]]}
+            :dev {:jvm-opts [\"-Dexample.debug=true\"]
+                  :resource-paths [\"test/resources\"]
+                  :dependencies [[lambdaisland/kaocha \"1.0.669\"]
+                                 [lambdaisland/deep-diff2 \"2.14.235\"]]
+                  :aliases {\"kaocha\" [\"with-profile\" \"+dev\" \"run\" \"-m\" \"kaocha.runner\"]}}
+            :docgen {:dependencies [[codox \"0.10.8\"]]}
+            :uberjar {:aot :all}
+            :graalvm {:native-image {:name \"example\"}}}
+ :main ^:skip-aot example.main
+ :dependencies [[org.clojure/clojure \"1.12.1\"]
+                [aero \"1.1.6\"]
+                [x/y \"0.1.0\" :exclusions [z/w]]]
+ :plugins [[some/deploy-wagon \"1.0.2\"]]
+ :resource-paths [\"resources\"])")
+
+(deftest leiningen-project-clj-migrates
+  (let [ws (temp-ws {"project.clj" sample-project})
+        r (run ws)]
+    (is (empty? (problems r)))
+    (is (= "deps.edn" (get-in r ["edits" 0 "file"])))
+    (is (= true (get-in r ["edits" 0 "changed"])))
+    (let [d (file-edn ws "deps.edn")]
+      (is (= 'com.example/example (get d :rig/lib)))
+      (is (= 'example.main (get d :rig/main)))
+      (is (nil? (get d :rig/version)))
+      (is (nil? (get d :rig/version-file)))
+      (is (= true (get d :rig/uberjar?)))
+      (is (= {:repo "my-bucket"} (get d :rig/publish)))
+      (is (= "s3p://my-bucket/releases" (get-in d [:mvn/repos "my-bucket" :url])))
+      (is (= "https://registry.example.com" (get-in d [:mvn/repos "my-registry" :url])))
+      (is (= ["src" "resources"] (get d :paths)))
+      (is (nil? (get d :rig/src-dirs)))
+      (is (= {:mvn/version "1.12.1"} (get-in d [:deps 'org.clojure/clojure])))
+      (is (= {:mvn/version "1.1.6"} (get-in d [:deps 'aero/aero])))
+      (is (= {:mvn/version "0.1.0" :exclusions '[z/w]} (get-in d [:deps 'x/y])))
+      (is (= 'kaocha.runner/exec-fn (get-in d [:aliases :test :exec-fn])))
+      ;; 1.0.669 predates kaocha.runner/exec-fn, so :test gets the rig pin;
+      ;; :dev keeps the project's own version (no exec-fn there).
+      (is (= "1.66.1034" (get-in d [:aliases :test :extra-deps 'lambdaisland/kaocha :mvn/version])))
+      ;; lein runs tests with :dev active, so :test layers over :dev
+      (is (= "2.14.235" (get-in d [:aliases :test :extra-deps 'lambdaisland/deep-diff2 :mvn/version])))
+      (is (= ["test/resources" "test"] (get-in d [:aliases :test :extra-paths])))
+      (is (= ["-Dexample.debug=true"] (get-in d [:aliases :test :jvm-opts])))
+      (is (= "1.0.669" (get-in d [:aliases :dev :extra-deps 'lambdaisland/kaocha :mvn/version])))
+      (is (= "2.14.235" (get-in d [:aliases :dev :extra-deps 'lambdaisland/deep-diff2 :mvn/version])))
+      (is (= ["test/resources"] (get-in d [:aliases :dev :extra-paths])))
+      (is (= ["-Dexample.debug=true"] (get-in d [:aliases :dev :jvm-opts])))
+      (is (nil? (get-in d [:aliases :docgen])))
+      (is (nil? (get-in d [:aliases :graalvm])))
+      (is (nil? (get d :plugins)))
+      (is (nil? (get d :profiles))))
+    (is (some #(re-find #":docgen" %) (warnings r)))
+    (is (some #(re-find #":graalvm" %) (warnings r)))
+    (is (some #(re-find #":plugins" %) (warnings r)))
+    (is (some #(re-find #":uberjar" %) (warnings r)))
+    (is (some #(re-find #"predates kaocha.runner/exec-fn" %) (warnings r)))))
+
+(deftest leiningen-version-literal
+  (let [ws (temp-ws {"project.clj" "(defproject foo/bar \"1.2.3\" :main foo.main)\n"})
+        r (run ws)]
+    (is (empty? (problems r)))
+    (is (= "1.2.3" (get (file-edn ws "deps.edn") :rig/version)))))
+
+(deftest leiningen-version-var-slurps-a-file
+  (let [ws (temp-ws {"project.clj" "(def version (slurp \"VER\"))\n(defproject foo/bar version)\n"})
+        r (run ws)]
+    (is (empty? (problems r)))
+    (is (= "VER" (get (file-edn ws "deps.edn") :rig/version-file)))))
+
+(deftest leiningen-version-var-uninterpretable
+  (let [ws (temp-ws {"project.clj" "(def version (fetch-from-ci))\n(defproject foo/bar version)\n"})
+        r (run ws)]
+    (is (empty? (problems r)))
+    (is (some #(re-find #"fetch-from-ci" %) (warnings r)))
+    (let [d (file-edn ws "deps.edn")]
+      (is (nil? (get d :rig/version)))
+      (is (nil? (get d :rig/version-file))))))
+
+(deftest leiningen-sign-releases-is-a-problem
+  (let [text "(defproject foo/bar \"1.0\"
+ :deploy-repositories [[\"releases\" {:url \"s3p://bkt\" :sign-releases true}]])\n"
+        ws (temp-ws {"project.clj" text})
+        r (run ws)]
+    (is (some #(re-find #"sign-releases" %) (problems r)))
+    (is (empty? (get r "edits")))
+    (is (false? (.exists (io/file ws "deps.edn"))))))
+
+(deftest leiningen-test-alias-uses-the-rig-kaocha-pin
+  (let [ws (temp-ws {"project.clj" "(defproject foo/bar \"1.0\")\n"})
+        r (run ws)]
+    (is (empty? (problems r)))
+    (is (= "1.66.1034" (get-in (file-edn ws "deps.edn")
+                               [:aliases :test :extra-deps 'lambdaisland/kaocha :mvn/version])))))
+
+(deftest leiningen-kaocha-pin-new-enough-is-kept
+  (let [ws (temp-ws {"project.clj" "(defproject foo/bar \"1.0\"
+ :profiles {:dev {:dependencies [[lambdaisland/kaocha \"1.0.937\"]]}})\n"})
+        r (run ws)]
+    (is (empty? (problems r)))
+    (is (every? #(not (re-find #"predates kaocha" %)) (warnings r)))
+    (is (= "1.0.937" (get-in (file-edn ws "deps.edn")
+                             [:aliases :test :extra-deps 'lambdaisland/kaocha :mvn/version])))))
+
+(deftest leiningen-non-numeric-kaocha-version-is-kept
+  (let [ws (temp-ws {"project.clj" "(defproject foo/bar \"1.0\"
+ :profiles {:dev {:dependencies [[lambdaisland/kaocha \"RELEASE\"]]}})\n"})
+        r (run ws)]
+    (is (empty? (problems r)))
+    (is (every? #(not (re-find #"predates kaocha" %)) (warnings r)))
+    (is (= "RELEASE" (get-in (file-edn ws "deps.edn")
+                             [:aliases :test :extra-deps 'lambdaisland/kaocha :mvn/version])))))
+
+(deftest leiningen-test-alias-layers-over-dev
+  (let [ws (temp-ws {"project.clj" "(defproject foo/bar \"1.0\"
+ :profiles {:dev {:jvm-opts [\"-Da=1\"]
+                  :resource-paths [\"extra-res\"]
+                  :dependencies [[org.foo/helper \"1.2.3\"]]}
+            :test {:jvm-opts [\"-Db=2\"]}})\n"})
+        r (run ws)]
+    (is (empty? (problems r)))
+    (let [d (file-edn ws "deps.edn")]
+      (is (= "1.2.3" (get-in d [:aliases :test :extra-deps 'org.foo/helper :mvn/version])))
+      (is (= ["extra-res" "test"] (get-in d [:aliases :test :extra-paths])))
+      (is (= ["-Da=1" "-Db=2"] (get-in d [:aliases :test :jvm-opts])))
+      (is (= ["-Da=1"] (get-in d [:aliases :dev :jvm-opts]))))))
+
+(deftest leiningen-local-root-and-git-deps
+  (let [ws (temp-ws {"project.clj"
+                     "(defproject foo/bar \"1.0\"
+ :dependencies [[sub/proj :local/root \"modules/sub\"]
+                [git/lib \"0.0.1\" :git/url \"https://git.example/git/lib\" :git/sha \"abc123\"]])\n"})
+        r (run ws)]
+    (is (empty? (problems r)))
+    (let [d (file-edn ws "deps.edn")]
+      (is (= {:local/root "modules/sub"} (get-in d [:deps 'sub/proj])))
+      (is (= {:git/sha "abc123" :git/url "https://git.example/git/lib"}
+             (get-in d [:deps 'git/lib]))))))
+
+(deftest leiningen-vector-repositories
+  (let [ws (temp-ws {"project.clj"
+                     "(defproject foo/bar \"1.0\"
+ :repositories [[\"my-registry\" \"https://artifacts.example\"]])\n"})
+        r (run ws)]
+    (is (empty? (problems r)))
+    (is (= {:url "https://artifacts.example"}
+           (get-in (file-edn ws "deps.edn") [:mvn/repos "my-registry"])))))
+
+(deftest leiningen-extra-deploy-repos-are-dropped-with-a-warning
+  (let [ws (temp-ws {"project.clj"
+                     "(defproject foo/bar \"1.0\"
+ :deploy-repositories [[\"snapshots\" {:url \"s3p://bkt/snap\"}]
+                       [\"releases\" {:url \"s3p://bkt/rel\"}]])\n"})
+        r (run ws)]
+    (is (empty? (problems r)))
+    (is (some #(re-find #"(?i)first :deploy-repositories" %) (warnings r)))))
+
+(deftest leiningen-dry-run-writes-nothing
+  (let [ws (temp-ws {"project.clj" "(defproject foo/bar \"1.0\")\n"})
+        r (run ws :dry-run? true)]
+    (is (empty? (problems r)))
+    (is (= true (get-in r ["edits" 0 "changed"])))
+    (is (false? (.exists (io/file ws "deps.edn"))))))
+
+(deftest leiningen-no-defproject-is-a-problem
+  (let [ws (temp-ws {"project.clj" "(ns foo)\n"})
+        r (run ws)]
+    (is (some #(re-find #"defproject" %) (problems r)))
+    (is (false? (.exists (io/file ws "deps.edn"))))))
+
+(deftest leiningen-second-run-is-a-no-op
+  "The second run takes the deps.edn path (the generated manifest is
+  clean) and must be a fixed point."
+  (let [ws (temp-ws {"project.clj" "(defproject foo/bar \"1.0\" :main foo.main)\n"})
+        r1 (run ws)
+        r2 (run ws)]
+    (is (empty? (problems r1)))
+    (is (empty? (problems r2)))
+    (is (empty? (warnings r2)))
+    (is (every? false? (map #(get % "changed") (get r2 "edits"))))))

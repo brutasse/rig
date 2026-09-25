@@ -14,6 +14,7 @@
   Response: {edits [{file changed}] warnings [str] problems [str]}"
   (:require [clojure.edn :as edn]
             [clojure.java.io :as io]
+            [clojure.pprint :as pprint]
             [clojure.string :as str]
             [cljfmt.core :as cljfmt]
             [rewrite-clj.node :as n]
@@ -315,6 +316,436 @@
          :warnings @warnings
          :problems @problems}))))
 
+;; --- leiningen (project.clj) conversion ---
+;;
+;; When the workspace has no deps.edn but does have a project.clj, `migrate`
+;; generates a new root deps.edn in the :rig/* model; project.clj is left
+;; untouched (the user deletes it in the cleanup step). The transform is
+;; mechanical: what cannot be expressed (profiles other than :test/:dev,
+;; plugins, lein task aliases, native-image builds, ...) is dropped with a
+;; warning; what cannot be guessed is a problem that blocks the write.
+
+(def lein-handled-keys
+  #{:main :dependencies :repositories :deploy-repositories :profiles
+    :source-paths :resource-paths :test-paths :jvm-opts})
+
+(def default-kaocha "1.66.1034")
+
+;; The first kaocha release with kaocha.runner/exec-fn.
+(def kaocha-exec-fn-min "1.0.937")
+
+(defn- ver-segments
+  "Numeric dot-separated version segments, or nil when not fully numeric."
+  [v]
+  (let [ss (str/split (str v) #"\.")]
+    (when (every? #(re-matches #"\d+" %) ss)
+      (map #(Long/parseLong %) ss))))
+
+(defn- ver<
+  "True when numeric version a is < b; nil when either is not fully
+  numeric."
+  [a b]
+  (let [sa (ver-segments a)
+        sb (ver-segments b)]
+    (when (and sa sb)
+      (loop [sa sa
+             sb sb]
+        (let [x (or (first sa) 0)
+              y (or (first sb) 0)]
+          (if (= x y)
+            (if (and (seq sa) (seq sb))
+              (recur (rest sa) (rest sb))
+              false)
+            (< x y)))))))
+
+(defn- kaocha-predates-exec-fn
+  "True when the kaocha version is numeric and predates
+  kaocha-exec-fn-min (when kaocha.runner/exec-fn was introduced)."
+  [v]
+  (true? (ver< v kaocha-exec-fn-min)))
+
+(defn- top-level-forms
+  "The sexpr of every top-level form in the CLJ text (nil for the ones
+  that do not sexpr to data)."
+  [text]
+  (loop [c (z/of-string text) acc []]
+    (if (nil? c)
+      acc
+      (recur (z/right c)
+             (conj acc (try (n/sexpr (z/node c))
+                            (catch Exception _ nil)))))))
+
+(defn- defproject-of
+  "The [coord version-form pairs] of the first top-level defproject form,
+  else nil (absent or malformed)."
+  [forms]
+  (let [dp (some (fn [f]
+                   (when (and (sequential? f) (= (first f) 'defproject)) f))
+                 forms)]
+    (when (and dp (>= (count dp) 3) (even? (count (nthnext dp 3))))
+      [(nth dp 1) (nth dp 2) (into {} (map vec (partition 2 (nthnext dp 3))))])))
+
+(defn- slurp-file-of
+  "The string argument of the first (slurp \"...\") form under data."
+  [data]
+  (cond
+    (and (sequential? data)
+         (= (first data) 'slurp)
+         (string? (second data)))
+    (second data)
+    (sequential? data)
+    (some (fn [el] (when (sequential? el) (slurp-file-of el)))
+          data)))
+
+(defn- version-info
+  "Resolve the defproject version form to the rig version keys. Returns
+  {:version s} | {:version-file s} | {:warnings [..]} (no version keys
+  when the form is unrecognizable)."
+  [forms vform]
+  (cond
+    (string? vform)
+    {:version vform}
+    (symbol? vform)
+    (if-let [d (some (fn [f]
+                       (when (and (sequential? f)
+                                   (= (first f) 'def)
+                                   (= (second f) vform))
+                         f))
+                     forms)]
+      (let [body (nth d 2)
+            f (slurp-file-of body)]
+        (cond
+          (string? body) {:version body}
+          (some? f) {:version-file f}
+          :else {:warnings [(str "cannot interpret version var " (str vform)
+                                 " (" (pr-str body) " is not a string literal or a (slurp \"...\") call); no :rig/version emitted")]}))
+      {:warnings [(str "version var " (str vform) " is not defined in project.clj; no :rig/version emitted")]})
+    :else
+    {:warnings [(str "version form " (pr-str vform) " is not a string or a var; no :rig/version emitted")]}))
+
+(defn- to-sym
+  "x as a symbol when it is a string that parses as one (else x as is)."
+  [x]
+  (if (string? x)
+    (try (symbol x) (catch Exception _ x))
+    x))
+
+(def lein-dep-options #{:exclusions :local/root :git/url :git/sha})
+
+(defn- dep-entries
+  "leiningen :dependencies (or a profile's) entries ->
+  {:deps {coord spec} :warnings [..] :problems [..]}."
+  [entries]
+  (reduce (fn [{:keys [deps warnings problems] :as acc} e]
+            (if (and (sequential? e)
+                     (>= (count e) 2)
+                     (or (string? (first e)) (symbol? (first e))))
+              (let [seg (str (first e))
+                    coord (if (str/includes? seg "/") seg (str seg "/" seg))
+                    dep-sym (to-sym coord)
+                    tail (nthnext e 1)
+                    ver (when (string? (first tail)) (first tail))
+                    opt-vec (vec (if (string? (first tail)) (next tail) tail))]
+                (if (odd? (count opt-vec))
+                  (merge acc {:problems (conj problems
+                         (str "dep " coord " has an odd number of option elements"))})
+                  (let [opts (into {} (map vec (partition 2 opt-vec)))
+                        unknown (filter #(not (contains? lein-dep-options %)) (keys opts))
+                        warns (map (fn [k]
+                                     (str "dep " coord ": leiningen option " (str k)
+                                          " is not supported by rig (dropped)"))
+                                   unknown)
+                        root (get opts :local/root)
+                        git (select-keys opts [:git/url :git/sha])]
+                    (cond
+                      (some? root)
+                      (merge acc {:deps (assoc deps dep-sym {:local/root (str root)})
+                            :warnings (concat warnings warns)})
+                      (or (get git :git/url) (get git :git/sha))
+                      (if (= 2 (count git))
+                        (merge acc {:deps (assoc deps dep-sym (into {} (sort-by key git)))
+                              :warnings (concat warnings warns)})
+                        (merge acc {:problems (conj problems
+                               (str "dep " coord " declares :git/url and :git/sha incompletely"))}))
+                      (some? ver)
+                      (let [spec (cond-> {:mvn/version ver}
+                                   (contains? opts :exclusions)
+                                   (assoc :exclusions
+                                          (vec (map (fn [x]
+                                                      (if (symbol? x) x (symbol x)))
+                                                    (get opts :exclusions)))))]
+                        (merge acc {:deps (assoc deps dep-sym spec)
+                              :warnings (concat warnings warns)}))
+                      :true
+                      (merge acc {:problems (conj problems
+                             (str "dep " coord " declares no version, :local/root or :git/url"))})))))
+              (merge acc {:problems (conj problems (str "dep " (pr-str e) " is not a [group artifact ...] entry"))})))
+          {:deps {} :warnings [] :problems []}
+          (when (sequential? entries) entries)))
+
+(defn- repos-of
+  "leiningen :repositories (map {id url-or-spec} or vector [id url]
+  pairs) -> {:repos {id {:url u}} :warnings [..]}."
+  [repos]
+  (let [norm (fn [v] (str (if (map? v) (or (get v :url) (get v "url")) v)))]
+    (cond
+      (nil? repos)
+      {:repos {} :warnings []}
+      (map? repos)
+      {:repos (into {} (for [[id v] repos] [id {:url (norm v)}])) :warnings []}
+      (sequential? repos)
+      (reduce (fn [{:keys [repos warnings] :as acc} e]
+                (if (and (sequential? e) (>= (count e) 2))
+                  (if (= :proxy (first e))
+                    (merge acc {:warnings (conj warnings
+                           (str "proxy repository " (str (second e)) " is not supported (dropped)"))})
+                    (merge acc {:repos (assoc repos (str (first e)) {:url (norm (second e))})}))
+                  (merge acc {:warnings (conj warnings
+                         (str "repository entry " (pr-str e) " is not understood (dropped)"))})))
+              {:repos {} :warnings []}
+              repos)
+      :else
+      {:repos {} :warnings [(str ":repositories value " (class repos) " is not understood")]})))
+
+(defn- first-deploy-spec
+  "The spec map of the first :deploy-repositories entry ({id spec} map or
+  [id spec] vector entries); nil when absent or not a spec map."
+  [repos]
+  (let [e (first (if (map? repos) (vals repos) repos))]
+    (cond
+      (map? e) e
+      (and (sequential? e) (map? (second e))) (second e)
+      :else nil)))
+
+(defn- lein-publish
+  "leiningen :deploy-repositories -> an exec-args-to-publish result (rig
+  publishes to one repository, so only the first entry is used, with a
+  warning when there are more); nil when there are none."
+  [repos mod-repos]
+  (when (some? repos)
+    (let [n (count repos)
+          spec (first-deploy-spec repos)
+          sign (true? (when (map? spec) (get spec :sign-releases)))
+          url (when (map? spec) (get spec :url))]
+      (cond
+        (nil? spec)
+        {:publish nil :repos {} :warnings []
+         :problems [(str "first :deploy-repositories entry "
+                         (pr-str (first (if (map? repos) (vals repos) repos)))
+                     " is not a spec map")]}
+        (nil? url)
+        {:publish nil :repos {}
+         :warnings [":deploy-repositories entry has no :url; no :rig/publish emitted"]
+         :problems []}
+        :else
+        (let [res (cond-> (exec-args-to-publish
+                           {:repository {"releases" {:url (str url)}}
+                            :sign-releases? sign}
+                           mod-repos {})
+                   sign (assoc :problems
+                               [":deploy-repositories :sign-releases true is not supported by rig"]))]
+          (cond-> res
+            (and (> n 1) (seq (get res :publish)))
+            (update :warnings conj
+                    "only the first :deploy-repositories entry is migrated (rig publishes to one repository)")))))))
+
+(defn- effective-paths
+  "The effective leiningen path list (with :append/:prepend/:replace
+  forms) against a default."
+  [default ps]
+  (let [[rep prep app] (reduce (fn [[rep prep app] x]
+                                 (if (and (sequential? x) (keyword? (first x)))
+                                   (case (first x)
+                                     :replace [(next x) prep app]
+                                     :prepend [rep (concat (next x) prep) app]
+                                     :append [rep prep (concat app (next x))]
+                                     [rep prep app])
+                                   [rep prep app]))
+                               [nil [] []] (or ps []))]
+    (vec (if (sequential? rep)
+           (concat prep rep app)
+           (concat prep default app)))))
+
+(defn- added-paths
+  "The paths a leiningen path list adds, without its default (for an
+  alias's :extra-paths)."
+  [ps]
+  (vec (map str (or ps []))))
+
+(defn- kaocha-version
+  "The version of lambdaisland/kaocha declared in a deps map, else nil."
+  [deps]
+  (some (fn [[k sp]]
+          (when (and (map? sp) (= (str k) "lambdaisland/kaocha"))
+            (get sp :mvn/version)))
+        deps))
+
+(defn- merged-test-profile
+  "Lein applies :dev to the test task by default, so the effective
+  :test profile is :test layered over :dev: dependency and jvm-opts
+  lists concatenate (dev first), path lists concatenate without
+  duplicates, other keys prefer :test."
+  [dev test]
+  (let [d (or dev {})
+        t (or test {})
+        m (merge d t)]
+    (cond-> m
+      (some? (get d :dependencies))
+      (update :dependencies (fn [_] (vec (concat (get d :dependencies)
+                                                (or (get t :dependencies) [])))))
+      (some? (get d :jvm-opts))
+      (update :jvm-opts (fn [_] (vec (concat (get d :jvm-opts)
+                                            (or (get t :jvm-opts) [])))))
+      (some? (get d :resource-paths))
+      (update :resource-paths (fn [_] (vec (distinct (concat (get d :resource-paths)
+                                                             (or (get t :resource-paths) []))))))
+      (some? (get d :source-paths))
+      (update :source-paths (fn [_] (vec (distinct (concat (get d :source-paths)
+                                                           (or (get t :source-paths) []))))))
+      (some? (get d :test-paths))
+      (update :test-paths (fn [_] (vec (distinct (concat (get d :test-paths)
+                                                         (or (get t :test-paths) [])))))))))
+
+(defn- profile-alias
+  "One leiningen profile -> [alias warnings problems]. The :test profile
+  always yields an alias with a kaocha :exec-fn (rig test hard-requires
+  one); other profiles yield an alias only when they carry expressible
+  content."
+  [name p test-defaults kaocha-ver]
+  (let [test? (= name :test)
+        map? (or (nil? p) (map? p))
+        p (or p {})
+        dres (dep-entries (get p :dependencies))
+        d (get dres :deps)
+        dw (get dres :warnings)
+        dp (get dres :problems)
+        extra-deps (if test?
+                     (merge d (when kaocha-ver
+                                {(to-sym "lambdaisland/kaocha") {:mvn/version kaocha-ver}}))
+                     (when (seq d) d))
+        extra-paths (vec (concat (added-paths (get p :source-paths))
+                                 (added-paths (get p :resource-paths))
+                                 (when test?
+                                   (effective-paths test-defaults (get p :test-paths)))))
+        jvm-opts (when (seq (get p :jvm-opts)) (vec (get p :jvm-opts)))
+        alias (cond-> {}
+                extra-deps (assoc :extra-deps extra-deps)
+                (seq extra-paths) (assoc :extra-paths extra-paths)
+                jvm-opts (assoc :jvm-opts jvm-opts)
+                test? (assoc :exec-fn (symbol "kaocha.runner/exec-fn")))
+        dropped (filter (fn [k]
+                          (not (contains? (if test?
+                                            #{:dependencies :source-paths :resource-paths :test-paths :jvm-opts}
+                                            #{:dependencies :source-paths :resource-paths :jvm-opts})
+                                          k)))
+                        (keys p))]
+    [alias
+     (concat (when-not map?
+               [(str "profile :" (str (clojure.core/name name)) " is not a map (no rig equivalent)")])
+             (map (fn [k]
+                    (str "profile :" (str (clojure.core/name name)) " dropped " (str k) " (no rig equivalent)"))
+                  dropped)
+             dw)
+     dp]))
+(defn- lein-migrate
+  "Convert a Leiningen project.clj to a new root deps.edn in the :rig/*
+  model. Returns {\"edits\" [{file changed}] \"warnings\" [str]
+  \"problems\" [str]}."
+  [ws lein-file dry-run?]
+  (let [text (slurp lein-file)
+        forms (try (top-level-forms text)
+                   (catch Exception e
+                     (throw (ex-info (str "project.clj: parse error: " (.getMessage e)) {}))))
+        dp (defproject-of forms)]
+    (if (nil? dp)
+      {"edits" [] "warnings" [] "problems" ["project.clj: no defproject form found"]}
+      (let [prefix (fn [m] (str "project.clj: " m))
+            [coord vform pairs] dp
+            lib (to-sym coord)
+            main (to-sym (get pairs :main))
+            vinfo (version-info forms vform)
+            deps-res (dep-entries (get pairs :dependencies))
+            repos-res (repos-of (get pairs :repositories))
+            pub (lein-publish (get pairs :deploy-repositories) (get repos-res :repos))
+            source-paths (effective-paths ["src"] (get pairs :source-paths))
+            resource-paths (effective-paths ["resources"] (get pairs :resource-paths))
+            main-paths (vec (concat source-paths resource-paths))
+            test-defaults (effective-paths ["test"] (get pairs :test-paths))
+            profiles (or (get pairs :profiles) {})
+            merged-test (merged-test-profile (get profiles :dev) (get profiles :test))
+            ;; Effective kaocha pin for the test classpath: the merged
+            ;; :test profile's (later declarations win), else the base.
+            declared-kaocha (or (kaocha-version (get (dep-entries (get merged-test :dependencies)) :deps))
+                                (kaocha-version (get deps-res :deps)))
+            kaocha-bump (and declared-kaocha (kaocha-predates-exec-fn declared-kaocha))
+            kaocha-ver (if kaocha-bump
+                         default-kaocha
+                         (or declared-kaocha default-kaocha))
+            test (profile-alias :test merged-test test-defaults kaocha-ver)
+            [test-alias test-w test-p] test
+            dev (if (some? (get profiles :dev))
+                  (profile-alias :dev (get profiles :dev) test-defaults kaocha-ver)
+                  [{} [] []])
+            [dev-alias dev-w dev-p] dev
+            aliases (cond-> {:test test-alias}
+                      (seq dev-alias) (assoc :dev dev-alias))
+            target (into {}
+                         (remove (fn [[_ v]] (nil? v))
+                                 [[:rig/lib lib]
+                                  [:rig/main main]
+                                  [:rig/version (get vinfo :version)]
+                                  [:rig/version-file
+                                   (when (and (some? (get vinfo :version-file))
+                                              (not= (get vinfo :version-file) "VERSION"))
+                                     (get vinfo :version-file))]
+                                  [:rig/uberjar? (when (some? (get profiles :uberjar)) true)]
+                                  [:rig/publish (get pub :publish)]
+                                  [:mvn/repos
+                                   (let [m (merge (get repos-res :repos) (get pub :repos))]
+                                     (when (seq m) m))]
+                                  [:paths (when (not= main-paths ["src"]) main-paths)]
+                                  [:rig/src-dirs
+                                   (when (not= main-paths ["src" "resources"]) main-paths)]
+                                  [:deps (when (seq (get deps-res :deps)) (get deps-res :deps))]
+                                  [:aliases aliases]
+                                  [:jvm-opts
+                                   (when (seq (get pairs :jvm-opts)) (vec (get pairs :jvm-opts)))]]))
+            problems (concat (get deps-res :problems)
+                             (get pub :problems)
+                             test-p
+                             dev-p)
+            warnings (concat (get vinfo :warnings)
+                             (get deps-res :warnings)
+                             (get repos-res :warnings)
+                             (get pub :warnings)
+                             test-w
+                             dev-w
+                             (when kaocha-bump
+                               [(str "the project's kaocha " declared-kaocha
+                                     " predates kaocha.runner/exec-fn (introduced in "
+                                     kaocha-exec-fn-min "), so the :test alias uses the rig default pin "
+                                     default-kaocha)])
+                             (map (fn [k]
+                                    (str "dropped " (str k) " (no rig equivalent)"))
+                                  (filter (fn [k] (not (contains? lein-handled-keys k)))
+                                          (keys pairs)))
+                             (map (fn [k]
+                                    (str "profile :" (str (name k))
+                                         " dropped (only :test and :dev migrate to :aliases)"))
+                                  (filter (fn [k] (not (contains? #{:test :dev :uberjar} k)))
+                                          (keys profiles)))
+                             (when (some? (get profiles :uberjar))
+                               ["profile :uberjar dropped (:rig/uberjar? true emitted for `rig build --uber`)"]))]
+        (if (seq problems)
+          {"edits" [] "warnings" (vec (map prefix warnings)) "problems" (vec (map prefix problems))}
+          (let [out (format! (with-out-str
+            (binding [*print-namespace-maps* false]
+              (pprint/pprint target))))]
+            (when-not dry-run? (spit (io/file ws "deps.edn") out))
+            {"edits" [{"file" "deps.edn" "changed" true}]
+             "warnings" (vec (map prefix warnings))
+             "problems" []}))))))
+
 ;; --- zipper-level application (comment-preserving) ---
 
 (defn- up-to-root
@@ -503,15 +934,10 @@
 
 ;; --- op entry point ---
 
-(defn migrate
-  "Kernel op: migrate the legacy manifests of a workspace in place."
-  [request]
-  (let [ws (str (:workspace request))
-        dry-run? (true? (get-in request [:args :dry-run?]))
-        root-file (io/file ws "deps.edn")
-        _ (when-not (.exists root-file)
-            (throw (ex-info (str "workspace manifest not found: " (.getPath root-file)) {})))
-        root-data (edn/read-string (slurp root-file))
+(defn- migrate-deps-edn
+  "The legacy deps.edn -> :rig/* transform, in place."
+  [ws root-file dry-run?]
+  (let [root-data (edn/read-string (slurp root-file))
         pairs (vec (remove nil?
                            (for [m (concat ["."]
                                             (some->> (or (get root-data :rig/modules)
@@ -548,3 +974,21 @@
     {"edits" (vec edits)
      "warnings" (vec warnings)
      "problems" (vec problems)}))
+
+(defn migrate
+  "Kernel op: migrate the legacy manifests of a workspace in place, or
+  convert a Leiningen project.clj to a new root deps.edn."
+  [request]
+  (let [ws (str (:workspace request))
+        dry-run? (true? (get-in request [:args :dry-run?]))
+        root-file (io/file ws "deps.edn")
+        lein-file (io/file ws "project.clj")]
+    (cond
+      (.exists root-file)
+      (migrate-deps-edn ws root-file dry-run?)
+      (.exists lein-file)
+      (lein-migrate ws lein-file dry-run?)
+      :true
+      (throw (ex-info (str "workspace manifest not found: " (.getPath root-file)
+                           " (no deps.edn or project.clj)") {})))))
+

@@ -11,7 +11,7 @@ import (
 	"github.com/brutasse/rig/internal/lockfile"
 )
 
-var ErrNotAProject = errors.New("workspace: not a rig project (no deps.edn or deps.lock found)")
+var ErrNotAProject = errors.New("workspace: not a rig project (no deps.edn, deps.lock or project.clj found)")
 
 type Root struct {
 	Dir       string
@@ -27,6 +27,7 @@ func Find(start string) (*Root, error) {
 	var (
 		workspaceFallback *Root
 		singleFallback    *Root
+		leinFallback      *Root
 	)
 	dir := abs
 	for {
@@ -46,6 +47,13 @@ func Find(start string) (*Root, error) {
 			} else if singleFallback == nil {
 				singleFallback = &Root{Dir: dir}
 			}
+		} else if st, err := os.Stat(filepath.Join(dir, "project.clj")); err == nil && !st.IsDir() {
+			// A Leiningen manifest is only a migration entry point (rig
+			// migrate converts it to deps.edn); it is the last-resort root
+			// marker, below any deps.edn found while walking up.
+			if leinFallback == nil {
+				leinFallback = &Root{Dir: dir}
+			}
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
@@ -58,6 +66,8 @@ func Find(start string) (*Root, error) {
 		return workspaceFallback, nil
 	case singleFallback != nil:
 		return singleFallback, nil
+	case leinFallback != nil:
+		return leinFallback, nil
 	default:
 		return nil, ErrNotAProject
 	}
