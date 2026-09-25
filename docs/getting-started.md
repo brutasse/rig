@@ -5,7 +5,7 @@
 One-shot userland install from the GitHub release artifacts:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/brutasse/rig/PENDING-FIRST-RELEASE/scripts/install-rig.sh | sh
+curl -fsSL https://raw.githubusercontent.com/brutasse/rig/1357c1500e43de592cbbfa24b4ac3e4500f530f8/scripts/install-rig.sh | sh
 ```
 
 The script installs `rig` to `~/.local/bin` (override with `INSTALL_DIR=…`)

@@ -148,18 +148,18 @@ jobs:
             --notes "rig $v — binaries (linux/darwin, amd64/arm64) + resolver kernel jar (sha256 $jarsha). Install: see README (curl one-liner, pinned at the release git sha). Self-update: rig self-update." \
             rig/dist/release/*
 
-      - name: Pin install one-liner in README
+      - name: Pin install one-liner in README and docs
         run: |
           sha=$(git rev-parse HEAD)
           git fetch origin main
           git checkout --detach origin/main
-          sed -i -E "s#brutasse/rig/([0-9a-f]{40}|PENDING-FIRST-RELEASE)/scripts#brutasse/rig/$sha/scripts#" README.md
+          sed -i -E "s#brutasse/rig/([0-9a-f]{40}|PENDING-FIRST-RELEASE)/scripts#brutasse/rig/$sha/scripts#" README.md docs/getting-started.md
           if git diff --quiet; then
-            echo "README already pinned at $sha"
+            echo "install one-liner already pinned at $sha"
           else
             git config user.name "rig-release[bot]"
             git config user.email "rig-release@users.noreply.github.com"
-            git add README.md
+            git add README.md docs/getting-started.md
             git commit -m "docs: pin install one-liner to ${{ github.ref_name }} ($sha)"
             git push origin HEAD:main
           fi
