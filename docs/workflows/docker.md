@@ -23,6 +23,47 @@ RUN rig lock
 RUN rig verify --frozen && rig test --frozen
 ```
 
+## As an app entrypoint
+
+`rig launch` is the production entrypoint: it runs the built artifact with
+rig's JVM flag set (G1, exit-on-OOM, loopback-only JMX on a single port,
+10101), overridable per module via `:jvm-opts`. Two patterns:
+
+### The workspace image
+
+The rig image is both the build base and the runtime:
+
+```dockerfile
+FROM ghcr.io/brutasse/rig:latest
+WORKDIR /app
+COPY . .
+RUN rig verify --frozen && rig build --uber --frozen -p modules/app
+EXPOSE 10101
+ENTRYPOINT ["rig", "launch"]
+```
+
+`CMD` arguments (e.g. `docker run img --env prod`) are passed to the app's
+main; the jar comes from the lock. Launch never checks lock staleness — it
+runs what was built, offline, with no state dir needed at runtime.
+
+### The slim image
+
+The artifact is self-describing (the launch plan is baked into the jar), so
+the runtime needs only a JRE and the rig binary:
+
+```dockerfile
+FROM eclipse-temurin:21-jre-jammy
+COPY --from=ghcr.io/brutasse/rig:latest /usr/local/bin/rig /usr/local/bin/
+WORKDIR /app
+COPY target/app-uber.jar /app/app.jar
+EXPOSE 10101
+ENTRYPOINT ["rig", "launch", "/app/app.jar"]
+```
+
+No workspace, no lock: `rig launch /app/app.jar` reads the jar's
+`META-INF/rig/launch.json`. (The plain, non-uber jar needs the workspace —
+its classpath lives in the lock.)
+
 ## Multi-stage
 
 When your app image has its own base, copy the rig pieces out of the image:

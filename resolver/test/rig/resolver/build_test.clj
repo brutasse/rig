@@ -1,5 +1,6 @@
 (ns rig.resolver.build-test
-  (:require [clojure.java.io :as io]
+  (:require [cheshire.core :as json]
+            [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.test :refer :all]
             [rig.resolver.build :as build]))
@@ -68,6 +69,17 @@
             (.read mf is)
             (into {} (for [^java.util.jar.Attributes$Name k (.toArray (.keySet attrs))]
                        [(str k) (str (.get attrs k))])))))
+      (finally (.close zf)))))
+
+(defn- launch-entry
+  "The parsed META-INF/rig/launch.json entry of the jar at path, nil when
+  absent."
+  [path]
+  (let [zf (java.util.zip.ZipFile. (io/file path))]
+    (try
+      (when-let [e (.getEntry zf "META-INF/rig/launch.json")]
+        (with-open [is (.getInputStream zf e)]
+          (json/parse-string (slurp is))))
       (finally (.close zf)))))
 
 (defn- cfg
@@ -178,5 +190,30 @@
                        :ns-compile ["entry.main"])]
         (build/build {:args {:builds {"." cfg}}})
         (is (contains? (zip-names (str ws "/target/fixture.jar")) "entry/main__init.class")))
+      (finally
+        (delete-tree ws-dir)))))
+
+(deftest build-bakes-launch-descriptor
+  "A :launch config lands in the jar and the uber as META-INF/rig/launch.json;
+  a build without one leaves no entry (a rebuild must not leave a stale one)."
+  (let [ws-dir (temp-dir)
+        ws (str ws-dir)
+        src-root (io/file ws-dir "src")
+        src-file (io/file src-root "example" "core.clj")
+        res-root (io/file ws-dir "resources")
+        jar-file (str ws "/target/fixture.jar")
+        uber-file (str ws "/target/fixture-uber.jar")
+        launch {"version" 1 "rig" "test" "main" "example.core"
+                "jvm-opts" ["-Xmx2g"] "java" 21 "uber" false}]
+    (io/make-parents src-file)
+    (spit src-file "(ns example.core\n  (:gen-class))\n(defn -main [& args]\n  (println (str \"hello \" (apply str args))))\n")
+    (try
+      (build/build {:args {:builds {"." (assoc (cfg ws src-root res-root false) :launch launch)}}})
+      (is (= launch (launch-entry jar-file)))
+      (build/build {:args {:builds {"." (assoc (cfg ws src-root res-root true)
+                                              :launch (assoc launch "uber" true))}}})
+      (is (= (assoc launch "uber" true) (launch-entry uber-file)))
+      (build/build {:args {:builds {"." (cfg ws src-root res-root false)}}})
+      (is (nil? (launch-entry jar-file)))
       (finally
         (delete-tree ws-dir)))))
