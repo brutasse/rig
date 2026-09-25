@@ -132,6 +132,27 @@ func TestLaunchPlanFallbackToLock(t *testing.T) {
 	}
 }
 
+func TestJavaVersionOK(t *testing.T) {
+	// Exact match on the major version: equal passes, a different major
+	// fails in both directions, nothing to check always passes.
+	cases := []struct {
+		got, want int
+		ok        bool
+	}{
+		{21, 21, true},
+		{21, 17, false}, // too new
+		{17, 21, false}, // too old
+		{0, 21, false},  // undetermined
+		{21, 0, true},   // no build version to check
+		{0, 0, true},
+	}
+	for _, c := range cases {
+		if got := javaVersionOK(c.got, c.want); got != c.ok {
+			t.Errorf("javaVersionOK(%d, %d) = %v, want %v", c.got, c.want, got, c.ok)
+		}
+	}
+}
+
 func TestHotLaunchMissingArtifact(t *testing.T) {
 	hotSetup(t)
 	code, out := runCLI(t, "launch", "--cache-dir", t.TempDir())
@@ -192,12 +213,42 @@ func TestHotLaunchJVMOverride(t *testing.T) {
 	}
 	for _, want := range []string{
 		"-XX:+UseZGC",
+		"-XX:+AlwaysPreTouch",
 		"-XX:+ExitOnOutOfMemoryError",
 		"-XX:+HeapDumpOnOutOfMemoryError",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("launch out missing %q:\n%s", want, out)
 		}
+	}
+}
+
+func TestHotLaunchJavaVersionMismatch(t *testing.T) {
+	hotSetup(t)
+	cacheDir := t.TempDir()
+	if code, out := runCLI(t, "build", "-p", "modules/app", "--cache-dir", cacheDir, "--uber"); code != 0 {
+		t.Fatalf("build exit = %d; out: %s", code, out)
+	}
+	// A java that reports a major version no build ever used: the exact
+	// match is refused before the app JVM starts (99 cannot be a build
+	// JVM). The wrapper fakes -version and execs the real java otherwise.
+	wrap := filepath.Join(t.TempDir(), "fakejava")
+	script := "#!/bin/sh\n" +
+		"if [ \"$1\" = \"-version\" ]; then\n" +
+		"  echo 'openjdk version \"99.0.1\" 2026-09-25'\n" +
+		"  exit 0\n" +
+		"fi\n" +
+		"exec /usr/bin/java \"$@\"\n"
+	if err := os.WriteFile(wrap, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("RIG_JAVA", wrap)
+	code, out := runCLI(t, "launch", "-p", "modules/app", "--cache-dir", cacheDir)
+	if code != 2 {
+		t.Fatalf("launch exit = %d, want 2; out: %s", code, out)
+	}
+	if !strings.Contains(out, "exact match required") {
+		t.Errorf("out = %q", out)
 	}
 }
 

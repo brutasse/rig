@@ -26,8 +26,8 @@ RUN rig verify --frozen && rig test --frozen
 ## As an app entrypoint
 
 `rig launch` is the production entrypoint: it runs the built artifact with
-rig's JVM flag set (G1, exit-on-OOM, JMX on 10101), overridable per module
-via `:jvm-opts`. Two patterns:
+rig's JVM flag set (G1, exit-on-OOM, loopback-only JMX on a single port,
+10101), overridable per module via `:jvm-opts`. Two patterns:
 
 ### The workspace image
 

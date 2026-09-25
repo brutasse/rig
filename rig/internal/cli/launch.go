@@ -26,15 +26,19 @@ import (
 // before the module's :jvm-opts. The module opts come last, so for repeated
 // flags the JVM applies the module's value; collectors are the exception —
 // selecting two is a fatal VM error, so a collector in :jvm-opts replaces
-// the G1 default (launchFlags).
+// the G1 default (launchFlags). JMX is loopback-only by design (same-host
+// monitoring) on a single fixed port.
 var launchDefaults = []string{
 	"-XX:+UseG1GC",
+	"-XX:+AlwaysPreTouch",
 	"-XX:+ExitOnOutOfMemoryError",
 	"-XX:+HeapDumpOnOutOfMemoryError",
 	"-Dcom.sun.management.jmxremote",
 	"-Dcom.sun.management.jmxremote.port=10101",
+	"-Dcom.sun.management.jmxremote.rmi.port=10101",
 	"-Dcom.sun.management.jmxremote.authenticate=false",
 	"-Dcom.sun.management.jmxremote.ssl=false",
+	"-Djava.rmi.server.hostname=127.0.0.1",
 }
 
 // launchDescriptorPath is the entry the build bakes into every jar: the
@@ -60,10 +64,12 @@ func newLaunchCmd(o *opts) *cobra.Command {
 		Short: "Launch the built artifact with rig's production JVM flags",
 		Long: `Launches the module's built jar or uberjar — rig's production entrypoint.
 
-JVM flags, in order: rig's production defaults (G1 GC, exit on OOM, JMX on
-port 10101), then the module's :jvm-opts, which override the defaults (the
-last JVM flag wins; a :jvm-opts garbage collector replaces the G1 default,
-since the JVM refuses two collectors), then -jar or -cp and the main.
+JVM flags, in order: rig's production defaults (G1 GC with AlwaysPreTouch,
+exit on OOM, loopback-only JMX on port 10101), then the module's :jvm-opts,
+which override the defaults (the last JVM flag wins; a :jvm-opts garbage
+collector replaces the G1 default, since the JVM refuses two collectors),
+then -jar or -cp and the main. The launch JVM's major version must exactly
+match the one the artifact was built with.
 
 The first positional is the jar to launch, when it names an existing file.
 Otherwise, in a workspace, all positionals are passed to the main and the
@@ -358,8 +364,10 @@ func moduleOfOutput(lock *lockfile.Document, root *workspace.Root, absJar string
 	return found
 }
 
-// checkJavaVersion errors when the artifact was built for a newer JVM than
-// the one at java (bytecode is forward-compatible, never backward). want is
+// checkJavaVersion enforces an exact match on the JVM major version: the
+// launch JVM must be the same feature version as the one the artifact was
+// built with (patch versions are irrelevant; a different major is refused in
+// both directions — the artifact runs on the JVM it was built with). want is
 // 0 when the build JVM is unknown.
 func checkJavaVersion(java string, want int) error {
 	if want == 0 {
@@ -369,10 +377,22 @@ func checkJavaVersion(java string, want int) error {
 	if err != nil {
 		return exitf(1, "cannot determine the java version: %v", err)
 	}
-	if got := featureVersion(v); got > 0 && got < want {
-		return exitf(2, "artifact built for Java %d; current java is %s — install Java %d ('rig jvm install %d') or set JAVA_HOME", want, v, want, want)
+	got := featureVersion(v)
+	if !javaVersionOK(got, want) {
+		if got == 0 {
+			return exitf(2, "cannot determine the java feature version from %s", v)
+		}
+		return exitf(2, "artifact built with Java %d; current java is %s — exact match required: install Java %d ('rig jvm install %d') or set JAVA_HOME", want, v, want, want)
 	}
 	return nil
+}
+
+// javaVersionOK is the exact-match decision: the launch JVM's feature
+// version must equal the build JVM's. want==0 = nothing to check, always
+// ok; got==0 = launch version undetermined (fails when there is something
+// to check).
+func javaVersionOK(got, want int) bool {
+	return want == 0 || got == want
 }
 
 // featureVersion is the JVM feature version of a version string:

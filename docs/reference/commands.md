@@ -15,7 +15,7 @@ documentation of record; this page is the map.
 | `check` | cold+hot | Lock-vs-manifest consistency + namespace load per module. Never re-locks. |
 | `test [opt value…]` | hot | Run the modules' test exec-fns on locked classpaths. |
 | `run [args…]` | hot | Run the module's `:rig/main` on the (alias) classpath. |
-| `launch [jar] [args…]` | hot | Launch the built artifact with rig's production JVM flags (G1, exit-on-OOM, JMX on 10101), overridable via `:jvm-opts`. The jar's baked launch plan, or the lock, supplies the main. Never re-locks, never uses the network. |
+| `launch [jar] [args…]` | hot | Launch the built artifact with rig's production JVM flags (G1 + AlwaysPreTouch, exit-on-OOM, loopback JMX on 10101), overridable via `:jvm-opts`. The jar's baked launch plan, or the lock, supplies the main. Never re-locks, never uses the network. |
 | `repl` | hot | `clojure.main` REPL on the (alias) classpath. |
 | `exec <cmd> [args…]` | hot | Run a command with the locked classpath as `CLASSPATH`. |
 | `build [--uber]` | cold | Jar / uberjar via the locked classpath. |
@@ -242,11 +242,13 @@ Launch the built artifact with rig's production JVM flags — the entrypoint
 for a deployed app. Flags, in order:
 
 1. **rig's production defaults**: G1 garbage collection
-   (`-XX:+UseG1GC`), exit on out-of-memory
+   (`-XX:+UseG1GC`, with `-XX:+AlwaysPreTouch`), exit on out-of-memory
    (`-XX:+ExitOnOutOfMemoryError`, plus
-   `-XX:+HeapDumpOnOutOfMemoryError`), and JMX on port **10101**
-   (`-Dcom.sun.management.jmxremote` with `authenticate=false`,
-   `ssl=false`).
+   `-XX:+HeapDumpOnOutOfMemoryError`), and loopback-only JMX on port
+   **10101** (`-Dcom.sun.management.jmxremote` with `authenticate=false`,
+   `ssl=false`; the RMI port is pinned to 10101 and
+   `-Djava.rmi.server.hostname=127.0.0.1` keeps JMX to same-host
+   clients).
 2. **the module's `:jvm-opts`** — later flags override the defaults
    (last JVM flag wins). A garbage collector in `:jvm-opts` (e.g.
    `-XX:+UseZGC`) *replaces* the G1 default: the JVM refuses to start with
@@ -264,9 +266,10 @@ container). Without the descriptor, the lock is the plan.
 
 `rig launch` never re-locks and never uses the network: the lock is inert
 data for it (a stale lock is ignored, `--frozen` is a no-op), JDKs are
-never auto-installed, and classpath artifacts must already be cached. A
-java older than the build JVM is an error (exit 2), as is a missing
-artifact. The child's exit code is rig's.
+never auto-installed, and classpath artifacts must already be cached. The
+launch JVM's major version must exactly match the build JVM's (a different
+major fails in both directions) — exit 2, as is a missing artifact. The
+child's exit code is rig's.
 
 ### `rig repl`
 

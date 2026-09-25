@@ -201,11 +201,15 @@ Vendor: Temurin (Eclipse Adoptium), GA releases only.
 `rig launch` runs the built artifact with rig's production JVM flag set.
 The flag order is fixed:
 
-1. **rig's defaults** — G1 garbage collection (`-XX:+UseG1GC`), exit on
-   out-of-memory (`-XX:+ExitOnOutOfMemoryError`, plus
-   `-XX:+HeapDumpOnOutOfMemoryError`), and JMX on port **10101**
-   (`-Dcom.sun.management.jmxremote`, `authenticate=false`, `ssl=false`).
-   There is no `MaxRAMPercentage` and no GC logging in the defaults.
+1. **rig's defaults** — G1 garbage collection (`-XX:+UseG1GC`, with
+   `-XX:+AlwaysPreTouch`), exit on out-of-memory
+   (`-XX:+ExitOnOutOfMemoryError`, plus
+   `-XX:+HeapDumpOnOutOfMemoryError`), and loopback-only JMX on port
+   **10101** (`-Dcom.sun.management.jmxremote`, `authenticate=false`,
+   `ssl=false`; the RMI port is pinned to 10101 and
+   `-Djava.rmi.server.hostname=127.0.0.1` keeps JMX to same-host
+   clients). There is no `MaxRAMPercentage` and no GC logging in the
+   defaults.
 2. **the module's `:jvm-opts`** (the standard tools.deps key, from the
    module manifest) — later flags override rig's defaults (last JVM flag
    wins; a repeated `-D` re-sets the property). A garbage collector in
@@ -214,8 +218,8 @@ The flag order is fixed:
    rather than pass both.
 
 The JMX port is fixed at 10101; if it collides in your environment,
-override it from `:jvm-opts`
-(`-Dcom.sun.management.jmxremote.port=…`).
+override both `-Dcom.sun.management.jmxremote.port=…` and
+`-Dcom.sun.management.jmxremote.rmi.port=…` from `:jvm-opts`.
 
 ### The launch descriptor
 
@@ -242,9 +246,11 @@ first, so a built jar launches standalone, without the workspace.
 - **Non-uber jars** launch with the locked classpath, the module's own
   source paths replaced by the built jar — which is why they only launch
   inside the workspace.
-- **Java version.** A launch JVM older than the descriptor's `java`
-  (bytecode is forward-compatible, never backward) is an error (exit 2)
-  with a hint (`rig jvm install <n>`, or `JAVA_HOME`).
+- **Java version.** The launch JVM's major version must *exactly* match the
+  descriptor's `java` (patch versions are irrelevant; a different major is
+  refused in both directions — the artifact runs on the JVM it was built
+  with). Mismatch is an error (exit 2) with a hint
+  (`rig jvm install <n>`, or `JAVA_HOME`).
 - **Offline by definition.** `rig launch` never touches the network: no
   JDK auto-install, no artifact fetch, no update notice. The lock is inert
   data — launch never checks staleness, never re-locks, and `--frozen` has
