@@ -71,13 +71,23 @@ release: kernel pin release-binaries
 	@echo "  gh release create $(V) --verify rig/dist/release/*"
 
 # release-binaries: cross-compile rig for the release matrix with version
-# stamps (Version, GitSHA via ldflags).
+# stamps (Version, GitSHA via ldflags). Each artifact is checked against its
+# declared architecture: a wrong-arch binary would be packaged silently and
+# break the cross-arch Docker build.
 release-binaries:
 	@for t in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do \
 		os=$${t%%/*}; arch=$${t#*/}; \
 		(cd rig && GOOS=$$os GOARCH=$$arch go build -trimpath \
 			-ldflags "-s -w -X github.com/brutasse/rig/internal/cli.Version=$(V) -X github.com/brutasse/rig/internal/cli.GitSHA=$(GITSHA)" \
 			-o dist/rig-$$os-$$arch ./cmd/rig) || exit 1; \
+		case "$$t" in \
+		linux/amd64) want=x86-64 ;; \
+		linux/arm64) want=aarch64 ;; \
+		darwin/amd64) want=x86_64 ;; \
+		darwin/arm64) want=arm64 ;; \
+		esac; \
+		file rig/dist/rig-$$os-$$arch | grep -q "$$want" \
+			|| { echo "release-binaries: rig-$$os-$$arch: wrong architecture (want $$want)" >&2; file rig/dist/rig-$$os-$$arch >&2; exit 1; } \
 	done
 
 IMAGE ?= ghcr.io/brutasse/rig
