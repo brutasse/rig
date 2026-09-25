@@ -66,11 +66,8 @@
                                                     src-dirs)
                                             extra))))))
     (when (seq java-src-dirs)
-      ;; b/javac's option key is :javac-opts; the module config carries the
-      ;; lockfile spelling :compile-opts.
-      (b/javac (cond-> {:basis basis :src-dirs java-src-dirs :class-dir class-dir}
-                 (seq (get cfg :compile-opts))
-                 (assoc :javac-opts (get cfg :compile-opts)))))
+      (b/javac {:basis basis :src-dirs java-src-dirs :class-dir class-dir
+                :javac-opts (get cfg :javac-opts)}))
     (write-launch-descriptor class-dir (get cfg :launch))
     (cond-> {:class-dir class-dir}
       (get cfg :jar?)

@@ -60,7 +60,7 @@
 (defn main-ns [data] (get data :rig/main))
 (defn src-dirs [data] (get data :rig/src-dirs))
 (defn java-src-dirs [data] (get data :rig/java-src-dirs))
-(defn compile-opts [data] (get data :rig/compile-opts))
+(defn javac-opts [data] (get data :rig/javac-opts))
 (defn target-dir [data] (or (get data :rig/target-dir) "target"))
 (defn uberjar-file [data] (get data :rig/uberjar-file))
 (defn uberjar?

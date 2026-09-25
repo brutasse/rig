@@ -54,7 +54,7 @@
       (is (empty? (problems r)))
       (let [d (file-edn ws "deps.edn")]
         (is (= "1.2.3" (get d :rig/version)))
-        (is (= ["-source" "11" "-target" "11"] (get d :rig/compile-opts)))
+        (is (= ["-source" "11" "-target" "11"] (get d :rig/javac-opts)))
         (is (nil? (get d :exoscale.project/version)))
         (is (nil? (get d :exoscale.project/javac-opts)))))))
 

@@ -44,7 +44,7 @@ Set in each module's `deps.edn`. All optional unless noted.
 | `:rig/target-dir` | `"target"` | Build output directory. |
 | `:rig/src-dirs` | `["src" "resources"]` | Source/resource directories. |
 | `:rig/java-src-dirs` | `[]` | Java source directories (compiled into the jar). |
-| `:rig/compile-opts` | `[]` | javac options (used only when `:rig/java-src-dirs` is non-empty). When the workspace pins `:rig/jvm`, `--release <n>` is prepended unless the opts already set `--release`, `-source` or `-target`. |
+| `:rig/javac-opts` | `[]` | javac options (used only when `:rig/java-src-dirs` is non-empty). When the workspace pins `:rig/jvm`, `--release <n>` is prepended unless the opts already set `--release`, `-source` or `-target`. |
 | `:rig/ns-compile` | — | Extra namespaces to AOT-compile alongside the module's own sources, e.g. `[:entry.main]`. |
 
 ## Test alias convention

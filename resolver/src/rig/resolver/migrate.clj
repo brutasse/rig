@@ -29,7 +29,7 @@
    :exoscale.project/main :rig/main
    :exoscale.project/src-dirs :rig/src-dirs
    :exoscale.project/java-src-dirs :rig/java-src-dirs
-   :exoscale.project/javac-opts :rig/compile-opts
+   :exoscale.project/javac-opts :rig/javac-opts
    :exoscale.project/version :rig/version
    :exoscale.project/target-dir :rig/target-dir
    :exoscale.project/uberjar-file :rig/uberjar-file

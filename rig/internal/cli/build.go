@@ -119,8 +119,8 @@ func (e *hotEnv) buildOne(ctx context.Context, m string, uber bool) (string, err
 	if len(mod.Build.NsCompile) > 0 {
 		cfg["ns-compile"] = mod.Build.NsCompile
 	}
-	if opts := javacOptsOf(e.lock.JVM, mod.Build.CompileOpts); len(opts) > 0 {
-		cfg["compile-opts"] = opts
+	if opts := javacOptsOf(e.lock.JVM, mod.Build.JavacOpts); len(opts) > 0 {
+		cfg["javac-opts"] = opts
 	}
 	if buildUber {
 		cfg["uber-file"] = filepath.Join(dir, mod.Build.Uberjar.File)
@@ -421,7 +421,7 @@ func jarFileName(mod lockfile.Module) string {
 }
 
 // javacOptsOf composes the effective javac opts for a module: the manifest's
-// :rig/compile-opts, with "--release <N>" prepended when the workspace pins a
+// :rig/javac-opts, with "--release <N>" prepended when the workspace pins a
 // JVM (:rig/jvm) and the opts do not already control the source level.
 func javacOptsOf(jvm *lockfile.JVM, opts []string) []string {
 	if jvm == nil || controlsSourceLevel(opts) {

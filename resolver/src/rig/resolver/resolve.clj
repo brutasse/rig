@@ -107,7 +107,7 @@
                         "main" (manifest/main-ns data)
                         "opts" (or (manifest/uber-opts data) {})})}
       (seq ns-compile) (assoc :ns-compile ns-compile)
-      (seq (manifest/compile-opts data)) (assoc :compile-opts (manifest/compile-opts data)))))
+      (seq (manifest/javac-opts data)) (assoc :javac-opts (manifest/javac-opts data)))))
 
 (defn- publish-plan
   [data]
