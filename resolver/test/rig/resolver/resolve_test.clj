@@ -162,15 +162,32 @@
     (is (thrown-with-msg? Exception #"still uses legacy keys"
                           (resolve/resolve-lock {:workspace ws})))))
 
-(deftest prep-ensure-enters-the-lock
-  (let [ws (temp-ws "{:rig/lib x/y\n :deps/prep-lib {:ensure \"target/classes\" :alias :prep :fn aot-compile}}\n")
+(deftest prep-lib-enters-the-lock
+  (let [ws (temp-ws "{:rig/lib x/y\n :deps/prep-lib {:ensure \"target/classes\" :alias :prep :fn aot-compile}\n :aliases {:prep {:ns-default build}}}\n")
         lock (-> (resolve/resolve-lock {:workspace ws})
                  (get "lock"))]
     (is (= ["target/classes"] (get-in lock ["modules" "." :prep-ensure])))
-    (let [ws2 (temp-ws "{:rig/lib x/y}\n")
-          lock2 (-> (resolve/resolve-lock {:workspace ws2})
-                    (get "lock"))]
-      (is (nil? (get-in lock2 ["modules" "." :prep-ensure]))))))
+    (is (= "prep" (get-in lock ["modules" "." :prep-alias])))
+    (is (= "build/aot-compile" (get-in lock ["modules" "." :prep-fn])))))
+
+(deftest prep-lib-qualified-fn-passes-through
+  (let [ws (temp-ws "{:rig/lib x/y\n :deps/prep-lib {:ensure \"target/classes\" :alias :prep :fn build/aot-compile}}\n")
+        lock (-> (resolve/resolve-lock {:workspace ws})
+                 (get "lock"))]
+    (is (= "build/aot-compile" (get-in lock ["modules" "." :prep-fn])))))
+
+(deftest prep-lib-unqualified-fn-without-ns-default-is-rejected
+  (let [ws (temp-ws "{:rig/lib x/y\n :deps/prep-lib {:ensure \"target/classes\" :alias :prep :fn aot-compile}}\n")]
+    (is (thrown-with-msg? Exception #":ns-default"
+                          (resolve/resolve-lock {:workspace ws})))))
+
+(deftest no-prep-lib-no-prep-keys
+  (let [ws (temp-ws "{:rig/lib x/y}\n")
+        lock (-> (resolve/resolve-lock {:workspace ws})
+                 (get "lock"))]
+    (is (nil? (get-in lock ["modules" "." :prep-ensure])))
+    (is (nil? (get-in lock ["modules" "." :prep-alias])))
+    (is (nil? (get-in lock ["modules" "." :prep-fn])))))
 
 ;; version-fn
 

@@ -92,6 +92,8 @@ type Module struct {
 	Version        string           `json:"version"`
 	Main           string           `json:"main,omitempty"`
 	PrepEnsure     []string         `json:"prep-ensure,omitempty"`
+	PrepAlias      string           `json:"prep-alias,omitempty"`
+	PrepFn         string           `json:"prep-fn,omitempty"`
 	JVMOpts        []string         `json:"jvm-opts"`
 	Paths          []string         `json:"paths,omitempty"`
 	Classpath      []ClasspathEntry `json:"classpath"`

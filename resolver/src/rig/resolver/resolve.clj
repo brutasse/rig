@@ -126,6 +126,8 @@
      :version version
      :main (manifest/main-ns data)
      :prep-ensure (manifest/prep-ensure data)
+     :prep-alias (manifest/prep-alias data)
+     :prep-fn (manifest/prep-fn data)
      :jvm-opts (or (get data :jvm-opts) [])
      :paths (:paths base-mapped)
      :classpath (:classpath base-mapped)
