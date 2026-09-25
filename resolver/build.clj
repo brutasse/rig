@@ -53,7 +53,11 @@
   (b/delete {:path target})
   (let [basis (b/create-basis {})]
     (b/compile-clj {:basis basis :class-dir class-dir :src-dirs ["src"]})
-    (b/javac {:basis basis :class-dir class-dir :src-dirs ["java"]})
+    ;; --release pins Main.class to the lowest JVM rig runs on (8): without
+    ;; it, the class targets the build host's JVM and a workspace pinned to
+    ;; an older JVM fails to load the kernel (UnsupportedClassVersionError).
+    (b/javac {:basis basis :class-dir class-dir :src-dirs ["java"]
+              :javac-opts ["--release" "8"]})
     ;; build-info.edn lands in the uber jar via class-dir (tools.build
     ;; 0.10.5's uber has no :resource-dirs): the kernel's identity, read
     ;; at runtime by rig.resolver.resolve/resolver-id.
