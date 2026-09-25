@@ -30,15 +30,17 @@ type Pin struct {
 	JARSHA  string
 }
 
+// Current is the last released kernel. The release workflow stamps this
+// block (version, git sha, URL, jar sha256) per release via 'make pin' and
+// pushes it to main; feature branches must not commit pin changes. Local
+// development overrides the kernel with RIG_KERNEL_JAR (trusted, not
+// hash-checked).
 var Current = Pin{
 	Lib:     "io.github.brutasse/rig-resolver",
 	Version: "v0.1.0",
-	GitSHA:  "1bb3b5e1c7d551f77e1e120dd42ad7147cb969b2",
-	URL:     "https://github.com/brutasse/rig/releases/download/0.1.0/rig-resolver-0.1.0.jar",
-	// SHA256 of the release kernel jar; 'make pin V=…' stamps this whole
-	// block (version, git sha, URL, jar sha) per release. Local builds:
-	// RIG_KERNEL_JAR must match JARSHA.
-	JARSHA: "bd07c6ea816cbba4ce7ce7db48edd5f59d04f0504249d713e3513297b8c35322",
+	GitSHA:  "29b0bb60817c7ce2db5d3a2775a3b64859f214f5",
+	URL:     "https://github.com/brutasse/rig/releases/download/v0.1.0/rig-resolver-v0.1.0.jar",
+	JARSHA:  "823c7b174dfe01874cb2ae74790d51f0f293ecf9f592acb76223ed3424208934",
 }
 
 type Request struct {
@@ -50,13 +52,12 @@ type Request struct {
 }
 
 func (p Pin) Ensure(ctx context.Context, store *cache.Store, offline bool) (string, error) {
+	// Local override: the jar the developer pointed at is used as-is. The
+	// JARSHA gate covers what rig fetches and caches, not an explicit local
+	// choice.
 	if local := os.Getenv("RIG_KERNEL_JAR"); local != "" {
-		got, err := digest.File(local)
-		if err != nil {
-			return "", err
-		}
-		if got != p.JARSHA {
-			return "", fmt.Errorf("kernel: %s: sha256 mismatch (got %s)", local, got)
+		if st, err := os.Stat(local); err != nil || st.IsDir() {
+			return "", fmt.Errorf("kernel: RIG_KERNEL_JAR: %s: not a file", local)
 		}
 		return local, nil
 	}

@@ -1,5 +1,6 @@
 (ns rig.resolver.resolve
   (:require [cheshire.core :as json]
+            [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.tools.deps :as td]
@@ -146,11 +147,17 @@
                             (mapcat :artifacts (vals alias-maps)))}))
 
 (defn resolver-id
+  "Identity of this kernel. Normally from build-info.edn, baked into the
+  jar at build time (build.clj); a placeholder when the namespace is
+  loaded from source (build step, REPL, tests), where the resource is
+  absent."
   []
-  (let [sha (System/getenv "RIG_RESOLVER_SHA")]
+  (let [info (some-> (io/resource "build-info.edn") slurp edn/read-string)
+        version (or (:version info) "v0.1.0")
+        sha (:git-sha info)]
     {"lib" "io.github.brutasse/rig-resolver"
-     "version" (or (System/getenv "RIG_RESOLVER_VERSION") "0.1.0")
-      "git/sha" (if (and sha (re-matches #"^[0-9a-f]{7,40}$" sha)) sha (apply str (repeat 40 "0")))}))
+     "version" version
+     "git/sha" (if (and sha (re-matches #"^[0-9a-f]{7,40}$" sha)) sha (apply str (repeat 40 "0")))}))
 
 (defn resolve-lock
   [request]

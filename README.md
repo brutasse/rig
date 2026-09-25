@@ -75,29 +75,36 @@ a slim image.
 Prerequisites: JDK 21+, Clojure CLI, Go 1.27+, make.
 
 ```
-make dev    # build the kernel jar, stamp the kernel pin, build rig
+make dev    # build the kernel jar, build rig
 make test   # make dev + kernel kaocha suite + Go suite (E2E vs the fresh jar)
 make run WS=<workspace-dir> ARGS="lock"   # run the local rig in a workspace
 make image  # build the Docker image locally (no push)
-make release V=0.2.0   # package a release in rig/dist/release/ (dry run)
+make release V=v0.2.0  # package a release in rig/dist/release/ (dry run)
 ```
 
 `make dev` is the whole loop: `resolver/target/rig-resolver-<V>.jar` is
-built (tools.build), the kernel pin in `rig/internal/kernel/kernel.go` is
-stamped (version, git sha, GitHub release URL, jar sha256 — `make pin`),
-and `rig/dist/rig` is built. `V` defaults to `0.1.0` locally.
+built (tools.build) and `rig/dist/rig` is built. `V` is the release tag
+form (vX.Y.Z) in both local and release builds, defaulting to `v0.1.0`
+locally. The kernel's identity (version, git sha) is baked into the jar
+at build time, so a lockfile's `resolver` block records the exact kernel
+that produced it. The kernel pin in
+`rig/internal/kernel/kernel.go` is a
+release-time artifact — `make pin` stamps it (version, git sha, GitHub
+release URL, jar sha256) and the release workflow pushes it to main, so
+feature branches do not commit pin changes.
 
 How the kernel jar reaches the rig binary:
 
-- Local: `RIG_KERNEL_JAR=<absolute jar path>` — verified against the
-  `JARSHA` pin, then used in place of the downloaded kernel.
+- Local: `RIG_KERNEL_JAR=<absolute jar path>` — trusted local override,
+  used in place of the downloaded kernel (no hash check).
 - Published: without `RIG_KERNEL_JAR`, rig fetches the pinned kernel from
-  the GitHub release assets into its cache and hash-verifies it. The pin is
-  stamped per release by the release workflow.
+  the GitHub release assets into its cache and hash-verifies it against
+  the `JARSHA` pin. The pin is stamped per release by the release
+  workflow, which pushes it to main.
 - `make run` sets `RIG_KERNEL_JAR` for you; other invocations of
   `rig/dist/rig` need it exported.
 - The Go E2E tests find the kernel jar via `RIG_TEST_KERNEL_JAR` (set by
-  `make test`) or `resolver/target/rig-resolver-0.1.0.jar` and **skip**
+  `make test`) or `resolver/target/rig-resolver-v0.1.0.jar` and **skip**
   (not fail) when it is missing — build it first (`make kernel`) or they
   silently don't run.
 

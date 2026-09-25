@@ -17,7 +17,7 @@ A real lock (trimmed) from a multi-module workspace:
   "tool":    { "name": "rig", "version": "0.1.0" },
   "resolver": {                          // who produced this lock
     "lib": "io.github.brutasse/rig-resolver",
-    "version": "0.1.0",
+    "version": "v0.1.0",
     "git/sha": "546d868c4d1c…"
   },
   "locked_at": "2026-09-18T10:00:00Z",

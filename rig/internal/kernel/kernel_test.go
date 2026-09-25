@@ -11,7 +11,6 @@ import (
 	"testing"
 
 	"github.com/brutasse/rig/internal/cache"
-	"github.com/brutasse/rig/internal/digest"
 	"github.com/brutasse/rig/internal/jvm"
 )
 
@@ -21,11 +20,7 @@ func TestEnsureFromEnvJar(t *testing.T) {
 	if err := os.WriteFile(jar, []byte("fake-kernel-bytes"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	sha, err := digest.File(jar)
-	if err != nil {
-		t.Fatal(err)
-	}
-	pin := Pin{GitSHA: "abc", JARSHA: sha}
+	pin := Pin{GitSHA: "abc"}
 	t.Setenv("RIG_KERNEL_JAR", jar)
 
 	store := cache.NewAt(t.TempDir())
@@ -38,18 +33,13 @@ func TestEnsureFromEnvJar(t *testing.T) {
 	}
 }
 
-func TestEnsureEnvJarHashMismatch(t *testing.T) {
-	dir := t.TempDir()
-	jar := filepath.Join(dir, "kernel.jar")
-	if err := os.WriteFile(jar, []byte("fake"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	pin := Pin{GitSHA: "abc", JARSHA: "0000000000000000000000000000000000000000000000000000000000000000"}
-	t.Setenv("RIG_KERNEL_JAR", jar)
+func TestEnsureEnvJarMissing(t *testing.T) {
+	pin := Pin{GitSHA: "abc"}
+	t.Setenv("RIG_KERNEL_JAR", filepath.Join(t.TempDir(), "nope.jar"))
 
 	store := cache.NewAt(t.TempDir())
 	if _, err := pin.Ensure(context.Background(), store, false); err == nil {
-		t.Error("expected hash mismatch error")
+		t.Error("expected error for missing RIG_KERNEL_JAR")
 	}
 }
 

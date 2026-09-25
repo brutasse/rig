@@ -1,11 +1,12 @@
-# Local development: build the kernel jar, pin its sha256 into the rig
-# executor, build rig, and run the test suites. See README.md,
-# "Local development".
+# Local development: build the kernel jar, build rig, and run the test
+# suites. The kernel pin in kernel.go is a release-time artifact (see the
+# 'pin' target). See README.md, "Local development".
 #
-# V: version for the kernel jar and release artifacts. Local dev defaults to
-# 0.1.0 (what the local tests look for); the release workflow passes the tag.
+# V: version for the kernel jar and release artifacts, in release tag form
+# (vX.Y.Z). Local dev defaults to v0.1.0 (what the local tests look for);
+# the release workflow passes the tag.
 
-V       ?= 0.1.0
+V       ?= v0.1.0
 REPO    := brutasse/rig
 JAR     := resolver/target/rig-resolver-$(V).jar
 BIN     := rig/dist/rig
@@ -15,22 +16,25 @@ GITSHA  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo dev)
 .DEFAULT_GOAL := dev
 
 # dev: the whole local story in one command.
-dev: kernel pin rig
+dev: kernel rig
 
 # kernel: build the resolver uberjar (resolver/target/).
 kernel:
 	cd resolver && RIG_RESOLVER_VERSION=$(V) clojure -X:build
 
 # pin: stamp the kernel pin in kernel.go (version, git sha, GitHub release
-# URL, jar sha256) from the freshly built jar. Idempotent; fails loudly if a
-# field line is ever renamed.
+# URL, jar sha256) from the freshly built jar. Release-time only — feature
+# branches do not commit pin changes (local runs use RIG_KERNEL_JAR).
+# Idempotent; fails loudly if any stamped field does not land.
 pin: kernel
 	sha=$$(sha256sum $(JAR) | cut -d' ' -f1) && \
 	gitsha=$$(git rev-parse HEAD) && \
-	sed -i -e "s/\(Version:[[:space:]]*\"\)[0-9][0-9A-Za-z.+-]*/\1$(V)/" \
+	sed -i -e "s/\(Version:[[:space:]]*\"\)[vV]\?[0-9][0-9A-Za-z.+-]*/\1$(V)/" \
 	        -e "s/\(GitSHA:[[:space:]]*\"\)[0-9a-f]*/\1$$gitsha/" \
 	        -e "s|\(URL:[[:space:]]*\"\)[^\"]*|\1https://github.com/$(REPO)/releases/download/$(V)/rig-resolver-$(V).jar|" \
 	        -e "s/\(JARSHA:[[:space:]]*\"\)[0-9a-f]*/\1$$sha/" $(PINFILE) && \
+	grep -qF "Version: \"$(V)\"" $(PINFILE) && \
+	grep -qF "$$gitsha" $(PINFILE) && \
 	grep -qF "$$sha" $(PINFILE)
 
 # rig: build the rig binary (rig/dist/rig).
@@ -61,7 +65,7 @@ run:
 # release: package a release — kernel jar, stamped pin, cross-compiled
 # binaries, SHA256SUMS — in rig/dist/release/. The release workflow
 # publishes that directory; locally it doubles as a packaging dry-run.
-# Usage: make release V=0.2.0
+# Usage: make release V=v0.2.0
 release: kernel pin release-binaries
 	mkdir -p rig/dist/release
 	cp rig/dist/rig-linux-amd64 rig/dist/rig-linux-arm64 rig/dist/rig-darwin-amd64 rig/dist/rig-darwin-arm64 rig/dist/release/

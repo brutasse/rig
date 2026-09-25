@@ -21,7 +21,7 @@ func kernelJarPath(t *testing.T) string {
 		p = v
 	}
 	if p == "" {
-		if cand := filepath.Join("..", "..", "..", "resolver", "target", "rig-resolver-0.1.0.jar"); statOK(cand) {
+		if cand := filepath.Join("..", "..", "..", "resolver", "target", "rig-resolver-v0.1.0.jar"); statOK(cand) {
 			p = cand
 		}
 	}

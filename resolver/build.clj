@@ -5,9 +5,18 @@
            (java.util.zip ZipEntry ZipFile ZipOutputStream)))
 
 (def lib "io.github.brutasse/rig-resolver")
-;; Release builds set RIG_RESOLVER_VERSION to the tag version; local dev
-;; builds default to 0.1.0 (the version local tooling and tests expect).
-(def version (or (System/getenv "RIG_RESOLVER_VERSION") "0.1.0"))
+;; V is the release tag form (vX.Y.Z); local dev builds default to v0.1.0
+;; (the version local tooling and tests expect).
+(def version (or (System/getenv "RIG_RESOLVER_VERSION") "v0.1.0"))
+;; The commit this build is made from; 'make pin' stamps the same value
+;; into the kernel pin, so the pin and the jar always agree. ProcessBuilder
+;; (not clojure.java.shell): the local CLI classpath may lack the ns.
+(def git-sha
+  (let [p (.start (ProcessBuilder. (into-array String ["git" "rev-parse" "HEAD"])))
+        in (.getInputStream p)
+        _ (.waitFor p)
+        s (.trim (slurp in))]
+    (if (re-matches #"^[0-9a-f]{7,40}$" s) s (apply str (repeat 40 "0")))))
 (def target "target")
 (def class-dir (str target "/classes"))
 (def uber-file (str target "/rig-resolver-" version ".jar"))
@@ -45,6 +54,11 @@
   (let [basis (b/create-basis {})]
     (b/compile-clj {:basis basis :class-dir class-dir :src-dirs ["src"]})
     (b/javac {:basis basis :class-dir class-dir :src-dirs ["java"]})
+    ;; build-info.edn lands in the uber jar via class-dir (tools.build
+    ;; 0.10.5's uber has no :resource-dirs): the kernel's identity, read
+    ;; at runtime by rig.resolver.resolve/resolver-id.
+    (spit (io/file class-dir "build-info.edn")
+          (pr-str {:version version :git-sha git-sha}))
     (b/uber {:basis basis :class-dir class-dir :uber-file uber-file :main 'Main})
     (normalize-zip uber-file (str uber-file ".tmp"))
     (java.nio.file.Files/move (.toPath (io/file (str uber-file ".tmp")))

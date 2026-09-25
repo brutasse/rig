@@ -19,6 +19,7 @@
 #      hash-pinned kernel jar) to ghcr.io/brutasse/rig
 #   4. publishes a GitHub release with all binaries + kernel jar + SHA256SUMS
 #   5. re-pins the install one-liner's git sha in README.md on main
+#   6. pushes the stamped kernel pin to main
 #
 # The kernel jar is served exclusively from the GitHub release (no Maven
 # repo): rig binaries fetch it by their compiled pin, hash-verified.
@@ -163,3 +164,21 @@ jobs:
             git commit -m "docs: pin install one-liner to ${{ github.ref_name }} ($sha)"
             git push origin HEAD:main
           fi
+
+      - name: Pin kernel in main
+        run: |
+          # Explicit a/ b/ prefixes: 'git apply' mishandles no-prefix
+          # headers (diff.noprefix) by stripping a path component.
+          git diff --src-prefix=a/ --dst-prefix=b/ -- rig/internal/kernel/kernel.go > pin.patch
+          if [ ! -s pin.patch ]; then
+            echo "kernel pin unchanged; nothing to push"
+            exit 0
+          fi
+          git fetch origin main
+          git checkout --detach origin/main
+          git apply pin.patch
+          git config user.name "rig-release[bot]"
+          git config user.email "rig-release@users.noreply.com"
+          git add rig/internal/kernel/kernel.go
+          git commit -m "kernel: pin ${{ github.ref_name }}"
+          git push origin HEAD:main
