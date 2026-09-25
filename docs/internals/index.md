@@ -23,8 +23,9 @@ rig is a Go binary driving a pinned Clojure kernel:
 - **The Go binary** owns everything that touches bytes: the lockfile
   (JSON), the content-addressed artifact cache, fetching and
   sha256-hashing every artifact, classpath assembly, and JVM launch. It
-  never parses `deps.edn` — the only EDN it reads is small literal CLI
-  arguments.
+  never parses `deps.edn` for resolution — it reads manifests only to
+  discover `:auth :oidc` repositories and module paths, plus small
+  literal CLI arguments.
 - **The kernel** is the EDN authority and the resolution engine: it
   parses manifests, edits them (format-preserving), resolves dependency
   graphs with `clojure.tools.deps`, and builds jars with
@@ -138,7 +139,7 @@ makes a stable jar sha256 pin possible.
 | `oidc` | OIDC tokens for `:auth :oidc` repositories |
 | `proxy` | the loopback auth proxy for kernel traffic |
 | `s3p` | `s3p://` repository writes (SigV4) for publish |
-| `ednlit` | the small EDN *literal* reader for CLI arguments |
+| `ednlit` | the small EDN reader for CLI arguments and workspace manifests |
 | `updater` | release checks and `rig self-update` |
 
 ### Clojure kernel (`resolver/src/`)

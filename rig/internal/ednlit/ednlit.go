@@ -35,37 +35,66 @@ type Map []Pair
 type Set []any
 
 type parseError struct {
-	msg string
-	pos int
+	msg  string
+	pos  int
+	name string
 }
 
 func (e *parseError) Error() string {
+	if e.name != "" {
+		return fmt.Sprintf("ednlit: %s at %d in %s", e.msg, e.pos, e.name)
+	}
 	return fmt.Sprintf("ednlit: %s at %d", e.msg, e.pos)
 }
 
 func Parse(s string) (any, error) {
-	p := &parser{s: s}
+	return parse("", s)
+}
+
+// ParseNamed is Parse, with name included in any error message.
+func ParseNamed(name, s string) (any, error) {
+	return parse(name, s)
+}
+
+func parse(name, s string) (any, error) {
+	p := &parser{name: name, s: s}
 	v, err := p.value()
 	if err != nil {
 		return nil, err
 	}
 	p.skipWS()
 	if p.pos != len(p.s) {
-		return nil, &parseError{"trailing input", p.pos}
+		return nil, p.fail("trailing input")
 	}
 	return v, nil
 }
 
 type parser struct {
-	s   string
-	pos int
+	name string
+	s    string
+	pos  int
+}
+
+func (p *parser) fail(msg string) *parseError {
+	return p.failAt(p.pos, msg)
+}
+
+func (p *parser) failAt(pos int, msg string) *parseError {
+	return &parseError{msg: msg, pos: pos, name: p.name}
 }
 
 func (p *parser) skipWS() {
 	for p.pos < len(p.s) {
 		c := p.s[p.pos]
-		if c == ' ' || c == '\t' || c == '\n' || c == '\r' {
+		if c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == ',' {
 			p.pos++
+			continue
+		}
+		if c == ';' {
+			// line comment
+			for p.pos < len(p.s) && p.s[p.pos] != '\n' {
+				p.pos++
+			}
 			continue
 		}
 		return
@@ -83,7 +112,7 @@ func (p *parser) peek() (byte, bool) {
 func (p *parser) value() (any, error) {
 	c, ok := p.peek()
 	if !ok {
-		return nil, &parseError{"unexpected end of input", p.pos}
+		return nil, p.fail("unexpected end of input")
 	}
 	switch c {
 	case '"':
@@ -115,7 +144,7 @@ func (p *parser) vector() (any, error) {
 	for {
 		c, ok := p.peek()
 		if !ok {
-			return nil, &parseError{"unclosed vector", p.pos}
+			return nil, p.fail("unclosed vector")
 		}
 		if c == ']' {
 			p.pos++
@@ -135,7 +164,7 @@ func (p *parser) list() (any, error) {
 	for {
 		c, ok := p.peek()
 		if !ok {
-			return nil, &parseError{"unclosed list", p.pos}
+			return nil, p.fail("unclosed list")
 		}
 		if c == ')' {
 			p.pos++
@@ -155,7 +184,7 @@ func (p *parser) mapValue() (any, error) {
 	for {
 		c, ok := p.peek()
 		if !ok {
-			return nil, &parseError{"unclosed map", p.pos}
+			return nil, p.fail("unclosed map")
 		}
 		if c == '}' {
 			p.pos++
@@ -176,7 +205,7 @@ func (p *parser) mapValue() (any, error) {
 func (p *parser) key() (any, error) {
 	c, ok := p.peek()
 	if !ok {
-		return nil, &parseError{"unexpected end of input in map", p.pos}
+		return nil, p.fail("unexpected end of input in map")
 	}
 	switch c {
 	case '"':
@@ -184,7 +213,7 @@ func (p *parser) key() (any, error) {
 	case ':':
 		return p.keyword()
 	case '[', '(', '{', '#', '\'':
-		return nil, &parseError{"collection as map key", p.pos}
+		return nil, p.fail("collection as map key")
 	}
 	return p.atom()
 }
@@ -197,7 +226,7 @@ func (p *parser) dispatch() (any, error) {
 		for {
 			c, ok := p.peek()
 			if !ok {
-				return nil, &parseError{"unclosed set", p.pos}
+				return nil, p.fail("unclosed set")
 			}
 			if c == '}' {
 				p.pos++
@@ -210,7 +239,7 @@ func (p *parser) dispatch() (any, error) {
 			out = append(out, v)
 		}
 	}
-	return nil, &parseError{"unsupported dispatch", p.pos - 1}
+	return nil, p.failAt(p.pos-1, "unsupported dispatch")
 }
 
 func (p *parser) string() (any, error) {
@@ -225,7 +254,7 @@ func (p *parser) string() (any, error) {
 		case '\\':
 			p.pos++
 			if p.pos >= len(p.s) {
-				return nil, &parseError{"unterminated escape", p.pos}
+				return nil, p.fail("unterminated escape")
 			}
 			e := p.s[p.pos]
 			switch e {
@@ -243,16 +272,16 @@ func (p *parser) string() (any, error) {
 				b.WriteByte(e)
 			case 'u':
 				if p.pos+4 >= len(p.s) {
-					return nil, &parseError{"bad unicode escape", p.pos}
+					return nil, p.fail("bad unicode escape")
 				}
 				n, err := strconv.ParseUint(p.s[p.pos+1:p.pos+5], 16, 32)
 				if err != nil {
-					return nil, &parseError{"bad unicode escape", p.pos}
+					return nil, p.fail("bad unicode escape")
 				}
 				b.WriteRune(rune(n))
 				p.pos += 4
 			default:
-				return nil, &parseError{"bad escape", p.pos}
+				return nil, p.fail("bad escape")
 			}
 			p.pos++
 		default:
@@ -260,7 +289,7 @@ func (p *parser) string() (any, error) {
 			p.pos++
 		}
 	}
-	return nil, &parseError{"unterminated string", p.pos}
+	return nil, p.fail("unterminated string")
 }
 
 func (p *parser) keyword() (any, error) {
@@ -270,7 +299,7 @@ func (p *parser) keyword() (any, error) {
 	}
 	word, pos := p.word()
 	if word == "" {
-		return nil, &parseError{"empty keyword", pos}
+		return nil, p.failAt(pos, "empty keyword")
 	}
 	ns, name := splitName(word)
 	return Keyword{NS: ns, Name: name}, nil
@@ -282,7 +311,7 @@ func (p *parser) word() (string, int) {
 		c := p.s[p.pos]
 		if c == ' ' || c == '\t' || c == '\n' || c == '\r' ||
 			c == '[' || c == ']' || c == '(' || c == ')' ||
-			c == '{' || c == '}' || c == '"' || c == ';' {
+			c == '{' || c == '}' || c == '"' || c == ';' || c == ',' {
 			break
 		}
 		p.pos++
@@ -293,7 +322,7 @@ func (p *parser) word() (string, int) {
 func (p *parser) atom() (any, error) {
 	word, start := p.word()
 	if word == "" {
-		return nil, &parseError{"empty atom", start}
+		return nil, p.failAt(start, "empty atom")
 	}
 	if strings.ContainsRune(word, '/') && isKeywordLike(word) {
 		ns, name := splitName(word)

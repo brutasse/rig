@@ -88,6 +88,20 @@
         (is (= {:mvn/version "1.0.0"} (get (get d :rig/deps) 'a/b)))
         (is (nil? (get d :exoscale.deps/managed-dependencies)))))))
 
+(deftest rig-deps-preserves-managed-formatting
+  "Regression: the renamed managed-dependencies node must survive the
+  new-key pass; it used to be re-serialized compact on a single line."
+  (let [ws (temp-ws {"deps.edn"
+                     "{:exoscale.project/lib x/y\n :exoscale.deps/managed-dependencies\n {a/b {:mvn/version \"1.0.0\"}\n  c/d {:local/root \"modules/m\"}}}\n"})
+        r (run ws)]
+    (is (empty? (problems r)))
+    (let [text (file-text ws "deps.edn")
+          d (file-edn ws "deps.edn")]
+      (is (= {'a/b {:mvn/version "1.0.0"} 'c/d {:local/root "modules/m"}}
+             (get d :rig/deps)))
+      (is (re-find #":rig/deps\n \{" text))
+      (is (not (re-find #":rig/deps \{.*\}\}" text))))))
+
 (deftest managed-dependencies-at-module-level-are-a-problem
   (let [ws (temp-ws {"deps.edn"
                      "{:exoscale.project/lib x/y :exoscale.project/modules [\"modules/m\"]}\n"
@@ -107,6 +121,23 @@
       (is (= {:mvn/version "1.0.0" :exclusions '[x/y]}
              (get (get d :deps) 'a/b)))
       (is (= {:mvn/version "2.0.0"} (get (get d :deps) 'plain/p))))))
+
+(deftest managed-inherit-marker-does-not-leak-into-migrated-manifests
+  "Regression: a managed entry's own :exoscale.deps/inherit marker used to
+  leak into the materialized module deps and the renamed :rig/deps; a
+  migrated manifest must carry no legacy-ns key anywhere."
+  (let [ws (temp-ws {"deps.edn"
+                     "{:exoscale.project/lib x/y :exoscale.project/modules [\"modules/m\"]\n :exoscale.deps/managed-dependencies {a/b {:exoscale.deps/inherit :all :mvn/version \"1.0.0\"}}}\n"
+                     "modules/m/deps.edn"
+                     "{:exoscale.project/lib m/lib :deps {a/b {:exoscale.deps/inherit :all}}}\n"})
+        r (run ws)]
+    (is (empty? (problems r)))
+    (is (= {:mvn/version "1.0.0"}
+           (get-in (file-edn ws "modules/m/deps.edn") [:deps 'a/b])))
+    (is (= {:mvn/version "1.0.0"}
+           (get-in (file-edn ws "deps.edn") [:rig/deps 'a/b])))
+    (is (not (re-find #"exoscale.deps/inherit" (file-text ws "deps.edn"))))
+    (is (not (re-find #"exoscale.deps/inherit" (file-text ws "modules/m/deps.edn"))))))
 
 (deftest materialized-dep-with-extra-keyword-pair-stays-valid
   "Regression: the value node of a materialized dep map is built pair by
@@ -331,3 +362,20 @@
       (is (re-find #"keep me" text)))
     (is (= {:mvn/version "2.0.0"}
            (get (get (file-edn ws "deps.edn") :deps) 'a/b)))))
+
+(deftest second-run-is-a-no-op
+  "Regression: a migrated tree is a fixed point; re-running used to strip
+  re-attached markers and rewrite files with bogus warnings."
+  (let [ws (temp-ws {"deps.edn"
+                     "{:exoscale.project/lib x/y :exoscale.project/modules [\"modules/m\"]\n :exoscale.deps/managed-dependencies {a/b {:exoscale.deps/inherit :all :mvn/version \"1.0.0\"}}}\n"
+                     "modules/m/deps.edn"
+                     "{:exoscale.project/lib m/lib :deps {a/b {:exoscale.deps/inherit :all}}}\n"})
+        r1 (run ws)
+        before (into {} (for [f ["deps.edn" "modules/m/deps.edn"]] [f (file-text ws f)]))
+        r2 (run ws)]
+    (is (empty? (problems r1)))
+    (is (empty? (problems r2)))
+    (is (empty? (warnings r2)))
+    (is (every? false? (map #(get % "changed") (get r2 "edits"))))
+    (doseq [[f t] before]
+      (is (= t (file-text ws f))))))

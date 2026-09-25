@@ -82,11 +82,13 @@ you:
 
 ### 1. Lift the managed map into `:rig/deps`
 
-Copy `:exoscale.deps/managed-dependencies` verbatim into `:rig/deps` at
-the root, then delete the managed map (and `:exoscale.deps/managed-aliases`
-— there is no alias inheritance in rig; aliases are per-module, and shared
-test deps move to the modules' `:test` aliases or to `:rig/deps`
-requirements).
+Copy `:exoscale.deps/managed-dependencies` into `:rig/deps` at the root,
+dropping any `:exoscale.deps/inherit` markers found on the entries
+themselves (inert residue — a migrated manifest must carry no
+`exoscale.*` key anywhere), then delete the managed map (and
+`:exoscale.deps/managed-aliases` — there is no alias inheritance in rig;
+aliases are per-module, and shared test deps move to the modules' `:test`
+aliases or to `:rig/deps` requirements).
 
 A before/after from a migrated project's root (trimmed):
 

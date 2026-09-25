@@ -232,7 +232,11 @@ func oidcRepos(root *workspace.Root) (map[string]string, error) {
 		if err != nil {
 			return nil, err
 		}
-		v, err := ednlit.Parse(string(data))
+		name := m + "/deps.edn"
+		if m == "." {
+			name = "deps.edn"
+		}
+		v, err := ednlit.ParseNamed(name, string(data))
 		if err != nil {
 			return nil, err
 		}
@@ -279,7 +283,7 @@ func modulePaths(root *workspace.Root) []string {
 	if err != nil {
 		return []string{"."}
 	}
-	v, err := ednlit.Parse(string(data))
+	v, err := ednlit.ParseNamed("deps.edn", string(data))
 	if err != nil {
 		return []string{"."}
 	}

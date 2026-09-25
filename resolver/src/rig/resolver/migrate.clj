@@ -86,11 +86,13 @@
 
 (defn- inherit-dep
   "deps-modules semantics: the declared source keys are stripped and the
-  managed entry wins (a vector inherit selects a subset of managed keys)."
+  managed entry wins (a vector inherit selects a subset of managed keys).
+  A managed entry's own :exoscale.deps/inherit marker is inert residue and
+  does not propagate."
   [declared managed inherit]
   (merge (dissoc declared :mvn/version :git/url :git/sha :git/tag
                  :local/root :deps/root :exoscale.deps/inherit)
-         (cond-> managed
+         (cond-> (dissoc managed :exoscale.deps/inherit)
            (not= :all inherit) (select-keys (vec inherit)))))
 
 (defn- materialize-deps
@@ -260,7 +262,13 @@
                             acc))
                       (= k :exoscale.deps/managed-dependencies)
                       (if (= module-dir ".")
-                        (assoc acc :rig/deps v)
+                        ;; The entries' own :exoscale.deps/inherit markers
+                        ;; are inert residue: a migrated manifest must carry
+                        ;; no legacy-ns key anywhere.
+                        (assoc acc :rig/deps
+                               (into {} (map (fn [[lib spec]]
+                                               [lib (dissoc spec :exoscale.deps/inherit)])
+                                             v)))
                         (do (swap! problems conj
                                    ":exoscale.deps/managed-dependencies is only supported in the root deps.edn")
                             acc))
@@ -397,7 +405,7 @@
 (defn- apply-migration
   "Apply the data -> target migration to the zipper."
   [ztop data target]
-  (let [new-names (set (concat (vals key-rename) [:rig/test? :rig/version-fn]))
+  (let [new-names (set (concat (vals key-rename) [:rig/test? :rig/version-fn :rig/deps]))
         renamed-keys (set (concat (keys key-rename)
                                   [:exoscale.project/bypass-test?
                                    :exoscale.project/version-fn
@@ -419,9 +427,16 @@
                  (rename-key [] :exoscale.project/version-fn :rig/version-fn)
                  (edit-value [] :rig/version-fn (n/keyword-node kw)))
              zt)
-        ;; root: managed-dependencies -> :rig/deps
+        ;; root: managed-dependencies -> :rig/deps. The entries' own inert
+        ;; :exoscale.deps/inherit markers are dropped (a migrated manifest
+        ;; must carry no legacy-ns key anywhere).
         zt (if (contains? data :exoscale.deps/managed-dependencies)
-             (rename-key zt [] :exoscale.deps/managed-dependencies :rig/deps)
+             (reduce (fn [zt [lib spec]]
+                       (if (contains? spec :exoscale.deps/inherit)
+                         (drop-key zt [:rig/deps lib] :exoscale.deps/inherit)
+                         zt))
+                     (rename-key zt [] :exoscale.deps/managed-dependencies :rig/deps)
+                     (get data :exoscale.deps/managed-dependencies))
              zt)
         ;; drop the legacy top-level keys that are not renamed in place
         ;; (exec-args and managed-aliases are dropped; their content is

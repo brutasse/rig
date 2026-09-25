@@ -45,6 +45,20 @@ func TestParse(t *testing.T) {
 		{`sym`, Symbol{Name: "sym"}},
 		{`{:kaocha.filter/focus '[:unit]}`, Map{{K: Keyword{NS: "kaocha.filter", Name: "focus"}, V: Quoted{V: []any{Keyword{Name: "unit"}}}}}},
 		{`[[1] [2 3]]`, []any{[]any{int64(1)}, []any{int64(2), int64(3)}}},
+		// line comments
+		{`1 ; the answer`, int64(1)},
+		{"[1 ; first\n2 ; second\n3]", []any{int64(1), int64(2), int64(3)}},
+		{"{:a 1\n;; whole line\n:b 2}", Map{{K: Keyword{Name: "a"}, V: int64(1)}, {K: Keyword{Name: "b"}, V: int64(2)}}},
+		{"{1 2 ; } , { delims\n3 4}", Map{{K: int64(1), V: int64(2)}, {K: int64(3), V: int64(4)}}},
+		{"{:a 1 ; tail\n:b 2}", Map{{K: Keyword{Name: "a"}, V: int64(1)}, {K: Keyword{Name: "b"}, V: int64(2)}}},
+		{`{1 2} ; trailing, no newline`, Map{{K: int64(1), V: int64(2)}}},
+		{`"not ; a comment"`, "not ; a comment"},
+		// commas are whitespace
+		{`[1, 2, 3]`, []any{int64(1), int64(2), int64(3)}},
+		{`[1,2,]`, []any{int64(1), int64(2)}},
+		{`{:a 1, :b 2}`, Map{{K: Keyword{Name: "a"}, V: int64(1)}, {K: Keyword{Name: "b"}, V: int64(2)}}},
+		{`{a b, c d}`, Map{{K: Symbol{Name: "a"}, V: Symbol{Name: "b"}}, {K: Symbol{Name: "c"}, V: Symbol{Name: "d"}}}},
+		{`{:a [1, 2], :b #{3,}}`, Map{{K: Keyword{Name: "a"}, V: []any{int64(1), int64(2)}}, {K: Keyword{Name: "b"}, V: Set{int64(3)}}}},
 	}
 	for _, c := range cases {
 		got, err := Parse(c.in)
@@ -71,11 +85,30 @@ func TestParseErrors(t *testing.T) {
 		`[1] trailing`,
 		`'`,
 		`:`,
+		`,`,
+		`;`,
 	}
 	for _, in := range cases {
 		if _, err := Parse(in); err == nil {
 			t.Errorf("Parse(%q) expected error", in)
 		}
+	}
+}
+
+func TestParseNamedError(t *testing.T) {
+	_, err := Parse("{:a 1 ; x")
+	if err == nil {
+		t.Fatal("Parse expected error")
+	}
+	if got, want := err.Error(), "ednlit: unclosed map at 9"; got != want {
+		t.Errorf("unamed error = %q, want %q", got, want)
+	}
+	_, err = ParseNamed("modules/m/deps.edn", "{:a 1 ; x")
+	if err == nil {
+		t.Fatal("ParseNamed expected error")
+	}
+	if got, want := err.Error(), "ednlit: unclosed map at 9 in modules/m/deps.edn"; got != want {
+		t.Errorf("error = %q, want %q", got, want)
 	}
 }
 
