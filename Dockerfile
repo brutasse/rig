@@ -14,9 +14,10 @@
 
 FROM eclipse-temurin:21-jdk-jammy
 
-# TARGETARCH is set per-platform by buildx; the default covers a plain local
-# `docker build` (make image passes the host arch explicitly).
-ARG TARGETARCH=amd64
+# TARGETARCH is set per-platform by buildx; plain `docker build` injects the
+# host arch. No default: one would override the per-platform value in every
+# stage and silently select the wrong binary.
+ARG TARGETARCH
 ARG V
 ARG KERNEL_GITSHA
 ARG JARSHA
