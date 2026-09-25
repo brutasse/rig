@@ -78,6 +78,29 @@
   [data]
   (when-let [e (:ensure (get data :deps/prep-lib))]
     (if (string? e) [e] (when (sequential? e) (vec e)))))
+
+(defn prep-alias
+  "The name (string) of the deps alias under which the module's
+  :deps/prep-lib :fn runs."
+  [data]
+  (some-> (get-in data [:deps/prep-lib :alias]) name))
+
+(defn prep-fn
+  "The module's :deps/prep-lib :fn as a fully qualified var name string:
+  :fn when it is qualified, else qualified with the prep alias's
+  :ns-default — the form rig invokes on the locked alias classpath."
+  [data]
+  (when-let [f (get-in data [:deps/prep-lib :fn])]
+    (if (symbol? f)
+      (if (namespace f)
+        (str f)
+        (format "%s/%s"
+                (or (get-in data [:aliases (get-in data [:deps/prep-lib :alias]) :ns-default])
+                    (throw (ex-info (str ":deps/prep-lib :fn " (name f)
+                                         " is unqualified and the prep alias declares no :ns-default")
+                                    {})))
+                (name f)))
+      (throw (ex-info (str "bad :deps/prep-lib :fn " (pr-str f) " (want a symbol)") {})))))
 (defn clean-dirs [data] (get data :rig/clean-dirs))
 (defn test? [data]
   (if (contains? data :rig/test?)

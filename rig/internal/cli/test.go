@@ -44,6 +44,9 @@ func runTest(ctx context.Context, o *opts, args []string) error {
 	var failed []string
 	for _, m := range targets {
 		mod := e.lock.Modules[m]
+		if err := e.ensurePreps(ctx, m, mod); err != nil {
+			return err
+		}
 		al := mod.Aliases["test"]
 		cp, err := e.cpOf(ctx, m, "test")
 		if err != nil {

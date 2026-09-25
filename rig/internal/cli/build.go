@@ -71,7 +71,7 @@ func (e *hotEnv) buildOne(ctx context.Context, m string, uber bool) (string, err
 		return "", exitf(2, "module %s declares no jar", m)
 	}
 
-	if err := e.checkLocalPreps(m, mod); err != nil {
+	if err := e.ensurePreps(ctx, m, mod); err != nil {
 		return "", err
 	}
 
@@ -237,40 +237,6 @@ func absJoin(dir string, rels []string) []string {
 		out[i] = filepath.Join(dir, r)
 	}
 	return out
-}
-
-// checkLocalPreps verifies that the declared prep outputs of the module and
-// of each local module on its classpath exist. The generated output (gRPC
-// stubs, AOT classes) is produced by the module's :deps/prep-lib, which rig
-// does not run: a missing :ensure path is a hard error.
-func (e *hotEnv) checkLocalPreps(m string, mod lockfile.Module) error {
-	seen := map[string]bool{m: true}
-	var missing []string
-	add := func(dir string, ensure []string) {
-		for _, p := range ensure {
-			if _, err := os.Stat(filepath.Join(e.root.Dir, dir, p)); err != nil {
-				missing = append(missing, filepath.Join(dir, p))
-			}
-		}
-	}
-	if len(mod.PrepEnsure) > 0 {
-		add(m, mod.PrepEnsure)
-	}
-	for _, en := range mod.Classpath {
-		if en.Local == nil || seen[*en.Local] {
-			continue
-		}
-		dep, ok := e.lock.Modules[*en.Local]
-		if !ok || len(dep.PrepEnsure) == 0 {
-			continue
-		}
-		seen[*en.Local] = true
-		add(*en.Local, dep.PrepEnsure)
-	}
-	if len(missing) > 0 {
-		return exitf(2, "local dependency prep output missing: %s — rig does not run :deps/prep-lib; run the module's prep first", strings.Join(missing, ", "))
-	}
-	return nil
 }
 
 // uberExcluded mirrors tools.build's default uber exclusions: entries the

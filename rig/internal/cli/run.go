@@ -37,6 +37,9 @@ func runMain(ctx context.Context, o *opts, alias string, args []string) error {
 	if err != nil {
 		return err
 	}
+	if err := e.ensurePreps(ctx, m, mod); err != nil {
+		return err
+	}
 	if mod.Main == "" {
 		return exitf(2, "module %s declares no main", m)
 	}
@@ -80,6 +83,9 @@ func runRepl(ctx context.Context, o *opts, alias string) error {
 	}
 	mod, err := e.module(m)
 	if err != nil {
+		return err
+	}
+	if err := e.ensurePreps(ctx, m, mod); err != nil {
 		return err
 	}
 	al, env, err := e.alias(m, alias)
