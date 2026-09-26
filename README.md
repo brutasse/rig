@@ -52,8 +52,9 @@ current LTS to install (it never installs on its own).
 Native-image builds (`rig build --native`) work off the same pin: the
 GraalVM version is derived from `:rig/jvm`, recorded in the lock as an
 exact GraalVM CE release, and installed on demand from the
-`graalvm/graalvm-ce-builds` GitHub releases (hash-verified). A native
-build also needs a C compiler and a few GB of RAM, and takes minutes.
+`graalvm/graalvm-ce-builds` GitHub releases (hash-verified) — or
+explicitly with `rig graalvm install 21`. A native build also needs a C
+compiler and a few GB of RAM, and takes minutes.
 
 ## Docker
 

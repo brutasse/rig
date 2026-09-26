@@ -217,7 +217,8 @@ binary (GraalVM):
   --native` downloads, sha256-verifies and installs it from the
   `graalvm/graalvm-ce-builds` GitHub releases into the state dir
   (`~/.local/share/rig/graal/`); under `--offline` this fails with a
-  hint. `RIG_GRAALVM_HOME=<home>` overrides the store (a dev override,
+  hint. Manage them with `rig graalvm` (install / list / uninstall /
+  update). `RIG_GRAALVM_HOME=<home>` overrides the store (a dev override,
   like `RIG_JAVA`; it must contain `bin/native-image`).
 - **Entry point.** `:rig/main` must be a Clojure namespace. rig compiles
   a small entry shim (javac beside the workspace's java) whose main

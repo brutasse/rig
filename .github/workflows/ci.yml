@@ -106,9 +106,10 @@ jobs:
 
   native-e2e:
     # Builds the testdata/native fixture into a GraalVM native binary and
-    # runs it (make test-native). GraalVM CE is installed from the same
-    # GitHub release rig itself resolves (jdk-21.0.2, matching the
-    # fixture's :rig/jvm "21" pin).
+    # runs it (make test-native). GraalVM is pulled by rig itself:
+    # `rig graalvm install` downloads the community build from the
+    # graalvm/graalvm-ce-builds GitHub release, sha256-verified, at the
+    # version the fixture's lock pins.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -123,19 +124,17 @@ jobs:
         with:
           cli: "1.12.5.1664"
 
-      - name: Install GraalVM CE
-        run: |
-          curl -fsSL -o /tmp/graalvm.tar.gz \
-            https://github.com/graalvm/graalvm-ce-builds/releases/download/jdk-21.0.2/graalvm-community-jdk-21.0.2_linux-x64_bin.tar.gz
-          mkdir -p /opt/graalvm
-          tar -xzf /tmp/graalvm.tar.gz -C /opt/graalvm --strip-components=1
-          /opt/graalvm/bin/native-image --version
-
       - name: Build
         run: make dev
 
+      - name: Install GraalVM with rig
+        run: |
+          VER=$(python3 -c "import json; print(json.load(open('rig/internal/cli/testdata/native/deps.lock'))['graalvm']['version'])")
+          rig/dist/rig graalvm install "$VER"
+          echo "GRAALVM=$HOME/.local/share/rig/graal/graalvm-$VER/graal" >> "$GITHUB_ENV"
+
       - name: Native E2E
-        run: make test-native GRAALVM=/opt/graalvm
+        run: make test-native GRAALVM="$GRAALVM"
 
   release:
     runs-on: ubuntu-latest

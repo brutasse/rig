@@ -310,6 +310,34 @@ func (s *Store) List() ([]Inst, error) {
 	return out, nil
 }
 
+// Uninstall removes the installed GraalVM matching requested — the exact
+// version, or a prefix that matches exactly one install — and returns the
+// version removed.
+func (s *Store) Uninstall(requested string) (string, error) {
+	insts, err := s.List()
+	if err != nil {
+		return "", err
+	}
+	var matches []string
+	for _, i := range insts {
+		if jdk.Satisfies(requested, i.Version) || strings.HasPrefix(i.Version, requested) {
+			matches = append(matches, i.Version)
+		}
+	}
+	switch len(matches) {
+	case 0:
+		return "", fmt.Errorf("graal: nothing installed matching %q", requested)
+	case 1:
+	default:
+		return "", fmt.Errorf("graal: %q matches several installs: %s", requested, strings.Join(matches, ", "))
+	}
+	v := matches[0]
+	if err := os.RemoveAll(s.Dir(v)); err != nil {
+		return "", err
+	}
+	return v, nil
+}
+
 // Ensure returns an installed GraalVM for the pin: the exact version when
 // set, else the newest installed satisfying requested. When nothing
 // suitable is installed and offline is false, the needed release is

@@ -34,6 +34,10 @@ documentation of record; this page is the map.
 | `jvm list` | — | Installed JDKs + the system `java`. |
 | `jvm uninstall <version>` | — | Remove an installed JDK. |
 | `jvm update` | — | Bump the locked JVM to the newest release satisfying `:rig/jvm`. |
+| `graalvm install <version>` | — | Install a GraalVM community JDK into the rig state dir. |
+| `graalvm list` | — | Installed GraalVMs. |
+| `graalvm uninstall <version>` | — | Remove an installed GraalVM. |
+| `graalvm update` | — | Bump the locked GraalVM to the newest build satisfying `:rig/jvm`. |
 | `self-update [--check]` | — | Update the rig binary from the GitHub releases. |
 | `auth get [gate\|url]` | — | Print the bearer token of an OIDC gate (env, cache, or negotiated). |
 | `version` | hot | Print the project version. |
@@ -421,6 +425,50 @@ rig jvm uninstall 21.0.12.1+1   # exact, or unique prefix (rig jvm uninstall 21.
 Workspace command: bumps the exact `jvm.version` recorded in `deps.lock` to
 the newest release satisfying the manifest's `:rig/jvm` pin, and saves the
 lock. The manifest is untouched. Refused under `--frozen`.
+
+## GraalVM management
+
+`rig` manages GraalVM community JDKs, for native-image builds
+(`rig build --native`). The project's requirement is derived from the
+`:rig/jvm` pin; the lock records the exact build; missing GraalVMs are
+installed on demand, or explicitly.
+
+### `rig graalvm install`
+
+```
+rig graalvm install 21           # newest 21.x build
+rig graalvm install 21.0.2       # exact build
+```
+
+Resolves the build through the `graalvm/graalvm-ce-builds` GitHub releases,
+downloads the archive for the current platform, verifies its sha256 against
+the release's `.sha256` sidecar, and extracts it to the state dir
+(`~/.local/share/rig/graal/graalvm-<version>/graal`). A no-op when the
+version is already installed. `--offline` refuses (installing needs the
+network).
+
+### `rig graalvm list`
+
+Installed managed GraalVMs:
+
+```
+installed:
+  graalvm 21.0.2  linux/x64  /home/…/.local/share/rig/graal/graalvm-21.0.2/graal
+```
+
+### `rig graalvm uninstall`
+
+```
+rig graalvm uninstall 21.0.2     # exact, or unique prefix (rig graalvm uninstall 21.0)
+```
+
+### `rig graalvm update`
+
+Workspace command: bumps the exact `graalvm.version` recorded in `deps.lock`
+to the newest community build satisfying the manifest's `:rig/jvm` pin, and
+saves the lock. The manifest is untouched. Refused under `--frozen`, and
+with no `graalvm` block in the lock (the workspace needs a `:rig/jvm` pin
+and a `:rig/native?` module).
 
 ## Global flags
 

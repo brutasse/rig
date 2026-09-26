@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -88,6 +89,30 @@ func TestStoreBestList(t *testing.T) {
 	}
 	if len(insts) != 3 || insts[0].Version != "25.0.2" || insts[2].Version != "24.0.2" {
 		t.Errorf("list = %v", insts)
+	}
+}
+
+func TestStoreUninstall(t *testing.T) {
+	root := t.TempDir()
+	fakeInstall(t, root, "25.0.2")
+	fakeInstall(t, root, "24.0.2")
+	st := NewStoreAt(root)
+
+	if _, err := st.Uninstall("24"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(st.Dir("24.0.2")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("dir 24.0.2 still present: %v", err)
+	}
+	if _, err := st.Uninstall("24"); err == nil {
+		t.Error("second uninstall should fail")
+	}
+	fakeInstall(t, root, "25.0.19")
+	if _, err := st.Uninstall("25.0"); err == nil {
+		t.Error("ambiguous prefix should fail")
+	}
+	if v, err := st.Uninstall("25.0.2"); err != nil || v != "25.0.2" {
+		t.Errorf("uninstall = %q, %v", v, err)
 	}
 }
 
