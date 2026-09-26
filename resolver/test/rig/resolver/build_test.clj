@@ -149,6 +149,29 @@
       (finally
         (delete-tree ws-dir)))))
 
+(deftest build-classes-only
+  "A build config with neither jar? nor uber? compiles into the class-dir
+  only (the native-image path): no jar or uber is produced."
+  (let [ws-dir (temp-dir)
+        ws (str ws-dir)
+        src-root (io/file ws-dir "src")
+        src-file (io/file src-root "example" "core.clj")]
+    (io/make-parents src-file)
+    (spit src-file "(ns example.core)\n(defn add [a b] (+ a b))\n")
+    (try
+      (let [cfg (assoc (cfg ws src-root (io/file ws-dir "resources") false)
+                       :jar? false :uber? false)
+            res (get-in (build/build {:args {:builds {"." cfg}}}) [:results 0])]
+        (is (= (str ws "/target/classes") (:class-dir res)))
+        (is (nil? (:jar res)))
+        (is (nil? (:uber res)))
+        (is (not (.exists (io/file ws "target/fixture.jar"))))
+        ;; AOT of a plain ns yields the __init and fn classes, no ns class.
+        (is (.exists (io/file ws "target/classes/example/core__init.class")))
+        (is (.exists (io/file ws "target/classes/example/core$add.class"))))
+      (finally
+        (delete-tree ws-dir)))))
+
 (deftest rebuild-recompiles-after-source-changes
   "The class-dir of a previous build must not shadow changed sources (stale
   bytecode): a rebuild picks up the new source content."

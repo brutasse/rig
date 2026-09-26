@@ -141,6 +141,76 @@ func TestHotBuildUber(t *testing.T) {
 	}
 }
 
+func TestBuildNativeFlags(t *testing.T) {
+	hotSetup(t)
+	// --native and --uber are mutually exclusive.
+	code, out := runCLI(t, "build", "--cache-dir", t.TempDir(), "--uber", "--native")
+	if code != 2 || !strings.Contains(out, "mutually exclusive") {
+		t.Errorf("uber+native exit = %d, out = %q", code, out)
+	}
+	// A module that declares no native-image build is a usage error.
+	code, out = runCLI(t, "build", "--cache-dir", t.TempDir(), "-p", "modules/app", "--native")
+	if code != 2 {
+		t.Errorf("native build exit = %d, want 2; out: %s", code, out)
+	}
+	if !strings.Contains(out, "declares no native-image build") {
+		t.Errorf("out = %q", out)
+	}
+}
+
+// TestHotBuildNative builds the testdata/native fixture's module as a
+// GraalVM native-image binary and runs it. Skips unless RIG_TEST_GRAALVM
+// points at a GraalVM home with bin/native-image (the JVM pins in the lock
+// are overridden by RIG_JAVA/RIG_GRAALVM_HOME, so no managed download).
+func TestHotBuildNative(t *testing.T) {
+	graalHome := os.Getenv("RIG_TEST_GRAALVM")
+	if graalHome == "" {
+		t.Skip("RIG_TEST_GRAALVM not set (point it at a GraalVM home with bin/native-image)")
+	}
+	java, err := jvm.Find()
+	if err != nil {
+		t.Skipf("no java available: %v", err)
+	}
+	jar := kernelJarPath(t)
+	sha, err := digest.File(jar)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldSHA := kernel.Current.JARSHA
+	kernel.Current.JARSHA = sha
+	os.Setenv("RIG_KERNEL_JAR", jar)
+	os.Setenv("RIG_JAVA", java)
+	os.Setenv("RIG_GRAALVM_HOME", graalHome)
+	t.Cleanup(func() {
+		kernel.Current.JARSHA = oldSHA
+		os.Unsetenv("RIG_KERNEL_JAR")
+		os.Unsetenv("RIG_JAVA")
+		os.Unsetenv("RIG_GRAALVM_HOME")
+	})
+	dst := t.TempDir()
+	if err := copyTree("testdata/native", dst); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dst)
+	cacheDir := t.TempDir()
+	code, out := runCLI(t, "build", "--cache-dir", cacheDir, "-p", "modules/app", "--native")
+	if code != 0 {
+		t.Fatalf("build --native exit = %d, want 0; out: %s", code, out)
+	}
+	bin := filepath.Join(dst, "modules", "app", "target", "native-app")
+	if !statOK(bin) {
+		t.Fatalf("native binary missing at %s; out: %s", bin, out)
+	}
+	// The binary is a standalone native executable: it takes plain args.
+	code, out = runCLI(t, "exec", "--cache-dir", cacheDir, "-p", "modules/app", bin, "world")
+	if code != 0 {
+		t.Fatalf("run native binary exit = %d, want 0; out: %s", code, out)
+	}
+	if !strings.Contains(out, "native hello world") {
+		t.Errorf("native binary out = %q", out)
+	}
+}
+
 func TestHotTestOffline(t *testing.T) {
 	hotSetup(t)
 	cacheDir := t.TempDir()

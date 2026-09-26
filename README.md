@@ -49,6 +49,15 @@ API). `rig new` scaffolds projects with the current LTS pin. Without the
 pin, rig uses `JAVA_HOME`/`PATH`; when no JVM is found, it suggests the
 current LTS to install (it never installs on its own).
 
+Native-image builds (`rig build --native`) work off the same pin: the
+GraalVM version is derived from `:rig/jvm`, recorded in the lock as an
+exact GraalVM CE release. The build never downloads: `rig build --native`
+requires the GraalVM installed and fails with a hint otherwise —
+`rig graalvm install 21` downloads it from the
+`graalvm/graalvm-ce-builds` GitHub releases (hash-verified) into the
+state dir. A native build also needs a C
+compiler and a few GB of RAM, and takes minutes.
+
 ## Docker
 
 The CI workflow also publishes `ghcr.io/brutasse/rig`

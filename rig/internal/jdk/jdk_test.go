@@ -356,7 +356,6 @@ func TestInstallChecksumMismatch(t *testing.T) {
 
 func TestInstallUnsafePath(t *testing.T) {
 	root := t.TempDir()
-	st := NewStoreAt(root)
 	// Archive with a path-traversal entry must be refused; "../../escape-target"
 	// resolves to <root>/escape-target, outside the scratch dir.
 	src := filepath.Join(t.TempDir(), "evil.tar.gz")
@@ -376,7 +375,9 @@ func TestInstallUnsafePath(t *testing.T) {
 	gz.Close()
 	f.Close()
 
-	if _, err := st.extract(src, "evil.tar.gz"); err == nil {
+	// Two levels below root, like the store's layout (<root>/graal/.extract-*),
+	// so the traversal lands at <root>/escape-target.
+	if _, err := Extract(filepath.Join(root, "graal"), src, "evil.tar.gz"); err == nil {
 		t.Error("expected unsafe-path error")
 	}
 	if _, err := os.Stat(filepath.Join(root, "escape-target")); err == nil {

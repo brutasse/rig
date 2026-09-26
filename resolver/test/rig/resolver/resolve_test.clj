@@ -118,6 +118,63 @@
     (is (= "target/app.jar"
            (get-in lock ["modules" "." :build :uberjar "file"])))))
 
+(deftest graalvm-pin-appears-with-jvm-pin-and-native-module
+  (let [ws (temp-ws "{:rig/lib x/y\n :rig/jvm \"21\"\n :rig/native? true}\n")
+        lock (-> (resolve/resolve-lock {:workspace ws})
+                 (get "lock"))]
+    (is (= {"vendor" "graalvm" "requested" "21" "version" nil}
+           (get lock "graalvm")))))
+
+(deftest no-graalvm-pin-without-jvm-pin
+  (let [ws (temp-ws "{:rig/lib x/y\n :rig/native? true}\n")
+        lock (-> (resolve/resolve-lock {:workspace ws})
+                 (get "lock"))]
+    (is (nil? (get lock "graalvm")))))
+
+(deftest no-graalvm-pin-without-native-module
+  (let [ws (temp-ws "{:rig/lib x/y\n :rig/jvm \"21\"}\n")
+        lock (-> (resolve/resolve-lock {:workspace ws})
+                 (get "lock"))]
+    (is (nil? (get lock "graalvm")))))
+
+(deftest graalvm-pin-carries-over-when-request-unchanged
+  (let [ws (temp-ws "{:rig/lib x/y\n :rig/jvm \"21\"\n :rig/native? true}\n")
+        lock (-> (resolve/resolve-lock
+                  {:workspace ws
+                   :lock {:graalvm {:vendor "graalvm" :requested "21" :version "21.0.2"}}})
+                 (get "lock"))]
+    (is (= "21.0.2" (get-in lock ["graalvm" "version"])))
+    (is (= "21" (get-in lock ["graalvm" "requested"])))))
+
+(deftest graalvm-pin-drops-old-version-when-request-changes
+  (let [ws (temp-ws "{:rig/lib x/y\n :rig/jvm \"25\"\n :rig/native? true}\n")
+        lock (-> (resolve/resolve-lock
+                  {:workspace ws
+                   :lock {:graalvm {:vendor "graalvm" :requested "21" :version "21.0.2"}}})
+                 (get "lock"))]
+    (is (= "25" (get-in lock ["graalvm" "requested"])))
+    (is (nil? (get-in lock ["graalvm" "version"])))))
+
+(deftest native-build-config-is-locked
+  (let [ws (temp-ws "{:rig/lib x/y\n :rig/jvm \"21\"\n :rig/native? true}\n")
+        lock (-> (resolve/resolve-lock {:workspace ws})
+                 (get "lock"))]
+    (is (= {"file" "target/y" "opts" []}
+           (dissoc (get-in lock ["modules" "." :build :native]) "main")))))
+
+(deftest native-file-is-implicit-native-and-overridable
+  (let [ws (temp-ws "{:rig/lib x/y\n :rig/native-file \"target/my-app\"}\n")
+        lock (-> (resolve/resolve-lock {:workspace ws})
+                 (get "lock"))]
+    (is (= "target/my-app"
+           (get-in lock ["modules" "." :build :native "file"])))))
+
+(deftest explicit-native-false-wins
+  (let [ws (temp-ws "{:rig/lib x/y\n :rig/native-file \"target/my-app\"\n :rig/native? false}\n")
+        lock (-> (resolve/resolve-lock {:workspace ws})
+                 (get "lock"))]
+    (is (nil? (get-in lock ["modules" "." :build :native])))))
+
 (deftest legacy-manifest-is-rejected
   (let [ws (temp-ws "{:exoscale.project/lib x/y\n :exoscale.project/uberjar-file \"target/app.jar\"}\n")]
     (is (thrown-with-msg? Exception #"still uses legacy keys.*run rig migrate"

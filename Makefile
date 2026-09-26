@@ -56,6 +56,16 @@ test-pier:
 	cd rig && RIG_TEST_PIER=$(abspath $(PIER)) RIG_TEST_KERNEL_JAR=$(abspath $(JAR)) \
 		go test -count=1 -v -run 'TestPier' ./internal/cli/
 
+# test-native: native-image E2E — builds the testdata/native fixture into a
+# GraalVM native binary and runs it. GRAALVM must point at a GraalVM home
+# (bin/native-image); the target fails with a hint when it is unset.
+# Usage: make test-native GRAALVM=/opt/graalvm
+GRAALVM ?=
+test-native:
+	@test -n "$(GRAALVM)" || { echo "set GRAALVM=/path/to/graalvm"; exit 1; }
+	cd rig && RIG_TEST_GRAALVM=$(abspath $(GRAALVM)) RIG_TEST_KERNEL_JAR=$(abspath $(JAR)) \
+		go test -count=1 -v -timeout 30m -run 'TestHotBuildNative' ./internal/cli/
+
 # run: execute the locally built rig in a workspace.
 # Usage: make run WS=<workspace-dir> ARGS="lock"
 run:
