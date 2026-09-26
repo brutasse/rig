@@ -339,11 +339,11 @@ func (s *Store) Uninstall(requested string) (string, error) {
 }
 
 // Ensure returns an installed GraalVM for the pin: the exact version when
-// set, else the newest installed satisfying requested. When nothing
-// suitable is installed and offline is false, the needed release is
-// downloaded, hash-verified and installed. A RIG_GRAALVM_HOME override is
-// used as-is (trusted, like RIG_JAVA) and never touches the store.
-func Ensure(ctx context.Context, st *Store, requested, version string, offline bool) (*Inst, error) {
+// set, else the newest installed satisfying requested. It never downloads —
+// missing GraalVMs are installed with `rig graalvm install`. A
+// RIG_GRAALVM_HOME override is used as-is (trusted, like RIG_JAVA) and
+// never touches the store.
+func Ensure(st *Store, requested, version string) (*Inst, error) {
 	if home := os.Getenv("RIG_GRAALVM_HOME"); home != "" {
 		native := filepath.Join(home, "bin", binName("native-image"))
 		if st, err := os.Stat(native); err != nil || st.IsDir() {
@@ -358,34 +358,19 @@ func Ensure(ctx context.Context, st *Store, requested, version string, offline b
 			NativeImagePath: native,
 		}, nil
 	}
-	switch {
-	case version != "":
-		if inst, err := st.Lookup(version); err == nil {
+	var want string
+	if version != "" {
+		inst, err := st.Lookup(version)
+		if err == nil {
 			return inst, nil
 		}
-	case !offline:
-		if inst, err := st.Best(requested); err == nil {
-			return inst, nil
-		}
+		want = version
+	} else if inst, err := st.Best(requested); err == nil {
+		return inst, nil
+	} else {
+		want = requested
 	}
-	if offline {
-		want := requested
-		if version != "" {
-			want = version
-		}
-		return nil, fmt.Errorf("offline: graalvm %s not installed (run 'rig build --native' online once to install it)", want)
-	}
-	a, err := NewAPI("").Resolve(ctx, firstNonEmpty(version, requested))
-	if err != nil {
-		return nil, err
-	}
-	fmt.Printf("installing %s %s (%d MB)…\n", a.Vendor, a.Version, a.Size/1024/1024)
-	inst, err := st.Install(ctx, a)
-	if err != nil {
-		return nil, err
-	}
-	fmt.Printf("installed %s %s\n", inst.Vendor, inst.Version)
-	return inst, nil
+	return nil, fmt.Errorf("graalvm %s not installed (run 'rig graalvm install %s')", want, want)
 }
 
 func firstNonEmpty(a, b string) string {

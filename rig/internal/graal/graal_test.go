@@ -298,22 +298,31 @@ func TestInstallChecksumMismatch(t *testing.T) {
 	}
 }
 
-func TestEnsureOffline(t *testing.T) {
+func TestEnsureMissing(t *testing.T) {
 	st := NewStoreAt(t.TempDir())
-	_, err := Ensure(context.Background(), st, "25", "", true)
-	if err == nil || !strings.Contains(err.Error(), "offline") {
+	_, err := Ensure(st, "25", "")
+	if err == nil || !strings.Contains(err.Error(), "graalvm 25 not installed (run 'rig graalvm install 25')") {
 		t.Errorf("err = %v", err)
 	}
-	_, err = Ensure(context.Background(), st, "25", "25.0.2", true)
-	if err == nil || !strings.Contains(err.Error(), "25.0.2") {
+	_, err = Ensure(st, "25", "25.0.2")
+	if err == nil || !strings.Contains(err.Error(), "graalvm 25.0.2 not installed (run 'rig graalvm install 25.0.2')") {
 		t.Errorf("err = %v", err)
+	}
+}
+
+func TestEnsureNoFallback(t *testing.T) {
+	root := t.TempDir()
+	fakeInstall(t, root, "25.0.1")
+	// An exact pin is never satisfied by another installed version.
+	if _, err := Ensure(NewStoreAt(root), "25", "25.0.2"); err == nil {
+		t.Error("expected an error: 25.0.2 is not installed")
 	}
 }
 
 func TestEnsureUsesInstalled(t *testing.T) {
 	root := t.TempDir()
 	fakeInstall(t, root, "25.0.2")
-	inst, err := Ensure(context.Background(), NewStoreAt(root), "25", "", false)
+	inst, err := Ensure(NewStoreAt(root), "25", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -332,7 +341,7 @@ func TestEnsureOverride(t *testing.T) {
 	}
 	t.Setenv("RIG_GRAALVM_HOME", home)
 
-	inst, err := Ensure(context.Background(), NewStoreAt(t.TempDir()), "25", "25.0.2", true)
+	inst, err := Ensure(NewStoreAt(t.TempDir()), "25", "25.0.2")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -346,7 +355,7 @@ func TestEnsureOverride(t *testing.T) {
 	// A home without native-image is refused.
 	empty := t.TempDir()
 	t.Setenv("RIG_GRAALVM_HOME", empty)
-	if _, err := Ensure(context.Background(), NewStoreAt(t.TempDir()), "25", "25.0.2", true); err == nil {
+	if _, err := Ensure(NewStoreAt(t.TempDir()), "25", "25.0.2"); err == nil {
 		t.Error("expected an error for an override home without native-image")
 	}
 }

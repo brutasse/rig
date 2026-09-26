@@ -431,7 +431,8 @@ lock. The manifest is untouched. Refused under `--frozen`.
 `rig` manages GraalVM community JDKs, for native-image builds
 (`rig build --native`). The project's requirement is derived from the
 `:rig/jvm` pin; the lock records the exact build; missing GraalVMs are
-installed on demand, or explicitly.
+installed explicitly — `rig build --native` never downloads, it fails
+with a hint until `rig graalvm install` has run.
 
 ### `rig graalvm install`
 

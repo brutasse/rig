@@ -91,6 +91,6 @@ func (o *opts) graalvmInfo(root *workspace.Root) (string, error) {
 		return fmt.Sprintf("graalvm:\t%s (graalvm %s, pinned %q)\n",
 			inst.NativeImagePath, inst.Version, pin.Requested), nil
 	}
-	return fmt.Sprintf("graalvm:\tpinned %q — graalvm not installed (run 'rig build --native' online to install it)\n",
-		pin.Requested), nil
+	return fmt.Sprintf("graalvm:\tpinned %q — graalvm not installed (run 'rig graalvm install %s')\n",
+		pin.Requested, pin.Requested), nil
 }

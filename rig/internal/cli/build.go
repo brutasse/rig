@@ -207,7 +207,7 @@ func (e *hotEnv) buildNative(ctx context.Context, m string, mod lockfile.Module,
 	if pin == nil {
 		return "", exitf(2, "module %s declares a native-image build but the lock pins no GraalVM (the workspace needs a :rig/jvm pin — run 'rig lock')", m)
 	}
-	inst, err := graal.Ensure(ctx, graal.NewStoreAt(e.store.Root), pin.Requested, pin.Version, e.offline)
+	inst, err := graal.Ensure(graal.NewStoreAt(e.store.Root), pin.Requested, pin.Version)
 	if err != nil {
 		return "", err
 	}

@@ -213,13 +213,14 @@ binary (GraalVM):
 - **GraalVM.** The version is derived from the workspace's `:rig/jvm`
   pin — `--native` without a pin is a usage error — and recorded in the
   lock as an exact release (`graalvm: {vendor, requested, version}`,
-  e.g. `21.0.2`). When the locked GraalVM is not installed, `rig build
-  --native` downloads, sha256-verifies and installs it from the
-  `graalvm/graalvm-ce-builds` GitHub releases into the state dir
-  (`~/.local/share/rig/graal/`); under `--offline` this fails with a
-  hint. Manage them with `rig graalvm` (install / list / uninstall /
-  update). `RIG_GRAALVM_HOME=<home>` overrides the store (a dev override,
-  like `RIG_JAVA`; it must contain `bin/native-image`).
+  e.g. `21.0.2`). The build never downloads: when the locked GraalVM is
+  not installed, `rig build --native` fails with a hint — install it
+  first with `rig graalvm install <version>` (downloaded from the
+  `graalvm/graalvm-ce-builds` GitHub releases, sha256-verified, into the
+  state dir `~/.local/share/rig/graal/`). Manage them with `rig graalvm`
+  (install / list / uninstall / update). `RIG_GRAALVM_HOME=<home>`
+  overrides the store (a dev override, like `RIG_JAVA`; it must contain
+  `bin/native-image`).
 - **Entry point.** `:rig/main` must be a Clojure namespace. rig compiles
   a small entry shim (javac beside the workspace's java) whose main
   delegates to `clojure.main` with `-m <ns>`, so the binary runs with
