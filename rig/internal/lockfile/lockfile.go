@@ -14,9 +14,9 @@ import (
 const SupportedVersion = 1
 
 // JVMFloor is the lowest JVM feature version the resolver kernel runs on:
-// the kernel jar is built for Java 11 (its cheshire JSON backend tigris
-// ships v55 classes), so a pin below it cannot load the kernel.
-const JVMFloor = 11
+// the kernel jar is built for Java 8 (the floor Clojure 1.12 itself has),
+// so a pin below it cannot load the kernel.
+const JVMFloor = 8
 
 type Document struct {
 	Version   int               `json:"version"`

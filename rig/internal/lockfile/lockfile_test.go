@@ -174,9 +174,10 @@ func TestValidateCorruption(t *testing.T) {
 
 func TestJVMFloor(t *testing.T) {
 	for requested, wantErr := range map[string]bool{
-		"8":   true,
-		"1.8": true,
-		"10":  true,
+		"7":   true,
+		"8":   false,
+		"1.8": false,
+		"10":  false,
 		"11":  false,
 		"21":  false,
 	} {

@@ -226,8 +226,8 @@
         src-root (io/file ws-dir "src")
         java-root (io/file ws-dir "java")
         java-file (io/file java-root "example" "Greeter.java")
-        javac (io/file (System/getProperty "java.home") "bin" "javac")]
-    (when (.exists javac)
+        javac (javax.tools.ToolProvider/getSystemJavaCompiler)]
+    (when javac
       (io/make-parents (io/file src-root "example" "core.clj"))
       (spit (io/file src-root "example" "core.clj") "(ns example.core)\n(def x 1)\n")
       (io/make-parents java-file)

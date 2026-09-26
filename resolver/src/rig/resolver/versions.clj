@@ -72,8 +72,8 @@
     (if (= "file" (.getProtocol u))
       (let [f (io/file (.getPath u))]
         (when (.exists f)
-          (with-open [in (io/input-stream f)]
-            (String. (.readAllBytes in) "UTF-8"))))
+          (with-open [r (io/reader f :encoding "UTF-8")]
+            (slurp r))))
       (let [conn (.openConnection u)]
         (try
           (do (.setConnectTimeout conn 15000)
@@ -81,8 +81,8 @@
               (with-auth conn repo-id spec)
               (let [code (.getResponseCode conn)]
                 (when (<= 200 code 299)
-                  (with-open [in (.getInputStream conn)]
-                    (String. (.readAllBytes in) "UTF-8")))))
+                  (with-open [r (io/reader (.getInputStream conn) :encoding "UTF-8")]
+                    (slurp r)))))
           (catch java.io.IOException _ nil)
           (finally (.disconnect conn))))))))
 

@@ -17,7 +17,7 @@ Set in the root `deps.edn` of a workspace (a `deps.edn` containing
 | `:rig/deps` | — | Shared requirements: the single place to bump a cross-module version. Values are plain requirement maps (`{:mvn/version …}`, optionally with `:exclusions`, `:local/root`, `:git`). `rig update` keeps this in sync with the modules, and `rig check` reports drift. It is not merged into module classpaths: modules keep declaring their own `:deps`. |
 | `:rig/cooldown` | `"48h"` | Minimum age of a version before it may be selected. `"0s"` disables. See [cooldowns](../concepts/security.md#cooldowns-the-adoption-window). |
 | `:rig/cooldown-repos` | — | Per-repository cooldown overrides, keyed by `:mvn/repos` id: `{"corp" "72h"}`. |
-| `:rig/jvm` | — | The JVM the project runs on, e.g. `"21"` or `"21.0.10+7"` (Temurin). Recorded in the lock as an exact version; `rig` installs it into its state dir when missing (see [JVMs](#jvms-rigjvm)). Minimum supported value: `11` — the kernel jar is built for Java 11, so older JVMs cannot load it. |
+| `:rig/jvm` | — | The JVM the project runs on, e.g. `"21"` or `"21.0.10+7"` (Temurin). Recorded in the lock as an exact version; `rig` installs it into its state dir when missing (see [JVMs](#jvms-rigjvm)). Minimum supported value: `8` — the kernel jar is built for Java 8, so older JVMs cannot load it. |
 | `:rig/version-file` | `"VERSION"` | Root version file recorded in the lock for the root module. |
 
 The root `deps.edn` may also carry its own `:deps`/`:aliases`/`:paths` —
