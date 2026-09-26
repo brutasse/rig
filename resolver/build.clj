@@ -20,6 +20,16 @@
 (def target "target")
 (def class-dir (str target "/classes"))
 (def uber-file (str target "/rig-resolver-" version ".jar"))
+;; The kernel floor is Java 8 (Clojure 1.12's own floor; every dependency
+;; in the jar is Java 8 or lower). On JDK 9+ hosts --release pins the
+;; compiled classes to the floor: without it Main.class targets the build
+;; host's JVM and a workspace pinned below the host fails to load the
+;; kernel (UnsupportedClassVersionError). On a Java 8 host javac already
+;; targets Java 8 and --release does not exist, so no flag is needed.
+(def javac-opts
+  (if (.startsWith (System/getProperty "java.specification.version") "1.")
+    []
+    ["--release" "8"]))
 
 (defn- normalize-zip
   "Re-zip src to dst with fixed entry timestamps so the jar is
@@ -53,13 +63,8 @@
   (b/delete {:path target})
   (let [basis (b/create-basis {})]
     (b/compile-clj {:basis basis :class-dir class-dir :src-dirs ["src"]})
-    ;; --release pins Main.class to the kernel floor, Java 8 (Clojure 1.12's
-    ;; own floor; every dependency in the jar is Java 8 or lower): without
-    ;; it the class targets the build host's JVM and a workspace pinned
-    ;; below the host fails to load the kernel
-    ;; (UnsupportedClassVersionError).
     (b/javac {:basis basis :class-dir class-dir :src-dirs ["java"]
-              :javac-opts ["--release" "8"]})
+              :javac-opts javac-opts})
     ;; build-info.edn lands in the uber jar via class-dir (tools.build
     ;; 0.10.5's uber has no :resource-dirs): the kernel's identity, read
     ;; at runtime by rig.resolver.resolve/resolver-id.
