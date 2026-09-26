@@ -30,6 +30,10 @@ const Vendor = "graalvm"
 // DefaultBase is the GitHub API used to resolve GraalVM community builds.
 var DefaultBase = "https://api.github.com"
 
+// DownloadBase is the host serving release asset downloads; it is separate
+// from the API and not subject to its rate limits.
+var DownloadBase = "https://github.com"
+
 // repo is the GraalVM community build releases rig installs from. Only
 // `jdk-*` tagged releases are considered: the "Innovation" releases
 // (graal-* tags) version their assets independently of the tag and are out
@@ -107,6 +111,9 @@ func (a *apiClient) Resolve(ctx context.Context, requested string) (Asset, error
 	if !ok {
 		return Asset{}, fmt.Errorf("graal: no graalvm build for %s/%s", runtime.GOOS, runtime.GOARCH)
 	}
+	if jdk.IsExact(requested) {
+		return a.resolveExact(ctx, requested, os, arch)
+	}
 	rels, err := a.releases(ctx)
 	if err != nil {
 		return Asset{}, err
@@ -151,6 +158,59 @@ func (a *apiClient) Resolve(ctx context.Context, requested string) (Asset, error
 	return Asset{}, fmt.Errorf("graal: no graalvm %s/%s build satisfies %q", os, arch, requested)
 }
 
+// resolveExact fetches a fully-specified version straight from the release
+// asset host: the asset name and URL follow the release convention, so no
+// API lookup is needed and the unauthenticated API rate limit never
+// applies. A missing release or platform build 404s on the sidecar.
+func (a *apiClient) resolveExact(ctx context.Context, v, os, arch string) (Asset, error) {
+	archive := fmt.Sprintf("graalvm-community-jdk-%s_%s-%s_bin", v, os, arch)
+	if os == "windows" {
+		archive += ".zip"
+	} else {
+		archive += ".tar.gz"
+	}
+	sum, err := a.sha256(ctx, downloadURL(v, archive+".sha256"))
+	if err != nil {
+		var se *statusError
+		if errors.As(err, &se) && se.status == http.StatusNotFound {
+			return Asset{}, fmt.Errorf("graal: no graalvm %s/%s build %q", os, arch, v)
+		}
+		return Asset{}, err
+	}
+	return Asset{
+		Vendor:  Vendor,
+		Version: v,
+		OS:      os,
+		Arch:    arch,
+		Archive: archive,
+		URL:     downloadURL(v, archive),
+		SHA256:  sum,
+	}, nil
+}
+
+// downloadURL is the asset download URL for the jdk-<v> release on the
+// asset host (not the API: no /repos/ segment).
+func downloadURL(v, name string) string {
+	return DownloadBase + "/" + repo + "/releases/download/jdk-" + v + "/" + name
+}
+
+// statusError is a non-200 response from a graal endpoint, with the response
+// body captured for diagnosis (GitHub's rate-limit responses explain
+// themselves in it).
+type statusError struct {
+	url    string
+	status int
+	body   string
+}
+
+func (e *statusError) Error() string {
+	s := fmt.Sprintf("graal: %s: status %d", e.url, e.status)
+	if e.body != "" {
+		s += ": " + e.body
+	}
+	return s
+}
+
 func (a *apiClient) releases(ctx context.Context) ([]apiRelease, error) {
 	url := a.base + "/repos/" + repo + "/releases?per_page=100"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -163,7 +223,8 @@ func (a *apiClient) releases(ctx context.Context) ([]apiRelease, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("graal: %s: status %d", url, resp.StatusCode)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		return nil, &statusError{url: url, status: resp.StatusCode, body: strings.TrimSpace(string(body))}
 	}
 	var rels []apiRelease
 	if err := json.NewDecoder(resp.Body).Decode(&rels); err != nil {
@@ -184,7 +245,8 @@ func (a *apiClient) sha256(ctx context.Context, url string) (string, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("graal: %s: status %d", url, resp.StatusCode)
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		return "", &statusError{url: url, status: resp.StatusCode, body: strings.TrimSpace(string(b))}
 	}
 	var body strings.Builder
 	if _, err := io.Copy(&body, io.LimitReader(resp.Body, 256)); err != nil {

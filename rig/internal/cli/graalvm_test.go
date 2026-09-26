@@ -107,6 +107,18 @@ func graalAPIServer(t *testing.T, version, archive, sum string) *httptest.Server
 		w.Header().Set("Content-Type", "application/json")
 		w.Write(relJSON)
 	})
+	mux.HandleFunc("/graalvm/graalvm-ce-builds/releases/download/jdk-"+version+"/", func(w http.ResponseWriter, r *http.Request) {
+		name := strings.TrimPrefix(r.URL.Path, "/graalvm/graalvm-ce-builds/releases/download/jdk-"+version+"/")
+		want := "graalvm-community-jdk-" + version + "_" + osN + "-" + archN + "_bin"
+		switch name {
+		case want + ".tar.gz", want + ".zip":
+			http.ServeFile(w, r, archive)
+		case want + ".tar.gz.sha256", want + ".zip.sha256":
+			w.Write([]byte(sum))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	})
 	mux.HandleFunc("/dl", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, archive)
 	})
@@ -134,9 +146,9 @@ func graalAPIServer(t *testing.T, version, archive, sum string) *httptest.Server
 func TestGraalVMInstallListUninstall(t *testing.T) {
 	archive, sum := makeFakeGraalTarball(t, "25.0.2")
 	srv := graalAPIServer(t, "25.0.2", archive, sum)
-	oldBase := graal.DefaultBase
-	graal.DefaultBase = srv.URL
-	t.Cleanup(func() { graal.DefaultBase = oldBase })
+	oldAPI, oldDL := graal.DefaultBase, graal.DownloadBase
+	graal.DefaultBase, graal.DownloadBase = srv.URL, srv.URL
+	t.Cleanup(func() { graal.DefaultBase, graal.DownloadBase = oldAPI, oldDL })
 
 	cacheDir := t.TempDir()
 	code, out := runCLI(t, "graalvm", "install", "25", "--cache-dir", cacheDir)

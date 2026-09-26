@@ -79,6 +79,14 @@ func FeatureVersion(v string) int {
 	return n
 }
 
+// IsExact reports whether s fully specifies a release version (three or
+// more components, no build number): such a request maps to exactly one
+// release, so it can be served without looking the release list up.
+func IsExact(s string) bool {
+	v, err := parseVersion(s)
+	return err == nil && !v.hasBuild && len(v.comps) >= 3
+}
+
 // Satisfies reports whether candidate fulfills requested: every component
 // requested specifies must equal the candidate's; an unspecified requested
 // component matches anything, including an absent one.

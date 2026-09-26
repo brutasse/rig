@@ -62,7 +62,11 @@ func runGraalVMInstall(ctx context.Context, o *opts, requested string) error {
 		fmt.Printf("already installed: %s %s\n", inst.Vendor, inst.Version)
 		return nil
 	}
-	fmt.Printf("installing %s %s (%s, %d MB)…\n", a.Vendor, a.Version, a.OS+"/"+a.Arch, a.Size/1024/1024)
+	size := ""
+	if a.Size > 0 {
+		size = fmt.Sprintf(", %d MB", a.Size/1024/1024)
+	}
+	fmt.Printf("installing %s %s (%s%s)…\n", a.Vendor, a.Version, a.OS+"/"+a.Arch, size)
 	inst, err := st.Install(ctx, a)
 	if err != nil {
 		return err
