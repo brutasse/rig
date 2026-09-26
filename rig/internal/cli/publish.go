@@ -160,7 +160,7 @@ type publishEntry struct {
 }
 
 func (e *hotEnv) publishOne(ctx context.Context, m string, remote bool) error {
-	jar, err := e.buildOne(ctx, m, false)
+	jar, err := e.buildOne(ctx, m, false, false)
 	if err != nil {
 		return err
 	}

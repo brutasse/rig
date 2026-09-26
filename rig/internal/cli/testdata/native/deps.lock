@@ -1,0 +1,194 @@
+{
+  "version": 1,
+  "tool": {
+    "name": "rig",
+    "version": "dev"
+  },
+  "resolver": {
+    "lib": "io.github.brutasse/rig-resolver",
+    "version": "v0.1.0",
+    "git/sha": "a17bdb4d3509be22e80deb08f6ba72c42becc1df"
+  },
+  "locked_at": "2026-09-25T21:36:43Z",
+  "workspace": {
+    "modules": [
+      ".",
+      "modules/app"
+    ],
+    "manifest_sha256": "047140bccabed09bc34433d66c13463046be23c642eb0611d06bb799df03af25"
+  },
+  "cooldown": {
+    "default": "48h",
+    "repos": {}
+  },
+  "jvm": {
+    "vendor": "temurin",
+    "requested": "21",
+    "version": "21.0.12.1+1"
+  },
+  "graalvm": {
+    "vendor": "graalvm",
+    "requested": "21",
+    "version": "21.0.2"
+  },
+  "artifacts": [
+    {
+      "id": "org.clojure/clojure:1.12.5:jar",
+      "kind": "mvn",
+      "group": "org.clojure",
+      "name": "clojure",
+      "version": "1.12.5",
+      "extension": "jar",
+      "classifier": null,
+      "repository": "central",
+      "url": "https://repo.maven.apache.org/maven2/org/clojure/clojure/1.12.5/clojure-1.12.5.jar",
+      "sha256": "dfdee131460216a84fef22e537bb0d0579965f8f70338d748323dff26f8e5a8b",
+      "published_at": null,
+      "git": null
+    },
+    {
+      "id": "org.clojure/core.specs.alpha:0.4.74:jar",
+      "kind": "mvn",
+      "group": "org.clojure",
+      "name": "core.specs.alpha",
+      "version": "0.4.74",
+      "extension": "jar",
+      "classifier": null,
+      "repository": "central",
+      "url": "https://repo.maven.apache.org/maven2/org/clojure/core.specs.alpha/0.4.74/core.specs.alpha-0.4.74.jar",
+      "sha256": "eb73ac08cf49ba840c88ba67beef11336ca554333d9408808d78946e0feb9ddb",
+      "published_at": null,
+      "git": null
+    },
+    {
+      "id": "org.clojure/spec.alpha:0.5.238:jar",
+      "kind": "mvn",
+      "group": "org.clojure",
+      "name": "spec.alpha",
+      "version": "0.5.238",
+      "extension": "jar",
+      "classifier": null,
+      "repository": "central",
+      "url": "https://repo.maven.apache.org/maven2/org/clojure/spec.alpha/0.5.238/spec.alpha-0.5.238.jar",
+      "sha256": "94cd99b6ea639641f37af4860a643b6ed399ee5a8be5d717cff0b663c8d75077",
+      "published_at": null,
+      "git": null
+    },
+    {
+      "id": "org.clojure/clojure:1.11.0:jar",
+      "kind": "mvn",
+      "group": "org.clojure",
+      "name": "clojure",
+      "version": "1.11.0",
+      "extension": "jar",
+      "classifier": null,
+      "repository": "central",
+      "url": "https://repo.maven.apache.org/maven2/org/clojure/clojure/1.11.0/clojure-1.11.0.jar",
+      "sha256": "3e21fa75a07ec9ddbbf1b2b50356cf180710d0398deaa4f44e91cd6304555947",
+      "published_at": null,
+      "git": null
+    },
+    {
+      "id": "org.clojure/core.specs.alpha:0.2.62:jar",
+      "kind": "mvn",
+      "group": "org.clojure",
+      "name": "core.specs.alpha",
+      "version": "0.2.62",
+      "extension": "jar",
+      "classifier": null,
+      "repository": "central",
+      "url": "https://repo.maven.apache.org/maven2/org/clojure/core.specs.alpha/0.2.62/core.specs.alpha-0.2.62.jar",
+      "sha256": "06eea8c070bbe45c158567e443439681bc8c46e9123414f81bfa32ba42d6cbc8",
+      "published_at": null,
+      "git": null
+    },
+    {
+      "id": "org.clojure/spec.alpha:0.3.218:jar",
+      "kind": "mvn",
+      "group": "org.clojure",
+      "name": "spec.alpha",
+      "version": "0.3.218",
+      "extension": "jar",
+      "classifier": null,
+      "repository": "central",
+      "url": "https://repo.maven.apache.org/maven2/org/clojure/spec.alpha/0.3.218/spec.alpha-0.3.218.jar",
+      "sha256": "67ec898eb55c66a957a55279dd85d1376bb994bd87668b2b0de1eb3b97e8aae0",
+      "published_at": null,
+      "git": null
+    }
+  ],
+  "skipped": [],
+  "modules": {
+    ".": {
+      "manifest_sha256": "047140bccabed09bc34433d66c13463046be23c642eb0611d06bb799df03af25",
+      "lib": "",
+      "version": "",
+      "jvm-opts": [],
+      "paths": [
+        "src"
+      ],
+      "classpath": [
+        "org.clojure/clojure:1.12.5:jar",
+        "org.clojure/core.specs.alpha:0.4.74:jar",
+        "org.clojure/spec.alpha:0.5.238:jar"
+      ],
+      "aliases": {},
+      "build": {
+        "src-dirs": [
+          "src",
+          "resources"
+        ],
+        "java-src-dirs": [],
+        "class-dir": "target/classes",
+        "jar": true,
+        "uberjar": null
+      },
+      "publish": {
+        "enabled": false,
+        "repo": "",
+        "sign-releases?": false
+      },
+      "test": {
+        "enabled": true
+      }
+    },
+    "modules/app": {
+      "manifest_sha256": "d45c974d7adccc945ea46d13a2818b26b5238fcdda30a7445dc9d445ce3cd08e",
+      "lib": "example/native-app",
+      "version": "0.1.0",
+      "main": "app.core",
+      "jvm-opts": [],
+      "paths": [
+        "src"
+      ],
+      "classpath": [
+        "org.clojure/clojure:1.11.0:jar",
+        "org.clojure/core.specs.alpha:0.2.62:jar",
+        "org.clojure/spec.alpha:0.3.218:jar"
+      ],
+      "aliases": {},
+      "build": {
+        "src-dirs": [
+          "src",
+          "resources"
+        ],
+        "java-src-dirs": [],
+        "class-dir": "target/classes",
+        "jar": true,
+        "uberjar": null,
+        "native": {
+          "file": "target/native-app",
+          "main": "app.core"
+        }
+      },
+      "publish": {
+        "enabled": false,
+        "repo": "",
+        "sign-releases?": false
+      },
+      "test": {
+        "enabled": true
+      }
+    }
+  }
+}

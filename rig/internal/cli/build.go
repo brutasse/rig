@@ -10,8 +10,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -19,6 +21,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/brutasse/rig/internal/classpath"
+	"github.com/brutasse/rig/internal/graal"
 	"github.com/brutasse/rig/internal/jdk"
 	"github.com/brutasse/rig/internal/jvm"
 	"github.com/brutasse/rig/internal/kernel"
@@ -26,20 +29,24 @@ import (
 )
 
 func newBuildCmd(o *opts) *cobra.Command {
-	var uber bool
+	var uber, native bool
 	c := &cobra.Command{
 		Use:   "build",
-		Short: "Build the target module's jar or uberjar",
+		Short: "Build the target module's jar, uberjar, or native-image binary",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runBuild(cmd.Context(), o, uber)
+			return runBuild(cmd.Context(), o, uber, native)
 		},
 	}
 	c.Flags().BoolVar(&uber, "uber", false, "build the uberjar instead of the jar")
+	c.Flags().BoolVar(&native, "native", false, "build the GraalVM native-image binary instead of the jar")
 	return c
 }
 
-func runBuild(ctx context.Context, o *opts, uber bool) error {
+func runBuild(ctx context.Context, o *opts, uber, native bool) error {
+	if uber && native {
+		return exitf(2, "--uber and --native are mutually exclusive")
+	}
 	e, err := o.hot(ctx, true)
 	if err != nil {
 		return err
@@ -48,7 +55,7 @@ func runBuild(ctx context.Context, o *opts, uber bool) error {
 	if err != nil {
 		return err
 	}
-	out, err := e.buildOne(ctx, m, uber)
+	out, err := e.buildOne(ctx, m, uber, native)
 	if err != nil {
 		return err
 	}
@@ -56,17 +63,21 @@ func runBuild(ctx context.Context, o *opts, uber bool) error {
 	return nil
 }
 
-// buildOne builds module m's jar (or the uberjar when uber) and returns the
-// output path. Shared by build, install and publish.
-func (e *hotEnv) buildOne(ctx context.Context, m string, uber bool) (string, error) {
+// buildOne builds module m's jar, uberjar (uber), or native-image binary
+// (native) and returns the output path. Shared by build, install and publish.
+func (e *hotEnv) buildOne(ctx context.Context, m string, uber, native bool) (string, error) {
 	mod, err := e.module(m)
 	if err != nil {
 		return "", err
 	}
 
-	buildJar := mod.Build.Jar && !uber
+	buildJar := mod.Build.Jar && !uber && !native
 	buildUber := uber && mod.Build.Uberjar != nil
-	if !buildJar && !buildUber {
+	buildNative := native && mod.Build.Native != nil
+	if !buildJar && !buildUber && !buildNative {
+		if native {
+			return "", exitf(2, "module %s declares no native-image build (set :rig/native? in its deps.edn)", m)
+		}
 		if uber {
 			return "", exitf(2, "module %s declares no uberjar", m)
 		}
@@ -112,8 +123,9 @@ func (e *hotEnv) buildOne(ctx context.Context, m string, uber bool) (string, err
 		"uber?":         buildUber,
 	}
 	// An empty main is the absence of a main: passing it through would make
-	// tools.build write an empty Main-Class manifest attribute.
-	if mod.Main != "" {
+	// tools.build write an empty Main-Class manifest attribute. The native
+	// path does not use it (the image entry point is rig's shim).
+	if (buildJar || buildUber) && mod.Main != "" {
 		cfg["main"] = mod.Main
 	}
 	if len(mod.Build.NsCompile) > 0 {
@@ -179,10 +191,213 @@ func (e *hotEnv) buildOne(ctx context.Context, m string, uber bool) (string, err
 		return "", fmt.Errorf("build: kernel returned no results")
 	}
 	r := parsed.Results[0]
+	if buildNative {
+		return e.buildNative(ctx, m, mod, r.ClassDir, entries)
+	}
 	if r.Jar != "" {
 		return r.Jar, nil
 	}
 	return r.Uber, nil
+}
+
+// buildNative runs GraalVM native-image over the compiled class dir and the
+// locked classpath, producing the module's native binary.
+func (e *hotEnv) buildNative(ctx context.Context, m string, mod lockfile.Module, classDir string, entries []classpath.Entry) (string, error) {
+	pin := e.lock.GraalVM
+	if pin == nil {
+		return "", exitf(2, "module %s declares a native-image build but the lock pins no GraalVM (the workspace needs a :rig/jvm pin — run 'rig lock')", m)
+	}
+	inst, err := graal.Ensure(ctx, graal.NewStoreAt(e.store.Root), pin.Requested, pin.Version, e.offline)
+	if err != nil {
+		return "", err
+	}
+	n := mod.Build.Native
+	out := filepath.Join(e.modDir(m), n.File)
+
+	// The module's own source paths are excluded: their compiled classes are
+	// the class-dir (entries are the lock's classpath, which includes them).
+	var cp []string
+	cp = append(cp, classDir)
+	for _, en := range entries {
+		if strings.HasPrefix(en.ID, "paths:") {
+			continue
+		}
+		cp = append(cp, en.Paths...)
+	}
+
+	// :rig/main is a Clojure namespace: rig compiles a tiny shim whose main
+	// delegates to clojure.main with "-m <ns>", so the binary runs as
+	// "<binary> arg1 arg2".
+	shimDir, err := compileShim(e.java, n.Main, cp)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = os.RemoveAll(shimDir) }()
+
+	// The image cannot load classes from a classpath at run time: the shim's
+	// static block loads the Clojure runtime and the namespace at build
+	// time, and every package that can hold such a namespace is marked for
+	// build-time initialization (a package mark covers its subpackages).
+	init, err := nativeInitPackages(cp)
+	if err != nil {
+		return "", err
+	}
+	init = append(init, "rig.NativeMain")
+	sort.Strings(init)
+	args := []string{
+		"--no-fallback",
+		"--class-path", strings.Join(append(cp, shimDir), string(filepath.ListSeparator)),
+		"--initialize-at-build-time=" + strings.Join(init, ","),
+		"-o", out,
+		"rig.NativeMain",
+	}
+	args = append(args, n.Opts...)
+	if err := launch(jvm.Run{
+		Java: inst.NativeImagePath,
+		Args: args,
+		Dir:  e.modDir(m),
+		Env:  []string{"GRAALVM_HOME=" + inst.Home},
+	}); err != nil {
+		return "", err
+	}
+	return out, nil
+}
+
+// nativeInitPackages scans the image classpath for Clojure namespace init
+// classes (__init.class) and returns their packages, dot-separated and
+// sorted. The shim's static block loads namespaces at image build time, and
+// a class that initializes at build time must be marked for build-time
+// initialization; a package mark covers all of its subpackages, so the set
+// is the superset of packages that can hold a namespace loaded into the
+// image.
+func nativeInitPackages(cp []string) ([]string, error) {
+	pkgs := map[string]bool{}
+	initPkg := func(rel string) {
+		if !strings.HasSuffix(rel, "__init.class") {
+			return
+		}
+		// The package is the entry's parent directory; an entry in the
+		// classpath root (single-segment namespace) has none.
+		if i := strings.LastIndex(rel, "/"); i >= 0 {
+			if pkg := strings.ReplaceAll(rel[:i], "/", "."); pkg != "" {
+				pkgs[pkg] = true
+			}
+		}
+	}
+	scanDir := func(dir string) {
+		_ = filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+			if err == nil && !info.IsDir() {
+				if rel, relErr := filepath.Rel(dir, path); relErr == nil {
+					initPkg(filepath.ToSlash(rel))
+				}
+			}
+			return nil
+		})
+	}
+	scanJar := func(jar string) error {
+		zf, err := zip.OpenReader(jar)
+		if err != nil {
+			return fmt.Errorf("native: cannot read classpath jar %s for build-time initialization: %v", jar, err)
+		}
+		defer zf.Close()
+		for _, f := range zf.File {
+			if !f.FileInfo().IsDir() {
+				initPkg(f.Name)
+			}
+		}
+		return nil
+	}
+	for _, p := range cp {
+		if strings.HasSuffix(p, ".jar") {
+			if err := scanJar(p); err != nil {
+				return nil, err
+			}
+		} else {
+			scanDir(p)
+		}
+	}
+	out := make([]string, 0, len(pkgs))
+	for p := range pkgs {
+		out = append(out, p)
+	}
+	sort.Strings(out)
+	return out, nil
+}
+
+// nativeShim is the source of the entry point rig compiles for a Clojure
+// namespace main: the native image's main class, delegating to clojure.main
+// with the module's :rig/main passed as -m.
+//
+// The static block initializes the Clojure runtime and loads the namespace
+// at image build time: a native image cannot load classes from a classpath
+// at run time, so every namespace the binary needs must be frozen into the
+// image. RT.init loads what clojure.main's init requires; RT.load loads the
+// namespace itself (dashes as underscores, dots as slashes).
+func nativeShim(ns string) string {
+	nsClass := strings.ReplaceAll(strings.ReplaceAll(ns, "-", "_"), ".", "/")
+	return `package rig;
+
+public final class NativeMain {
+    static {
+        try {
+            clojure.lang.RT.init();
+            clojure.lang.RT.load(` + strconv.Quote(nsClass) + `);
+        } catch (Exception e) {
+            throw new IllegalStateException("rig: native-image build-time initialization failed", e);
+        }
+    }
+
+    public static void main(String[] args) throws Exception {
+        String[] all = new String[args.length + 2];
+        all[0] = "-m";
+        all[1] = ` + strconv.Quote(ns) + `;
+        System.arraycopy(args, 0, all, 2, args.length);
+        clojure.main.main(all);
+    }
+}
+`
+}
+
+// compileShim javacs the native-image entry shim into a fresh temp dir and
+// returns the classes dir (the caller removes it). java is the workspace's
+// java binary; the compile uses its sibling javac and the image classpath.
+func compileShim(java, ns string, cp []string) (string, error) {
+	if ns == "" {
+		return "", exitf(2, "module declares a native-image build but no :rig/main")
+	}
+	javac := filepath.Join(filepath.Dir(java), "javac")
+	if runtime.GOOS == "windows" {
+		javac += ".exe"
+	}
+	if st, err := os.Stat(javac); err != nil || st.IsDir() {
+		return "", fmt.Errorf("native: no javac beside %s (a full JDK is required to build the entry shim)", java)
+	}
+	dir, err := os.MkdirTemp("", "rig-native-shim-")
+	if err != nil {
+		return "", err
+	}
+	fail := func(err error) (string, error) {
+		_ = os.RemoveAll(dir)
+		return "", err
+	}
+	src := filepath.Join(dir, "NativeMain.java")
+	if err := os.WriteFile(src, []byte(nativeShim(ns)), 0o644); err != nil {
+		return fail(err)
+	}
+	classes := filepath.Join(dir, "classes")
+	if err := os.MkdirAll(classes, 0o755); err != nil {
+		return fail(err)
+	}
+	cmd := exec.Command(javac,
+		"-nowarn",
+		"-cp", strings.Join(cp, string(filepath.ListSeparator)),
+		"-d", classes, src)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fail(fmt.Errorf("native: entry shim compile failed: %v", err))
+	}
+	return classes, nil
 }
 
 // stageJars copies the mvn jar artifacts of entries into a temp dir under a

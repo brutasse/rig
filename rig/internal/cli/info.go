@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/brutasse/rig/internal/graal"
 	"github.com/brutasse/rig/internal/kernel"
 	"github.com/brutasse/rig/internal/workspace"
 )
@@ -46,6 +47,9 @@ func newInfoCmd(o *opts) *cobra.Command {
 			if line, err := o.javaInfo(root); err == nil {
 				fmt.Print(line)
 			}
+			if line, err := o.graalvmInfo(root); err == nil && line != "" {
+				fmt.Print(line)
+			}
 			fmt.Printf("cache:\t%s\n", store.Root)
 			p := kernel.Current
 			fmt.Printf("rig:\t%s (%s)\n", Version, shortSHA(GitSHA))
@@ -60,4 +64,33 @@ func shortSHA(sha string) string {
 		return sha[:12]
 	}
 	return sha
+}
+
+// graalvmInfo returns the `rig info` graalvm line for a lock that pins a
+// GraalVM (installed or not); "" when the lock pins nothing.
+func (o *opts) graalvmInfo(root *workspace.Root) (string, error) {
+	if root == nil || root.Lock == nil || root.Lock.GraalVM == nil {
+		return "", nil
+	}
+	pin := root.Lock.GraalVM
+	store, err := o.store()
+	if err != nil {
+		return "", err
+	}
+	st := graal.NewStoreAt(store.Root)
+	var (
+		inst *graal.Inst
+		lerr error
+	)
+	if pin.Version != "" {
+		inst, lerr = st.Lookup(pin.Version)
+	} else {
+		inst, lerr = st.Best(pin.Requested)
+	}
+	if lerr == nil {
+		return fmt.Sprintf("graalvm:\t%s (graalvm %s, pinned %q)\n",
+			inst.NativeImagePath, inst.Version, pin.Requested), nil
+	}
+	return fmt.Sprintf("graalvm:\tpinned %q — graalvm not installed (run 'rig build --native' online to install it)\n",
+		pin.Requested), nil
 }

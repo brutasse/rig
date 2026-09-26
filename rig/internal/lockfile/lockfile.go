@@ -26,6 +26,7 @@ type Document struct {
 	Workspace Workspace         `json:"workspace"`
 	Cooldown  Cooldown          `json:"cooldown"`
 	JVM       *JVM              `json:"jvm,omitempty"`
+	GraalVM   *GraalVM          `json:"graalvm,omitempty"`
 	Artifacts []Artifact        `json:"artifacts"`
 	Skipped   []Skipped         `json:"skipped"`
 	Modules   map[string]Module `json:"modules"`
@@ -56,6 +57,16 @@ type Cooldown struct {
 // Requested is what the manifest asks for ("21"); Version is the exact
 // release resolved at lock time ("21.0.12.1+1"), "" until first resolved.
 type JVM struct {
+	Vendor    string `json:"vendor"`
+	Requested string `json:"requested"`
+	Version   string `json:"version,omitempty"`
+}
+
+// GraalVM is the workspace's pinned GraalVM (for native-image builds),
+// derived from the :rig/jvm pin. Requested is the JVM feature version
+// ("21"); Version is the exact community build resolved at lock time
+// ("21.0.2"), "" until first resolved.
+type GraalVM struct {
 	Vendor    string `json:"vendor"`
 	Requested string `json:"requested"`
 	Version   string `json:"version,omitempty"`
@@ -170,12 +181,22 @@ type Build struct {
 	NsCompile   []string `json:"ns-compile,omitempty"`
 	Jar         bool     `json:"jar"`
 	Uberjar     *Uberjar `json:"uberjar"`
+	Native      *Native  `json:"native,omitempty"`
 }
 
 type Uberjar struct {
 	File string         `json:"file"`
 	Main string         `json:"main"`
 	Opts map[string]any `json:"opts"`
+}
+
+// Native is the module's native-image build config, from the :rig/native*
+// keys: the output file (relative to the module), the Clojure namespace to
+// launch, and the extra native-image arguments.
+type Native struct {
+	File string   `json:"file"`
+	Main string   `json:"main,omitempty"`
+	Opts []string `json:"opts,omitempty"`
 }
 
 type Publish struct {
@@ -232,6 +253,17 @@ func (d *Document) Validate() error {
 		}
 		if d.JVM.Version != "" && !jdk.Satisfies(d.JVM.Requested, d.JVM.Version) {
 			return fmt.Errorf("jvm: locked version %q does not satisfy requested %q", d.JVM.Version, d.JVM.Requested)
+		}
+	}
+	if d.GraalVM != nil {
+		if d.GraalVM.Vendor != "graalvm" {
+			return fmt.Errorf("graalvm: unsupported vendor %q", d.GraalVM.Vendor)
+		}
+		if !jdk.ValidRequested(d.GraalVM.Requested) {
+			return fmt.Errorf("graalvm: bad requested %q", d.GraalVM.Requested)
+		}
+		if d.GraalVM.Version != "" && !jdk.Satisfies(d.GraalVM.Requested, d.GraalVM.Version) {
+			return fmt.Errorf("graalvm: locked version %q does not satisfy requested %q", d.GraalVM.Version, d.GraalVM.Requested)
 		}
 	}
 	seen := make(map[string]bool, len(d.Artifacts))

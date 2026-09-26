@@ -67,6 +67,7 @@ type hotEnv struct {
 	javaEnv []string
 	kernel  string
 	oidc    func(repo string) (string, bool) // bearer for :auth :oidc repos
+	offline bool
 }
 
 // hot applies the stale-lock policy and prepares the launch environment.
@@ -80,7 +81,7 @@ func (o *opts) hot(ctx context.Context, needKernel bool) (*hotEnv, error) {
 	if err := o.resolve(ctx, root); err != nil {
 		return nil, err
 	}
-	e := &hotEnv{root: root, lock: lock, m2root: o.m2Root(), oidc: o.bearerFor(ctx, root)}
+	e := &hotEnv{root: root, lock: lock, m2root: o.m2Root(), oidc: o.bearerFor(ctx, root), offline: o.offline}
 	if e.store, err = o.store(); err != nil {
 		return nil, err
 	}

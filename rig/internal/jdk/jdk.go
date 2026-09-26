@@ -488,7 +488,7 @@ func (s *Store) Install(ctx context.Context, a Asset) (*Inst, error) {
 		return nil, err
 	}
 	defer os.Remove(archive)
-	top, err := s.extract(archive, a.Archive)
+	top, err := Extract(s.Root, archive, a.Archive)
 	if err != nil {
 		return nil, err
 	}
@@ -571,10 +571,14 @@ func (s *Store) download(ctx context.Context, a Asset) (string, error) {
 	return tmp, nil
 }
 
-// extract unpacks archive into a scratch dir and returns the path of the
-// single top-level directory it contains.
-func (s *Store) extract(archive, name string) (string, error) {
-	work, err := os.MkdirTemp(s.Root, ".extract-")
+// Extract unpacks archive into a scratch dir under root and returns the path
+// of the single top-level directory it contains. Shared with the graal
+// package (the archive shapes match).
+func Extract(root, archive, name string) (string, error) {
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		return "", err
+	}
+	work, err := os.MkdirTemp(root, ".extract-")
 	if err != nil {
 		return "", err
 	}

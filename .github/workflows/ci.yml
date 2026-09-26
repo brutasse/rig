@@ -104,6 +104,39 @@ jobs:
       - name: Kernel test suite on Java 8
         run: cd resolver && CLOJURE_CLI_ALLOW_HTTP_REPO=1 clojure -X:test
 
+  native-e2e:
+    # Builds the testdata/native fixture into a GraalVM native binary and
+    # runs it (make test-native). GraalVM CE is installed from the same
+    # GitHub release rig itself resolves (jdk-21.0.2, matching the
+    # fixture's :rig/jvm "21" pin).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27.x"
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: DeLaGuardo/setup-clojure@4c7a6f613e5089821bb3bb2a33a3ee115578580d # 13.6.1
+        with:
+          cli: "1.12.5.1664"
+
+      - name: Install GraalVM CE
+        run: |
+          curl -fsSL -o /tmp/graalvm.tar.gz \
+            https://github.com/graalvm/graalvm-ce-builds/releases/download/jdk-21.0.2/graalvm-community-jdk-21.0.2_linux-x64_bin.tar.gz
+          mkdir -p /opt/graalvm
+          tar -xzf /tmp/graalvm.tar.gz -C /opt/graalvm --strip-components=1
+          /opt/graalvm/bin/native-image --version
+
+      - name: Build
+        run: make dev
+
+      - name: Native E2E
+        run: make test-native GRAALVM=/opt/graalvm
+
   release:
     runs-on: ubuntu-latest
     needs:

@@ -34,8 +34,11 @@ Set in each module's `deps.edn`. All optional unless noted.
 | `:rig/version-file` | `"VERSION"` | Path to the version file (module dir, then workspace root) used when the module's version is recorded in the lock. Commonly `"../../VERSION"` in submodules of a shared-version project. |
 | `:rig/version-fn` | — | Dynamic version, keyword only (the kernel jar cannot load user code): `:git-count-revs` — the template's `GENERATED_VERSION` marker replaced with the commit count since the repo root; or `:epoch` — the current unix time in seconds. Used when neither `:rig/version` nor a version file is present. The version moves with the repo, so the lock records the snapshot taken at lock time. |
 | `:rig/version-template-file` | `"VERSION_TEMPLATE"` | The template file read by `:rig/version-fn :git-count-revs` (module dir, then workspace root). |
-| `:rig/main` | — | The namespace `rig run` (and `rig launch`, via the baked launch descriptor) launches (`-main`). |
+| `:rig/main` | — | The namespace `rig run` (and `rig launch`, via the baked launch descriptor) launches (`-main`). Also the entry namespace of a native-image binary. |
 | `:rig/uberjar?` | `false` (true if `:rig/uberjar-file` is set) | Build an uberjar (with `rig build --uber`). |
+| `:rig/native?` | `false` (true if `:rig/native-file` is set) | Build a GraalVM native-image binary (with `rig build --native`). |
+| `:rig/native-file` | `target/<lib name>` | Native binary output path, relative to the module (no extension). |
+| `:rig/native-opts` | `[]` | Extra native-image arguments, appended after rig's fixed ones. |
 | `:rig/uberjar-file` | `target/<name>-<version>.jar` | Uberjar output path, relative to the module. |
 | `:rig/uber-opts` | `{}` | tools.build uberjar options (currently `:exclude`), e.g. `{:exclude ["META-INF/license/.*"]}`. |
 | `:rig/test?` | `true` | Recorded in the lock (`test.enabled`). `rig test` itself targets modules by their `:test` alias's `:exec-fn`. |
@@ -197,6 +200,49 @@ always come through the proxy.
   override, like `RIG_KERNEL_JAR`).
 
 Vendor: Temurin (Eclipse Adoptium), GA releases only.
+
+## Native images (`rig build --native`)
+
+`:rig/native?` declares that a module builds a standalone native-image
+binary (GraalVM):
+
+```edn
+{:rig/native? true :rig/main app.core}
+```
+
+- **GraalVM.** The version is derived from the workspace's `:rig/jvm`
+  pin — `--native` without a pin is a usage error — and recorded in the
+  lock as an exact release (`graalvm: {vendor, requested, version}`,
+  e.g. `21.0.2`). When the locked GraalVM is not installed, `rig build
+  --native` downloads, sha256-verifies and installs it from the
+  `graalvm/graalvm-ce-builds` GitHub releases into the state dir
+  (`~/.local/share/rig/graal/`); under `--offline` this fails with a
+  hint. `RIG_GRAALVM_HOME=<home>` overrides the store (a dev override,
+  like `RIG_JAVA`; it must contain `bin/native-image`).
+- **Entry point.** `:rig/main` must be a Clojure namespace. rig compiles
+  a small entry shim (javac beside the workspace's java) whose main
+  delegates to `clojure.main` with `-m <ns>`, so the binary runs with
+  plain args: `<binary> arg1 arg2`.
+- **Class initialization.** A native image cannot load classes from a
+  classpath at run time: rig loads the Clojure runtime and the module's
+  namespace at image build time, and marks every namespace package it
+  finds on the classpath for build-time initialization. A namespace
+  reached only dynamically (outside the transitive `require` closure of
+  `:rig/main`) must be `require`ed at top level, else the build fails
+  naming the missing class.
+- **Arguments.** rig passes the fixed arguments `--no-fallback`,
+  `--class-path <class dir>:<locked classpath>`,
+  `--initialize-at-build-time=<namespace packages>`, and
+  `-o <native-file>`; `:rig/native-opts` is appended after them. A
+  repeated `--initialize-at-build-time` in the opts adds to rig's list;
+  `--fallback` conflicts with rig's `--no-fallback`.
+- **Prerequisites.** A full JDK (the shim is compiled with `javac`), a C
+  compiler for linking, and a few GB of RAM. A native build takes
+  minutes, not seconds.
+- **Reflection.** rig does not manage native-image configuration in v1:
+  `META-INF/native-image/**` entries in dependency jars are
+  auto-discovered, and `:rig/native-opts` is the escape hatch
+  (`--features=…`, `--initialize-at-build-time=…`, …).
 
 ## Production launch (`rig launch`)
 

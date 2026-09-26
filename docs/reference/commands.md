@@ -18,7 +18,7 @@ documentation of record; this page is the map.
 | `launch [jar] [args…]` | hot | Launch the built artifact with rig's production JVM flags (G1 + AlwaysPreTouch, exit-on-OOM, loopback JMX on 10101), overridable via `:jvm-opts`. The jar's baked launch plan, or the lock, supplies the main. Never re-locks, never uses the network. |
 | `repl` | hot | `clojure.main` REPL on the (alias) classpath. |
 | `exec <cmd> [args…]` | hot | Run a command with the locked classpath as `CLASSPATH`. |
-| `build [--uber]` | cold | Jar / uberjar via the locked classpath. |
+| `build [--uber \| --native]` | cold | Jar / uberjar / native-image binary via the locked classpath. |
 | `install` | cold | Install module jars into the local Maven repository. |
 | `publish` | cold | Deploy module jars to their remote repository. |
 | `release [--dry-run]` | cold+git | Strip-snapshot → publish → commit → tag → bump → commit → push. |
@@ -313,11 +313,14 @@ into a `curl`, or pipe it anywhere a bearer is expected. See
 ### `rig build`
 
 ```
-rig build [--uber]
+rig build [--uber | --native]
 ```
 
-Build the module's jar (or uberjar with `--uber`) on the locked classpath.
-`built <path>` on success.
+Build the module's jar, or the uberjar with `--uber` (requires
+`:rig/uberjar?`), or the native-image binary with `--native` (requires
+`:rig/native?` and the workspace's `:rig/jvm` pin; the binary's entry
+point is `:rig/main`) — always on the locked classpath. `built <path>`
+on success. See [Native images](config.md#native-images-rig-build---native).
 
 ### `rig install`
 

@@ -5,6 +5,7 @@
 ```sh
 rig build -p modules/orchestrator        # the module jar
 rig build --uber -p modules/orchestrator # the uberjar
+rig build --native -p modules/app        # the native-image binary
 rig build                                # the root module
 ```
 
@@ -19,6 +20,14 @@ built /…/modules/orchestrator/target/orchestrator.jar
 `rig build` builds the module jar on the locked classpath; `--uber` builds
 the uberjar and requires `:rig/uberjar?`. A module without an uberjar fails
 `--uber` with a usage error.
+
+`--native` builds a GraalVM native-image binary instead of a jar: the
+module declares `:rig/native?`, the workspace pins `:rig/jvm` (the
+GraalVM is derived from the pin, recorded in the lock as an exact
+release, and installed on demand). The binary is standalone — no JVM, no
+classpath — and runs on plain args with `:rig/main` as entry namespace
+(see [Native images](../reference/config.md#native-images-rig-build---native)).
+A native build needs a C compiler and a few GB of RAM, and takes minutes.
 
 ## Installing locally
 
