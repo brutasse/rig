@@ -20,6 +20,15 @@
             [clojure.java.io :as io]
             [clojure.string :as str]))
 
+(defn- failure-message
+  "The exception's message, then each cause in the chain: compilers wrap
+  runtime errors (e.g. as 'Syntax error macroexpanding'), so the
+  top-level message alone can hide the real problem."
+  [e]
+  (apply str (interpose "\n  caused by: "
+                        (map (fn [x] (str (.getMessage x)))
+                             (take-while identity (iterate ex-cause e))))))
+
 (defn apply-exec-fn
   "Resolve exec-fn (e.g. \"kaocha.runner/exec-fn\"), loading its namespace
   when needed, and apply it to the single opts map. Returns the result."
@@ -56,7 +65,7 @@
                            nil
                            (catch Exception e
                              (println (str "rig: failed to load " ns-str ": "
-                                           (.getMessage e)))
+                                           (failure-message e)))
                               ns-str)))
                        rest)]
       (flush)
@@ -81,7 +90,7 @@
                            nil
                            (catch Exception e
                              (println (str "rig: failed to load " ns-str ": "
-                                           (.getMessage e)))
+                                           (failure-message e)))
                               ns-str)))
                        ns-strs)]
       (flush)
