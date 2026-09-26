@@ -27,6 +27,10 @@ A real lock (trimmed) from a multi-module workspace:
   },
   "cooldown": { "default": "48h", "repos": {} },
 
+  // The pinned JVM (from :rig/jvm in the root manifest): the exact Temurin
+  // release the lock was resolved with. Absent when there is no pin.
+  "jvm":    { "vendor": "temurin", "requested": "21", "version": "21.0.12.1+1" },
+
   // Every artifact in the resolved tree, deduplicated. Classpaths
   // reference ONLY these.
   "artifacts": [

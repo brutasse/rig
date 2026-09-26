@@ -171,7 +171,7 @@
                (do (.sendResponseHeaders exchange 200 (long (.length f)))
                    (with-open [os (.getResponseBody exchange)
                                is (io/input-stream f)]
-                     (.transferTo is os))))
+                     (io/copy is os))))
              :else (.sendResponseHeaders exchange 404 -1))))))
     (.start server)
     [(str "http://" (.substring (str (.getAddress server)) 1) "/")

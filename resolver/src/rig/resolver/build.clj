@@ -66,7 +66,8 @@
                                                     src-dirs)
                                             extra))))))
     (when (seq java-src-dirs)
-      (b/javac {:basis basis :src-dirs java-src-dirs :class-dir class-dir}))
+      (b/javac {:basis basis :src-dirs java-src-dirs :class-dir class-dir
+                :javac-opts (get cfg :javac-opts)}))
     (write-launch-descriptor class-dir (get cfg :launch))
     (cond-> {:class-dir class-dir}
       (get cfg :jar?)

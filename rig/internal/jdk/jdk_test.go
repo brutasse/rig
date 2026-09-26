@@ -30,6 +30,21 @@ func TestValidRequested(t *testing.T) {
 	}
 }
 
+func TestFeatureVersion(t *testing.T) {
+	for in, want := range map[string]int{
+		"21.0.12":   21,
+		"1.8.0_422": 8,
+		"17.0.9":    17,
+		"11.0.1+2":  11,
+		"25":        25,
+		"garbage":   0,
+	} {
+		if got := FeatureVersion(in); got != want {
+			t.Errorf("FeatureVersion(%q) = %d, want %d", in, got, want)
+		}
+	}
+}
+
 func TestSatisfies(t *testing.T) {
 	cases := []struct {
 		requested, candidate string

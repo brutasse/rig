@@ -65,6 +65,20 @@ func ValidRequested(s string) bool {
 	return err == nil
 }
 
+// FeatureVersion is the JVM feature version of a version string:
+// "21.0.12" → 21, "1.8.0_422" → 8. 0 when unparseable.
+func FeatureVersion(v string) int {
+	parts := strings.SplitN(v, ".", 3)
+	if parts[0] == "1" && len(parts) > 1 {
+		parts = parts[1:]
+	}
+	n, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return 0
+	}
+	return n
+}
+
 // Satisfies reports whether candidate fulfills requested: every component
 // requested specifies must equal the candidate's; an unspecified requested
 // component matches anything, including an absent one.

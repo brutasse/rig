@@ -157,6 +157,19 @@
     (is (= ["a.b" "c.d"]
            (get-in lock ["modules" "." :build :ns-compile])))))
 
+(deftest javac-opts-enter-the-build-plan
+  (let [ws (temp-ws "{:rig/lib x/y\n :rig/java-src-dirs [\"java\"]\n :rig/javac-opts [\"-encoding\" \"UTF-8\"]}\n")
+        lock (-> (resolve/resolve-lock {:workspace ws})
+                 (get "lock"))]
+    (is (= ["-encoding" "UTF-8"]
+           (get-in lock ["modules" "." :build :javac-opts])))))
+
+(deftest no-javac-opts-key-without-declaration
+  (let [ws (temp-ws "{:rig/lib x/y}\n")
+        lock (-> (resolve/resolve-lock {:workspace ws})
+                 (get "lock"))]
+    (is (nil? (get-in lock ["modules" "." :build :javac-opts])))))
+
 (deftest legacy-ns-compile-manifest-is-rejected
   (let [ws (temp-ws "{:exoscale.project/lib x/y\n :exoscale.project/uberjar? true\n :exoscale.project/ns-compile [a.b]}\n")]
     (is (thrown-with-msg? Exception #"still uses legacy keys"
@@ -373,7 +386,7 @@
                (do (.sendResponseHeaders exchange 200 (long (.length f)))
                    (with-open [os (.getResponseBody exchange)
                                is (io/input-stream f)]
-                     (.transferTo is os))))
+                     (io/copy is os))))
              :else (.sendResponseHeaders exchange 404 -1))))))
     (.start server)
     [(str "http://" (.substring (str (.getAddress server)) 1) "/")

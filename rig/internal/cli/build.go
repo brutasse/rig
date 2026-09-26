@@ -13,11 +13,13 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/brutasse/rig/internal/classpath"
+	"github.com/brutasse/rig/internal/jdk"
 	"github.com/brutasse/rig/internal/jvm"
 	"github.com/brutasse/rig/internal/kernel"
 	"github.com/brutasse/rig/internal/lockfile"
@@ -117,6 +119,9 @@ func (e *hotEnv) buildOne(ctx context.Context, m string, uber bool) (string, err
 	if len(mod.Build.NsCompile) > 0 {
 		cfg["ns-compile"] = mod.Build.NsCompile
 	}
+	if opts := javacOptsOf(e.lock.JVM, mod.Build.JavacOpts); len(opts) > 0 {
+		cfg["javac-opts"] = opts
+	}
 	if buildUber {
 		cfg["uber-file"] = filepath.Join(dir, mod.Build.Uberjar.File)
 		if mod.Build.Uberjar.Main != "" {
@@ -140,7 +145,7 @@ func (e *hotEnv) buildOne(ctx context.Context, m string, uber bool) (string, err
 			"uber":     buildUber,
 		}
 		if v, err := jvm.Version(e.java); err == nil {
-			launch["java"] = featureVersion(v)
+			launch["java"] = jdk.FeatureVersion(v)
 		}
 		cfg["launch"] = launch
 	}
@@ -413,4 +418,33 @@ func jarFileName(mod lockfile.Module) string {
 		base += "-" + mod.Version
 	}
 	return base + ".jar"
+}
+
+// javacOptsOf composes the effective javac opts for a module: the manifest's
+// :rig/javac-opts, with "--release <N>" prepended when the workspace pins a
+// JVM (:rig/jvm) and the opts do not already control the source level.
+func javacOptsOf(jvm *lockfile.JVM, opts []string) []string {
+	if jvm == nil || controlsSourceLevel(opts) {
+		return opts
+	}
+	if n := jdk.FeatureVersion(jvm.Requested); n > 0 {
+		return append([]string{"--release", strconv.Itoa(n)}, opts...)
+	}
+	return opts
+}
+
+// controlsSourceLevel reports whether opts already set --release, -source or
+// -target, which javac refuses to combine with another --release.
+func controlsSourceLevel(opts []string) bool {
+	for _, o := range opts {
+		switch {
+		case o == "--release" || strings.HasPrefix(o, "--release="):
+			return true
+		case o == "-source" || strings.HasPrefix(o, "-source="):
+			return true
+		case o == "-target" || strings.HasPrefix(o, "-target="):
+			return true
+		}
+	}
+	return false
 }
