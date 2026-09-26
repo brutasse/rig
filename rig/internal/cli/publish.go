@@ -16,7 +16,6 @@ import (
 	"github.com/brutasse/rig/internal/kernel"
 	"github.com/brutasse/rig/internal/lockfile"
 	"github.com/brutasse/rig/internal/maven"
-	"github.com/brutasse/rig/internal/s3p"
 	"github.com/brutasse/rig/internal/workspace"
 )
 
@@ -197,13 +196,13 @@ func (e *hotEnv) publishOne(ctx context.Context, m string, remote bool) error {
 	base := mavenPath(plan.Coord, plan.Version)
 
 	if remote {
+		if !strings.HasPrefix(plan.URL, "http://") && !strings.HasPrefix(plan.URL, "https://") {
+			return exitf(2, "publish: unsupported repository URL %s (only http/https repositories are supported)", plan.URL)
+		}
 		user, pass := maven.Credentials(plan.Repo)
 		bearer := ""
 		if e.oidc != nil {
 			bearer, _ = e.oidc(plan.Repo)
-		}
-		if strings.HasPrefix(plan.URL, "s3p://") {
-			return e.publishS3p(ctx, plan, jar, pomPath, user, pass)
 		}
 		url := strings.TrimSuffix(plan.URL, "/") + base
 		for _, f := range []string{jar, pomPath} {
@@ -225,49 +224,6 @@ func (e *hotEnv) publishOne(ctx context.Context, m string, remote bool) error {
 		}
 	}
 	fmt.Printf("installed %s %s -> %s\n", plan.Coord, plan.Version, filepath.Join(dir, filepath.Base(jar)))
-	return nil
-}
-
-// publishS3p deploys the jar and pom (plus their .sha1/.md5 checksums,
-// Maven layout) to the s3p:// repository — Exoscale Object Storage, the
-// target tools.project's deps-deploy published to.
-func (e *hotEnv) publishS3p(ctx context.Context, p publishEntry, jar, pomPath, user, pass string) error {
-	t, err := s3p.Parse(p.URL)
-	if err != nil {
-		return exitf(2, "publish: %v", err)
-	}
-	creds, err := s3p.Credentials(user, pass)
-	if err != nil {
-		return exitf(1, "publish: %v", err)
-	}
-	base := mavenPath(p.Coord, p.Version)
-	key := func(name string) string {
-		k := base + "/" + name
-		if t.Prefix != "" {
-			k = t.Prefix + k
-		}
-		return k
-	}
-	sha1j, md5j, err := s3p.ChecksumsOf(jar)
-	if err != nil {
-		return err
-	}
-	sha1p, md5p, err := s3p.ChecksumsOf(pomPath)
-	if err != nil {
-		return err
-	}
-	j, pom := filepath.Base(jar), filepath.Base(pomPath)
-	if err := s3p.Upload(ctx, t, creds, []s3p.Object{
-		{Key: key(j), Local: jar},
-		{Key: key(pom), Local: pomPath},
-		{Key: key(j + ".sha1"), Data: []byte(sha1j)},
-		{Key: key(j + ".md5"), Data: []byte(md5j)},
-		{Key: key(pom + ".sha1"), Data: []byte(sha1p)},
-		{Key: key(pom + ".md5"), Data: []byte(md5p)},
-	}); err != nil {
-		return exitf(1, "publish: %v", err)
-	}
-	fmt.Printf("published %s %s -> %s\n", p.Coord, p.Version, p.URL)
 	return nil
 }
 

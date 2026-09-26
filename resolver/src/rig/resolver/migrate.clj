@@ -186,20 +186,12 @@
                                         " top-level :exoscale.deps/inherit dropped (only the :project driver alias is supported)"))
                                  dropped)))))
 
-(defn- s3p-target
-  "s3p://<bucket>/<prefix> -> [bucket prefix] (no trailing slash on the
-  prefix, mirroring the Go-side Parse); nil if not an s3p url."
-  [u]
-  (when (str/starts-with? u "s3p://")
-    (let [parts (str/split (subs u 6) #"/" 2)]
-      [(first parts) (str/replace (get parts 1 "") #"/+$" "")])))
-
 (defn- slugify
   [s]
   (str/lower-case (str/replace (str/replace s #"[^a-zA-Z0-9]" "-") #"--+" "-")))
 
 (defn- repo-from-url
-  "For a non-s3p url, find a matching existing :mvn/repos id, else derive one.
+  "Find a matching existing :mvn/repos id for url, else derive one.
   Returns [id repos] (repos is a new {id {:url u}} or {})."
   [u all-repos]
   (let [hit (some (fn [[id sp]] (when (= u (get sp :url)) id)) all-repos)]
@@ -212,32 +204,31 @@
 (defn- exec-args-to-publish
   "Map :slipset.deps-deploy/exec-args to the rig id-based publish model.
   Returns {:publish {:repo id} :repos {id {:url u}} :warnings [...]
-  :problems [...]} (publish is nil when there is no resolvable repository)."
+  :problems [...]} (publish is nil when there is no resolvable repository;
+  an s3p:// deploy url is a problem — rig publishes to http/https only)."
   [args mod-repos root-repos]
   (let [sign (true? (get args :sign-releases?))
-        problems (when sign
-                   [":slipset.deps-deploy/exec-args :sign-releases? true is not supported by rig"])
         warns (if (= (get args :installer) :local)
                 [":slipset.deps-deploy/exec-args :installer :local -> use `rig install` (no remote publish)"]
                 [])
         rep (get args :repository)
+        u (when (map? rep)
+            (or (get-in rep ["releases" :url]) (get-in rep [:releases :url])
+                (get-in rep ["snapshots" :url]) (get-in rep [:snapshots :url])))
         pair (cond
                (string? rep)
                [rep {}]
-               (map? rep)
-               (let [u (or (get-in rep ["releases" :url]) (get-in rep [:releases :url])
-                           (get-in rep ["snapshots" :url]) (get-in rep [:snapshots :url]))]
-                 (cond
-                   (nil? u)
-                   [nil {}]
-                   (str/starts-with? u "s3p://")
-                   (let [[bucket prefix] (s3p-target u)
-                         url (str "s3p://" bucket (when (seq prefix) (str "/" prefix)))]
-                     [bucket {bucket {:url url}}])
-                   :true
-                   (repo-from-url u (merge root-repos mod-repos))))
-               :else
-               [nil {}])]
+               (nil? u)
+               [nil {}]
+               (str/starts-with? u "s3p://")
+               [nil {}]
+               :true
+               (repo-from-url u (merge root-repos mod-repos)))
+        problems (concat (when sign
+                           [":slipset.deps-deploy/exec-args :sign-releases? true is not supported by rig"])
+                         (when (and u (str/starts-with? u "s3p://"))
+                           [(str ":slipset.deps-deploy/exec-args :repository " u
+                                 " is not supported (rig publishes to http/https repositories only; reconfigure :rig/publish)")]))]
     {:publish (when (first pair) {:repo (first pair)})
      :repos (second pair)
      :warnings warns
@@ -540,13 +531,15 @@
          :warnings [":deploy-repositories entry has no :url; no :rig/publish emitted"]
          :problems []}
         :else
-        (let [res (cond-> (exec-args-to-publish
-                           {:repository {"releases" {:url (str url)}}
-                            :sign-releases? sign}
-                           mod-repos {})
-                   sign (assoc :problems
-                               [":deploy-repositories :sign-releases true is not supported by rig"]))]
-          (cond-> res
+        (let [res (exec-args-to-publish
+                   {:repository {"releases" {:url (str url)}}}
+                   mod-repos {})
+              problems (concat (when sign
+                                 [":deploy-repositories :sign-releases true is not supported by rig"])
+                               (when (str/starts-with? (str url) "s3p://")
+                                 [(str ":deploy-repositories " (str url)
+                                       " is not supported (rig publishes to http/https repositories only; reconfigure :rig/publish)")]))]
+          (cond-> (assoc res :problems (vec problems))
             (and (> n 1) (seq (get res :publish)))
             (update :warnings conj
                     "only the first :deploy-repositories entry is migrated (rig publishes to one repository)")))))))

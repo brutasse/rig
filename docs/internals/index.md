@@ -138,7 +138,6 @@ makes a stable jar sha256 pin possible.
 | `maven` | `~/.m2/settings.xml`: credentials, local repository |
 | `oidc` | OIDC tokens for `:auth :oidc` repositories |
 | `proxy` | the loopback auth proxy for kernel traffic |
-| `s3p` | `s3p://` repository writes (SigV4) for publish |
 | `ednlit` | the small EDN reader for CLI arguments and workspace manifests |
 | `updater` | release checks and `rig self-update` |
 

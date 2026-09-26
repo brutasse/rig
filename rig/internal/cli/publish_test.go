@@ -90,6 +90,35 @@ func TestPublish(t *testing.T) {
 	}
 }
 
+// TestPublishUnsupportedRepoURL: a repo URL outside http/https (the removed
+// s3p:// direct-write transport) fails with a clear error, not an HTTP
+// client failure.
+func TestPublishUnsupportedRepoURL(t *testing.T) {
+	hotSetup(t)
+	t.Setenv("CLOJURE_CLI_ALLOW_HTTP_REPO", "1")
+	writeFile(t, "modules/app/deps.edn", `{:rig/lib example/app
+ :rig/version "0.1.0"
+ :rig/main app.core
+ :rig/uberjar? true
+ :rig/uberjar-file "target/app-uber.jar"
+ :rig/publish? true
+ :rig/publish {:repo "test"}
+ :mvn/repos {"test" {:url "s3p://my-bucket/releases"}}
+ :paths ["src"]
+ :deps {org.clojure/clojure {:mvn/version "1.11.0"}}
+ :aliases
+ {:test {:extra-deps {lambdaisland/kaocha {:mvn/version "1.66.1034"}}
+         :extra-paths ["test"]
+         :exec-fn kaocha.runner/exec-fn}}}`)
+	code, out := runCLI(t, "publish", "--cache-dir", t.TempDir(), "-p", "modules/app")
+	if code != 2 {
+		t.Fatalf("publish exit = %d, want 2; out: %s", code, out)
+	}
+	if !strings.Contains(out, "unsupported repository URL s3p://my-bucket/releases") {
+		t.Errorf("out = %q", out)
+	}
+}
+
 // TestPublishBearer: publishing to an :auth :oidc repo sends the bearer
 // token (the target gate's RIG_TOKEN_<GATE>) on the PUT, not basic auth.
 func TestPublishBearer(t *testing.T) {

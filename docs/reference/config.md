@@ -40,7 +40,7 @@ Set in each module's `deps.edn`. All optional unless noted.
 | `:rig/uber-opts` | `{}` | tools.build uberjar options (currently `:exclude`), e.g. `{:exclude ["META-INF/license/.*"]}`. |
 | `:rig/test?` | `true` | Recorded in the lock (`test.enabled`). `rig test` itself targets modules by their `:test` alias's `:exec-fn`. |
 | `:rig/publish?` | `false` (true if `:rig/publish` is set) | Whether `rig publish`/`rig release` deploys this module. |
-| `:rig/publish` | `{:repo "clojars" :sign-releases? false}` | Where to publish. `:repo` is a repository id resolved through `~/.m2/settings.xml` credentials and `:mvn/repos` URLs — an HTTP repo, or `s3p://<bucket>[/<prefix>]` for a direct S3 write (AWS credentials from the environment or `~/.aws`); `:sign-releases?` must be `false` (signing is not supported). |
+| `:rig/publish` | `{:repo "clojars" :sign-releases? false}` | Where to publish. `:repo` is a repository id resolved through `~/.m2/settings.xml` credentials and `:mvn/repos` URLs (http/https repositories only); `:sign-releases?` must be `false` (signing is not supported). |
 | `:rig/target-dir` | `"target"` | Build output directory. |
 | `:rig/src-dirs` | `["src" "resources"]` | Source/resource directories. |
 | `:rig/java-src-dirs` | `[]` | Java source directories (compiled into the jar). |
