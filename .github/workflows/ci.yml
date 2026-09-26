@@ -180,6 +180,13 @@ jobs:
             --notes "rig $v — binaries (linux/darwin, amd64/arm64) + resolver kernel jar (sha256 $jarsha). Install: see README (curl one-liner, pinned at the release git sha). Self-update: rig self-update." \
             rig/dist/release/*
 
+      - name: Save stamped kernel pin
+        run: |
+          # 'make release' stamped kernel.go in the worktree; keep the file
+          # and clean it so the switch to main below always succeeds.
+          cp rig/internal/kernel/kernel.go "$RUNNER_TEMP/kernel-stamped.go"
+          git checkout -- rig/internal/kernel/kernel.go
+
       - name: Pin install one-liner in README and docs
         run: |
           sha=$(git rev-parse HEAD)
@@ -198,18 +205,24 @@ jobs:
 
       - name: Pin kernel in main
         run: |
-          # Explicit a/ b/ prefixes: 'git apply' mishandles no-prefix
-          # headers (diff.noprefix) by stripping a path component.
-          git diff --src-prefix=a/ --dst-prefix=b/ -- rig/internal/kernel/kernel.go > pin.patch
-          if [ ! -s pin.patch ]; then
+          git fetch origin main
+          # A pin commit must not backport branch changes: kernel.go may
+          # differ from main only in the pinned fields (a re-run may find
+          # main already stamped for this release).
+          norm() { sed -E 's/^([[:space:]]*)(Version|GitSHA|URL|JARSHA)[[:space:]]*:.*/\1\2: <pin>/'; }
+          if ! diff -q <(git show "origin/main:rig/internal/kernel/kernel.go" | norm) \
+                       <(git show "${GITHUB_REF_NAME}:rig/internal/kernel/kernel.go" | norm) >/dev/null; then
+            echo "kernel.go diverged between ${GITHUB_REF_NAME} and main; merge the branch first" >&2
+            exit 1
+          fi
+          git checkout --detach origin/main
+          cp "$RUNNER_TEMP/kernel-stamped.go" rig/internal/kernel/kernel.go
+          git add rig/internal/kernel/kernel.go
+          if git diff --cached --quiet; then
             echo "kernel pin unchanged; nothing to push"
             exit 0
           fi
-          git fetch origin main
-          git checkout --detach origin/main
-          git apply pin.patch
           git config user.name "rig-release[bot]"
-          git config user.email "rig-release@users.noreply.com"
-          git add rig/internal/kernel/kernel.go
+          git config user.email "rig-release@users.noreply.github.com"
           git commit -m "kernel: pin ${{ github.ref_name }}"
           git push origin HEAD:main
