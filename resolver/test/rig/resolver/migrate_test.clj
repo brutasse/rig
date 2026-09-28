@@ -420,7 +420,7 @@
       (is (= "https://repo.example.com/m2" (get-in d [:mvn/repos "repo-example-com" :url])))
       (is (= "https://registry.example.com" (get-in d [:mvn/repos "my-registry" :url])))
       (is (= ["src" "resources"] (get d :paths)))
-      (is (nil? (get d :rig/src-dirs)))
+      (is (nil? (get d :rig/artifact-dirs)))
       (is (= {:mvn/version "1.12.1"} (get-in d [:deps 'org.clojure/clojure])))
       (is (= {:mvn/version "1.1.6"} (get-in d [:deps 'aero/aero])))
       (is (= {:mvn/version "0.1.0" :exclusions '[z/w]} (get-in d [:deps 'x/y])))
@@ -445,6 +445,22 @@
     (is (some #(re-find #":plugins" %) (warnings r)))
     (is (some #(re-find #":uberjar" %) (warnings r)))
     (is (some #(re-find #"predates kaocha.runner/exec-fn" %) (warnings r)))))
+
+(deftest lein-plain-source-paths-migrate
+  ;; A plain :source-paths vector replaces the leiningen default (top-level
+  ;; ^:top-displace semantics), so the migration must keep src/clj on the
+  ;; classpath and pin the build dirs to match, instead of silently
+  ;; falling back to src/.
+  (let [text "(defproject com.example/plain-paths \"0.1.0\"
+              :source-paths [\"src/clj\"]
+              :dependencies [[org.clojure/clojure \"1.12.1\"]])"
+        ws (temp-ws {"project.clj" text})
+        r (run ws)]
+    (is (empty? (problems r)))
+    (is (empty? (warnings r)))
+    (let [d (file-edn ws "deps.edn")]
+      (is (= ["src/clj" "resources"] (get d :paths)))
+      (is (= ["src/clj" "resources"] (get d :rig/artifact-dirs))))))
 
 (deftest leiningen-version-literal
   (let [ws (temp-ws {"project.clj" "(defproject foo/bar \"1.2.3\" :main foo.main)\n"})

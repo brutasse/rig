@@ -45,7 +45,7 @@ Set in each module's `deps.edn`. All optional unless noted.
 | `:rig/publish?` | `false` (true if `:rig/publish` is set) | Whether `rig publish`/`rig release` deploys this module. |
 | `:rig/publish` | `{:repo "clojars" :sign-releases? false}` | Where to publish. `:repo` is a repository id resolved through `~/.m2/settings.xml` credentials and `:mvn/repos` URLs (http/https repositories only); `:sign-releases?` must be `false` (signing is not supported). |
 | `:rig/target-dir` | `"target"` | Build output directory. |
-| `:rig/src-dirs` | `["src" "resources"]` | Source/resource directories. |
+| `:rig/artifact-dirs` | the module's own `:paths` entries (plain, in-module, excluding the `:rig/target-dir` tree), else `["src" "resources"]` | Directories compiled and copied into the artifact (jar/uber/native). The module's `:paths` are its classpath; artifact-dirs are what the build packages — external paths and build output on the classpath stay out of the artifact. |
 | `:rig/java-src-dirs` | `[]` | Java source directories (compiled into the jar). |
 | `:rig/javac-opts` | `[]` | javac options (used only when `:rig/java-src-dirs` is non-empty). When the workspace pins `:rig/jvm`, `--release <n>` is prepended unless the opts already set `--release`, `-source` or `-target`. |
 | `:rig/ns-compile` | — | Extra namespaces to AOT-compile alongside the module's own sources, e.g. `[:entry.main]`. |

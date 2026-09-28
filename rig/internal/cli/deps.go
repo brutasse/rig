@@ -44,7 +44,7 @@ func newAddCmd(o *opts) *cobra.Command {
 		Args:  cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
-			root, err := workspace.Find(".")
+			root, err := workspace.FindNoLock(".")
 			if err != nil {
 				return err
 			}
@@ -67,7 +67,7 @@ func newRemoveCmd(o *opts) *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
-			root, err := workspace.Find(".")
+			root, err := workspace.FindNoLock(".")
 			if err != nil {
 				return err
 			}
@@ -85,7 +85,7 @@ func newUpdateCmd(o *opts) *cobra.Command {
 		Args:  cobra.RangeArgs(0, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
-			root, err := workspace.Find(".")
+			root, err := workspace.FindNoLock(".")
 			if err != nil {
 				return err
 			}

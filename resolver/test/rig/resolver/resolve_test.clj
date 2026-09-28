@@ -67,7 +67,7 @@
   (let [ws (temp-ws "{:rig/lib x/y\n :mvn/repos {\"central\" {:url \"https://example.com/central\"} \"corp\" {:url \"https://example.com/corp\"}}}\n")
         lock (-> (resolve/resolve-lock {:workspace ws})
                  (get "lock"))]
-    (is (= 1 (get lock "version")))
+    (is (= 2 (get lock "version")))
     (is (contains? (get lock "modules") "."))))
 
 (deftest all-repos-sorts-custom-repos-by-id
@@ -226,6 +226,47 @@
         lock (-> (resolve/resolve-lock {:workspace ws})
                  (get "lock"))]
     (is (nil? (get-in lock ["modules" "." :build :javac-opts])))))
+
+(deftest artifact-dirs-fall-back-to-paths
+  (let [ws (temp-ws "{:rig/lib x/y\n :paths [\"generator\" \"static\"]}\n")
+        lock (-> (resolve/resolve-lock {:workspace ws})
+                 (get "lock"))]
+    (is (= ["generator" "static"]
+           (get-in lock ["modules" "." :build :artifact-dirs])))))
+
+(deftest artifact-dirs-declaration-wins-over-paths
+  (let [ws (temp-ws "{:rig/lib x/y\n :paths [\"src\"]\n :rig/artifact-dirs [\"custom\"]}\n")
+        lock (-> (resolve/resolve-lock {:workspace ws})
+                 (get "lock"))]
+    (is (= ["custom"]
+           (get-in lock ["modules" "." :build :artifact-dirs])))))
+
+(deftest artifact-dirs-default-without-paths-or-declaration
+  (let [ws (temp-ws "{:rig/lib x/y}\n")
+        lock (-> (resolve/resolve-lock {:workspace ws})
+                 (get "lock"))]
+    (is (= ["src" "resources"]
+           (get-in lock ["modules" "." :build :artifact-dirs])))))
+
+(deftest artifact-dirs-mirror-empty-paths
+  (let [ws (temp-ws "{:rig/lib x/y\n :paths []}\n")
+        lock (-> (resolve/resolve-lock {:workspace ws})
+                 (get "lock"))]
+    (is (= [] (get-in lock ["modules" "." :build :artifact-dirs])))))
+
+(deftest artifact-dirs-fallback-drops-external-and-target-paths
+  (let [ws (temp-ws "{:rig/lib x/y\n :paths [\"src\" \"../ext\" \"target/classes\"]}\n")
+        lock (-> (resolve/resolve-lock {:workspace ws})
+                 (get "lock"))]
+    (is (= ["src"]
+           (get-in lock ["modules" "." :build :artifact-dirs])))))
+
+(deftest artifact-dirs-fallback-honors-custom-target-dir
+  (let [ws (temp-ws "{:rig/lib x/y\n :rig/target-dir \"out\"\n :paths [\"src\" \"out/gen\"]}\n")
+        lock (-> (resolve/resolve-lock {:workspace ws})
+                 (get "lock"))]
+    (is (= ["src"]
+           (get-in lock ["modules" "." :build :artifact-dirs])))))
 
 (deftest legacy-ns-compile-manifest-is-rejected
   (let [ws (temp-ws "{:exoscale.project/lib x/y\n :exoscale.project/uberjar? true\n :exoscale.project/ns-compile [a.b]}\n")]

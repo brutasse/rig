@@ -11,7 +11,10 @@ import (
 	"github.com/brutasse/rig/internal/jdk"
 )
 
-const SupportedVersion = 1
+// SupportedVersion is the lock schema version. v2 renamed build.src-dirs to
+// build.artifact-dirs (the dirs compiled/copied into the artifact); v1 locks
+// are rejected by Load — run rig lock to re-lock.
+const SupportedVersion = 2
 
 // JVMFloor is the lowest JVM feature version the resolver kernel runs on:
 // the kernel jar is built for Java 8 (the floor Clojure 1.12 itself has),
@@ -174,14 +177,14 @@ type Exec struct {
 }
 
 type Build struct {
-	SrcDirs     []string `json:"src-dirs"`
-	JavaSrcDirs []string `json:"java-src-dirs"`
-	JavacOpts   []string `json:"javac-opts,omitempty"`
-	ClassDir    string   `json:"class-dir"`
-	NsCompile   []string `json:"ns-compile,omitempty"`
-	Jar         bool     `json:"jar"`
-	Uberjar     *Uberjar `json:"uberjar"`
-	Native      *Native  `json:"native,omitempty"`
+	ArtifactDirs []string `json:"artifact-dirs"`
+	JavaSrcDirs  []string `json:"java-src-dirs"`
+	JavacOpts    []string `json:"javac-opts,omitempty"`
+	ClassDir     string   `json:"class-dir"`
+	NsCompile    []string `json:"ns-compile,omitempty"`
+	Jar          bool     `json:"jar"`
+	Uberjar      *Uberjar `json:"uberjar"`
+	Native       *Native  `json:"native,omitempty"`
 }
 
 type Uberjar struct {

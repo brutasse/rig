@@ -19,7 +19,21 @@ type Root struct {
 	Lock      *lockfile.Document
 }
 
+// Find locates the workspace root and loads its deps.lock. A lock of an
+// unsupported schema is an error: commands that consume the lock refuse to
+// guess at it (re-lock with 'rig lock').
 func Find(start string) (*Root, error) {
+	return find(start, true)
+}
+
+// FindNoLock locates the workspace root without parsing deps.lock. The
+// lock-writing commands use it so that a lock of an unsupported schema can be
+// re-locked instead of blocking the re-lock itself.
+func FindNoLock(start string) (*Root, error) {
+	return find(start, false)
+}
+
+func find(start string, loadLock bool) (*Root, error) {
 	abs, err := filepath.Abs(start)
 	if err != nil {
 		return nil, err
@@ -33,6 +47,9 @@ func Find(start string) (*Root, error) {
 	for {
 		lockPath := filepath.Join(dir, "deps.lock")
 		if st, err := os.Stat(lockPath); err == nil && !st.IsDir() {
+			if !loadLock {
+				return &Root{Dir: dir}, nil
+			}
 			doc, err := lockfile.Load(lockPath)
 			if err != nil {
 				return nil, err

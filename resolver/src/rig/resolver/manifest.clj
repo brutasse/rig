@@ -58,7 +58,8 @@
 
 (defn lib [data] (get data :rig/lib))
 (defn main-ns [data] (get data :rig/main))
-(defn src-dirs [data] (get data :rig/src-dirs))
+(defn artifact-dirs [data] (get data :rig/artifact-dirs))
+(defn paths [data] (get data :paths))
 (defn java-src-dirs [data] (get data :rig/java-src-dirs))
 (defn javac-opts [data] (get data :rig/javac-opts))
 (defn target-dir [data] (or (get data :rig/target-dir) "target"))

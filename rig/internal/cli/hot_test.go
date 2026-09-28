@@ -1,20 +1,23 @@
 package cli
 
 import (
+	"archive/zip"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/brutasse/rig/internal/digest"
 	"github.com/brutasse/rig/internal/jvm"
 	"github.com/brutasse/rig/internal/kernel"
+	"github.com/brutasse/rig/internal/lockfile"
 )
 
-// hotSetup pins the kernel jar and its JARSHA, copies the testdata/hot
-// fixture workspace into a fresh dir, and chdirs into it. It skips when java
-// or the kernel jar is unavailable.
-func hotSetup(t *testing.T) {
+// fixtureSetup pins the kernel jar and its JARSHA, copies the named
+// testdata fixture workspace into a fresh dir, and chdirs into it. It
+// skips when java or the kernel jar is unavailable.
+func fixtureSetup(t *testing.T, fixture string) {
 	t.Helper()
 	jar := kernelJarPath(t)
 	if _, err := jvm.Find(); err != nil {
@@ -32,10 +35,14 @@ func hotSetup(t *testing.T) {
 		os.Unsetenv("RIG_KERNEL_JAR")
 	})
 	dst := t.TempDir()
-	if err := copyTree("testdata/hot", dst); err != nil {
+	if err := copyTree(fixture, dst); err != nil {
 		t.Fatal(err)
 	}
 	t.Chdir(dst)
+}
+
+func hotSetup(t *testing.T) {
+	fixtureSetup(t, "testdata/hot")
 }
 
 func copyTree(src, dst string) error {
@@ -138,6 +145,50 @@ func TestHotBuildUber(t *testing.T) {
 	}
 	if !strings.Contains(out, "hello there") {
 		t.Errorf("uber run out = %q", out)
+	}
+}
+
+// TestBuildPathsOnly locks and builds a module whose :paths point at a
+// non-default source dir (src2) with no :rig/artifact-dirs declaration:
+// the lock must derive artifact-dirs from :paths, and the jar must carry
+// the compiled src2 code while the default src/ decoy stays out.
+func TestBuildPathsOnly(t *testing.T) {
+	fixtureSetup(t, "testdata/paths")
+	cacheDir := t.TempDir()
+	code, out := runCLI(t, "lock", "--cache-dir", cacheDir)
+	if code != 0 {
+		t.Fatalf("lock exit = %d, want 0; out: %s", code, out)
+	}
+	lock, err := lockfile.Load("deps.lock")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mod := lock.Modules["modules/app"]
+	if got := mod.Build.ArtifactDirs; !reflect.DeepEqual(got, []string{"src2"}) {
+		t.Fatalf("lock artifact-dirs = %v, want [src2]", got)
+	}
+	code, out = runCLI(t, "build", "--cache-dir", cacheDir, "-p", "modules/app")
+	if code != 0 {
+		t.Fatalf("build exit = %d, want 0; out: %s", code, out)
+	}
+	jars, _ := filepath.Glob(filepath.Join("modules", "app", "target", "*.jar"))
+	if len(jars) != 1 {
+		t.Fatalf("jars in modules/app/target = %v, want exactly one", jars)
+	}
+	zr, err := zip.OpenReader(jars[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer zr.Close()
+	names := map[string]bool{}
+	for _, f := range zr.File {
+		names[f.Name] = true
+	}
+	if !names["app/paths__init.class"] {
+		t.Errorf("jar %s missing the compiled src2 class app/paths__init.class", jars[0])
+	}
+	if names["app/decoy__init.class"] {
+		t.Errorf("jar %s contains the src/ decoy class; :paths must scope the build", jars[0])
 	}
 }
 

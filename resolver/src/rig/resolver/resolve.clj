@@ -90,6 +90,24 @@
             [(str g "/" n "/" (:git/sha s))
               {:url (:git/url s) :deps/root (get s :deps/root)}]))))
 
+(defn- build-artifact-dirs
+  "The module's artifact dirs: :rig/artifact-dirs when declared; else the
+  manifest's :paths limited to the module's own dirs — paths leaving the
+  module and the target dir (build output) are classpath-only and must not
+  be compiled or copied into the artifact (absolute :paths entries cannot
+  be locked, so every entry here is relative); else the conventional
+  default."
+  [data]
+  (or (manifest/artifact-dirs data)
+      (when-let [p (manifest/paths data)]
+        (let [t (manifest/target-dir data)]
+          (vec (remove #(or (not (string? %))
+                            (str/starts-with? % "..")
+                            (= % t)
+                            (str/starts-with? % (str t "/")))
+                       p))))
+      ["src" "resources"]))
+
 (defn- build-plan
   [data version]
   (let [target (manifest/target-dir data)
@@ -98,7 +116,7 @@
         artifact (or (some-> (manifest/lib data) str (str/split #"/") last) "app")
         default (str target "/" artifact (when (seq version) (str "-" version)) ".jar")
         ns-compile (when-let [nsc (manifest/ns-compile data)] (vec (map name nsc)))]
-    (cond-> {:src-dirs (or (manifest/src-dirs data) ["src" "resources"])
+    (cond-> {:artifact-dirs (build-artifact-dirs data)
              :java-src-dirs (or (manifest/java-src-dirs data) [])
              :class-dir (str target "/classes")
              :jar true
@@ -238,7 +256,7 @@
                                      (assoc a :repository id :url url))
                                    a))
                                (plan/merge-artifacts (mapcat :raw-artifacts (vals modules)) git-deps)))
-        lock-doc {"version" 1
+        lock-doc {"version" 2
                   "resolver" (resolver-id)
                   "workspace" {"modules" module-dirs
                                "manifest_sha256" (some-> root-man :sha256)}

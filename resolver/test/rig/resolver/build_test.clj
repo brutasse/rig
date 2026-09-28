@@ -89,7 +89,7 @@
         uber-file (str ws "/target/fixture-uber.jar")]
     {:dir ws
      :classpath (concat [{:id "paths:." :paths [(str src-root)]}] (cp-entries))
-     :src-dirs [(str src-root) (str res-root)]
+     :artifact-dirs [(str src-root) (str res-root)]
      :java-src-dirs []
      :class-dir class-dir
      :main "example.core"
@@ -194,7 +194,7 @@
       (finally
         (delete-tree ws-dir)))))
 
-(deftest ns-compile-compiles-namespaces-outside-the-src-dirs
+(deftest ns-compile-compiles-namespaces-outside-the-artifact-dirs
   (let [ws-dir (temp-dir)
         ws (str ws-dir)
         src-root (io/file ws-dir "src")

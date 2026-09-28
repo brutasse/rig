@@ -41,9 +41,9 @@
 (defn- build-module [cfg]
   (let [basis (basis (get cfg :classpath))
         class-dir (get cfg :class-dir)
-        src-dirs (get cfg :src-dirs)
+        artifact-dirs (get cfg :artifact-dirs)
         java-src-dirs (get cfg :java-src-dirs)
-        copy-dirs (filter #(and % (.isDirectory (io/file %))) src-dirs)
+        copy-dirs (filter #(and % (.isDirectory (io/file %))) artifact-dirs)
         extra (get cfg :ns-compile)]
     ;; The compile classpath puts the class-dir first, so any .class left from
     ;; a previous build shadows the source and its namespace is never
@@ -63,13 +63,13 @@
     ;; :ns-compile replaces the default (src dirs) set, so pass the union:
     ;; the module's own namespaces plus the declared entry points. The
     ;; compile script needs symbols (clojure.core/compile munges them).
-    (b/compile-clj (cond-> {:basis basis :src-dirs src-dirs :class-dir class-dir}
+    (b/compile-clj (cond-> {:basis basis :src-dirs artifact-dirs :class-dir class-dir}
                      (seq extra)
                      (assoc :ns-compile
                             (distinct (map symbol
                                            (concat
                                             (mapcat (fn [d] (find/find-namespaces-in-dir (io/file d) find/clj))
-                                                    src-dirs)
+                                                    artifact-dirs)
                                             extra))))))
     (write-launch-descriptor class-dir (get cfg :launch))
     (cond-> {:class-dir class-dir}

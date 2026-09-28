@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "tool": {
     "name": "rig",
     "version": "0.1.0"
@@ -446,7 +446,7 @@
       ],
       "aliases": {},
       "build": {
-        "src-dirs": [
+        "artifact-dirs": [
           "src",
           "resources"
         ],
@@ -523,9 +523,8 @@
         }
       },
       "build": {
-        "src-dirs": [
-          "src",
-          "resources"
+        "artifact-dirs": [
+          "src"
         ],
         "java-src-dirs": [],
         "class-dir": "target/classes",

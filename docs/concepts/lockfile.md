@@ -13,7 +13,7 @@ A real lock (trimmed) from a multi-module workspace:
 
 ```jsonc
 {
-  "version": 1,                          // schema version
+  "version": 2,                          // schema version
   "tool":    { "name": "rig", "version": "0.1.0" },
   "resolver": {                          // who produced this lock
     "lib": "io.github.brutasse/rig-resolver",
@@ -94,7 +94,7 @@ A real lock (trimmed) from a multi-module workspace:
           "exec": { "type": "exec-fn", "fn": "kaocha.runner/exec-fn" }
         }
       },
-      "build":  { /* src-dirs, class-dir, jar/uberjar settings */ },
+      "build":  { /* artifact-dirs, class-dir, jar/uberjar settings */ },
       "publish":{ "enabled": false, "repo": "", "sign-releases?": false },
       "test":   { "enabled": true }
     }
@@ -125,11 +125,14 @@ Every command that builds a classpath (`test`, `run`, `repl`, `exec`,
 `build`, …) starts by checking the lock:
 
 1. **No lock** → exit 3, hint: `run 'rig lock'`.
-2. **A manifest changed** (its `manifest_sha256` no longer matches) →
+2. **Lock of an unsupported schema version** (written by an older rig) →
+   exit, hint: `run 'rig lock'`. The re-lock reads the old lock, keeps its
+   pins, and writes the current schema.
+3. **A manifest changed** (its `manifest_sha256` no longer matches) →
    - default (development): rig re-resolves, refreshes the lock, prints one
      line — `relocked (stale: modules/orchestrator)` — and continues.
    - with `--frozen`: exit 3, lock untouched. This is the CI mode.
-3. **Lock is current** → proceed. No resolution, no network (unless an
+4. **Lock is current** → proceed. No resolution, no network (unless an
    artifact still has to be secured from the local sources or downloaded),
    straight to the JVM.
 
