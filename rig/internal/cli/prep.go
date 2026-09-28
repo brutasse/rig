@@ -238,7 +238,7 @@ func (e *hotEnv) javacState(m string, mod lockfile.Module, ran map[string]bool) 
 	}
 	st := prepState{source: src, class: cpd}
 	if _, err := os.Stat(filepath.Join(e.root.Dir, m, mod.Build.ClassDir)); err != nil {
-		st.stale, st.reason = true, "missing " + filepath.Join(m, mod.Build.ClassDir)
+		st.stale, st.reason = true, "missing "+filepath.Join(m, mod.Build.ClassDir)
 		return st, nil
 	}
 	stamp, ok := e.readStamp(m, mod, javacStampFile)
@@ -257,7 +257,7 @@ func (e *hotEnv) javacState(m string, mod lockfile.Module, ran map[string]bool) 
 	if !st.stale {
 		for _, en := range mod.Classpath {
 			if en.Local != nil && ran[*en.Local] {
-				st.stale, st.reason = true, "dependency " + *en.Local + " re-prepped"
+				st.stale, st.reason = true, "dependency "+*en.Local+" re-prepped"
 				return st, nil
 			}
 		}
@@ -280,7 +280,7 @@ func (e *hotEnv) prepState(m string, mod lockfile.Module, ran map[string]bool) (
 	}
 	st := prepState{source: src, class: cpd}
 	if missing := missingPrepEnsures(e, m, mod); len(missing) > 0 {
-		st.stale, st.reason = true, "missing " + strings.Join(missing, ", ")
+		st.stale, st.reason = true, "missing "+strings.Join(missing, ", ")
 		return st, nil
 	}
 	stamp, ok := e.readStamp(m, mod, prepStampFile)
@@ -301,7 +301,7 @@ func (e *hotEnv) prepState(m string, mod lockfile.Module, ran map[string]bool) (
 	if !st.stale {
 		for _, en := range mod.Classpath {
 			if en.Local != nil && ran[*en.Local] {
-				st.stale, st.reason = true, "dependency " + *en.Local + " re-prepped"
+				st.stale, st.reason = true, "dependency "+*en.Local+" re-prepped"
 				return st, nil
 			}
 		}
