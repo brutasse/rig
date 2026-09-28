@@ -501,23 +501,27 @@
       {:repos {} :warnings [(str ":repositories value " (class repos) " is not understood")]})))
 
 (defn- first-deploy-spec
-  "The spec map of the first :deploy-repositories entry ({id spec} map or
-  [id spec] vector entries); nil when absent or not a spec map."
+  "The spec of the first :deploy-repositories entry ({id spec} map or
+  [id spec] vector entries); a spec map or the :clojars shorthand keyword;
+  nil when absent or not understood."
   [repos]
   (let [e (first (if (map? repos) (vals repos) repos))]
     (cond
       (map? e) e
-      (and (sequential? e) (map? (second e))) (second e)
+      (keyword? e) e
+      (and (sequential? e) (or (map? (second e)) (keyword? (second e)))) (second e)
       :else nil)))
 
 (defn- lein-publish
-  "leiningen :deploy-repositories -> an exec-args-to-publish result (rig
-  publishes to one repository, so only the first entry is used, with a
-  warning when there are more); nil when there are none."
+  "leiningen :deploy-repositories -> an exec-args-to-publish result (the
+  :clojars shorthand maps to rig's clojars repository; rig publishes to one
+  repository, so only the first entry is used, with a warning when there are
+  more); nil when there are none."
   [repos mod-repos]
   (when (some? repos)
     (let [n (count repos)
           spec (first-deploy-spec repos)
+          spec (if (and (keyword? spec) (not= :clojars spec)) nil spec)
           sign (true? (when (map? spec) (get spec :sign-releases)))
           url (when (map? spec) (get spec :url))]
       (cond
@@ -525,7 +529,12 @@
         {:publish nil :repos {} :warnings []
          :problems [(str "first :deploy-repositories entry "
                          (pr-str (first (if (map? repos) (vals repos) repos)))
-                     " is not a spec map")]}
+                     " is not a spec map (known shorthand: :clojars)")]}
+        (= :clojars spec)
+        (cond-> {:publish {:repo "clojars"} :repos {} :warnings [] :problems []}
+          (> n 1)
+          (update :warnings conj
+                  "only the first :deploy-repositories entry is migrated (rig publishes to one repository)"))
         (nil? url)
         {:publish nil :repos {}
          :warnings [":deploy-repositories entry has no :url; no :rig/publish emitted"]
