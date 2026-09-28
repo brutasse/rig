@@ -441,6 +441,27 @@
              (symbol? (second x)))
     (second x)))
 
+(defn- version-vars
+  "Static lein-replace version vars: the top-level (def <var> \"literal\")
+  and (def <var> (slurp \"<file>\")) forms of project.clj as a
+  {var version} map (slurp bodies are read against ws, trimmed). Any
+  other body is skipped: lein evaluates it at load time, rig migrate is
+  static."
+  [forms ws]
+  (into {} (keep
+            (fn [f]
+              (when (and (sequential? f) (= (count f) 3)
+                         (= (first f) 'def) (symbol? (nth f 1)))
+                (let [v (nth f 1)
+                      b (nth f 2)]
+                  (cond
+                    (string? b) {v b}
+                    (and (sequential? b) (= (first b) 'slurp) (string? (nth b 1)))
+                    (when-let [ff (io/file ws (nth b 1))]
+                      (when (.exists ff) {v (str/trim (slurp ff))}))
+                    :else nil)))))
+            forms))
+
 (defn- managed-pool
   "Leiningen :managed-dependencies -> {:pool {coord-sym {:version v
   :exclusions [..]}} :problems [..]}. v is a literal string, :self (the
@@ -540,14 +561,15 @@
 
 (defn- dep-entries
   "leiningen :dependencies (or a profile's) entries ->
-  {:deps {coord spec} :warnings [..] :problems [..]}. An entry without
-  a version, :local/root or :git/url (or carrying lein's :version
-  token) is materialized from the :managed-dependencies pool: literal
-  versions and :self (the project's own version) are resolvable, ~vars
-  are problems. `pool` is the :pool value of managed-pool (root +
+  {:deps {coord spec} :warnings [..] :problems [..]}. The version can be
+  a literal, a ~var (resolved against the static defs in vvars) or the
+  lein :version token; an entry with none of these (and no :local/root
+  or :git/url) is materialized from the :managed-dependencies pool:
+  literal versions and :self (the project's own version) are
+  resolvable. `pool` is the :pool value of managed-pool (root +
   inherited); `vversion` the resolved project version, nil when it is
-  not a literal."
-  [entries pool vversion]
+  not a literal; `vvars` the static ~var map (version-vars)."
+  [entries pool vversion vvars]
   (let [mat (fn [v excl]
               (cond-> {:mvn/version v}
                 (some? excl) (assoc :exclusions (sym-exclusions excl))))]
@@ -560,16 +582,24 @@
                      dep-sym (to-sym coord)
                      tail (nthnext e 1)
                      t0 (first tail)
+                     unq (unquote-var t0)
                      ver (cond
                            (string? t0) t0
                            (= :version t0) :version
-                           :else nil)
-                     opt-vec (vec (if (or (string? t0) (= :version t0))
+                           unq (get vvars unq))
+                     opt-vec (vec (if (or (string? t0) (= :version t0) (some? ver))
                                     (next tail)
                                     tail))]
-                 (if (odd? (count opt-vec))
+                 (cond
+                   (and unq (nil? ver))
+                   (merge acc {:problems (conj problems
+                          (str "dep " coord ": version var ~" (str unq)
+                               " cannot be resolved statically; lein evaluates it at load time, rig migrate needs a top-level (def "
+                               (str unq) " \"...\") with a literal or (slurp \"...\") body"))})
+                   (odd? (count opt-vec))
                    (merge acc {:problems (conj problems
                           (str "dep " coord " has an odd number of option elements"))})
+                   :else
                    (let [opts (into {} (map vec (partition 2 opt-vec)))
                          unknown (filter #(not (contains? lein-dep-options %)) (keys opts))
                          warns (map (fn [k]
@@ -602,6 +632,7 @@
                        :true
                        (let [entry (get pool dep-sym)
                              mv (when entry (get entry :version))
+                             mv (if (symbol? mv) (or (get vvars mv) mv) mv)
                              pexcl (when entry (get entry :exclusions))]
                          (cond
                            (string? mv)
@@ -616,7 +647,7 @@
                            (symbol? mv)
                            (merge acc {:problems (conj problems
                                   (str "dep " coord "'s :managed-dependencies version " (str mv)
-                                       " is a lein-replace var (unsupported; pin it explicitly)"))})
+                                       " is a lein-replace var that cannot be resolved statically (pin it explicitly)"))})
                            :true
                            (merge acc {:problems (conj problems
                                   (str "dep " coord " declares no version, :local/root or :git/url (no :managed-dependencies entry)"))})))))))
@@ -626,21 +657,24 @@
 
 (defn- repos-of
   "leiningen :repositories (map {id url-or-spec} or vector [id url]
-  pairs) -> {:repos {id {:url u}} :warnings [..]}."
+  pairs) -> {:repos {id {:url u}} :warnings [..]}. ids are
+  stringified (the reader can surface them as keywords or as
+  colon-prefixed symbols — both normalize to the bare id)."
   [repos]
-  (let [norm (fn [v] (str (if (map? v) (or (get v :url) (get v "url")) v)))]
+  (let [id-str (fn [id] (str/replace-first (str id) #"^:" ""))
+        norm (fn [v] (str (if (map? v) (or (get v :url) (get v "url")) v)))]
     (cond
       (nil? repos)
       {:repos {} :warnings []}
       (map? repos)
-      {:repos (into {} (for [[id v] repos] [id {:url (norm v)}])) :warnings []}
+      {:repos (into {} (for [[id v] repos] [(id-str id) {:url (norm v)}])) :warnings []}
       (sequential? repos)
       (reduce (fn [{:keys [repos warnings] :as acc} e]
                 (if (and (sequential? e) (>= (count e) 2))
                   (if (= :proxy (first e))
                     (merge acc {:warnings (conj warnings
                            (str "proxy repository " (str (second e)) " is not supported (dropped)"))})
-                    (merge acc {:repos (assoc repos (str (first e)) {:url (norm (second e))})}))
+                    (merge acc {:repos (assoc repos (id-str (first e)) {:url (norm (second e))})}))
                   (merge acc {:warnings (conj warnings
                          (str "repository entry " (pr-str e) " is not understood (dropped)"))})))
               {:repos {} :warnings []}
@@ -765,11 +799,11 @@
   always yields an alias with a kaocha :exec-fn (rig test hard-requires
   one); other profiles yield an alias only when they carry expressible
   content."
-  [name p test-defaults kaocha-ver pool vversion]
+  [name p test-defaults kaocha-ver pool vversion vvars]
   (let [test? (= name :test)
         map? (or (nil? p) (map? p))
         p (or p {})
-        dres (dep-entries (get p :dependencies) pool vversion)
+        dres (dep-entries (get p :dependencies) pool vversion vvars)
         d (get dres :deps)
         dw (get dres :warnings)
         dp (get dres :problems)
@@ -819,13 +853,14 @@
             main (to-sym (get pairs :main))
             vinfo (version-info forms vform)
             vversion (get vinfo :version)
+            vvars (version-vars forms ws)
             pp (get pairs :parent-project)
             pp-managed? (or (some #(= :managed-dependencies %) (get pp :inherit))
                             (some #(= :managed-dependencies %) (get pp :include)))
             parent (if pp-managed? (parent-managed pp ws) {:pool {} :problems []})
             mp (managed-pool (get pairs :managed-dependencies))
             pool (merge (get parent :pool) (get mp :pool))
-            deps-res (dep-entries (get pairs :dependencies) pool vversion)
+            deps-res (dep-entries (get pairs :dependencies) pool vversion vvars)
             repos-res (repos-of (get pairs :repositories))
             pub (lein-publish (get pairs :deploy-repositories) (get repos-res :repos))
             source-paths (effective-paths ["src"] (get pairs :source-paths))
@@ -836,16 +871,16 @@
             merged-test (merged-test-profile (get profiles :dev) (get profiles :test))
             ;; Effective kaocha pin for the test classpath: the merged
             ;; :test profile's (later declarations win), else the base.
-            declared-kaocha (or (kaocha-version (get (dep-entries (get merged-test :dependencies) pool vversion) :deps))
+            declared-kaocha (or (kaocha-version (get (dep-entries (get merged-test :dependencies) pool vversion vvars) :deps))
                                 (kaocha-version (get deps-res :deps)))
             kaocha-bump (and declared-kaocha (kaocha-predates-exec-fn declared-kaocha))
             kaocha-ver (if kaocha-bump
                          default-kaocha
                          (or declared-kaocha default-kaocha))
-            test (profile-alias :test merged-test test-defaults kaocha-ver pool vversion)
+            test (profile-alias :test merged-test test-defaults kaocha-ver pool vversion vvars)
             [test-alias test-w test-p] test
             dev (if (some? (get profiles :dev))
-                  (profile-alias :dev (get profiles :dev) test-defaults kaocha-ver pool vversion)
+                  (profile-alias :dev (get profiles :dev) test-defaults kaocha-ver pool vversion vvars)
                   [{} [] []])
             [dev-alias dev-w dev-p] dev
             aliases (cond-> {:test test-alias}
