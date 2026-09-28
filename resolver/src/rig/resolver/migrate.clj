@@ -321,7 +321,8 @@
 (def lein-handled-keys
   #{:main :dependencies :repositories :deploy-repositories :profiles
     :source-paths :resource-paths :test-paths :jvm-opts
-    :managed-dependencies :parent-project})
+    :managed-dependencies :parent-project
+    :java-source-paths :javac-options :uberjar-name})
 
 (def default-kaocha "1.66.1034")
 
@@ -895,6 +896,10 @@
                                               (not= (get vinfo :version-file) "VERSION"))
                                      (get vinfo :version-file))]
                                   [:rig/uberjar? (when (some? (get profiles :uberjar)) true)]
+                                  [:rig/uberjar-file
+                                   (when (some? (get pairs :uberjar-name))
+                                     (let [n (str (get pairs :uberjar-name))]
+                                       (str "target/" (if (str/ends-with? n ".jar") n (str n ".jar")))))]
                                   [:rig/publish (get pub :publish)]
                                   [:mvn/repos
                                    (let [m (merge (get repos-res :repos) (get pub :repos))]
@@ -902,6 +907,10 @@
                                   [:paths (when (not= main-paths ["src"]) main-paths)]
                                   [:rig/artifact-dirs
                                    (when (not= main-paths ["src" "resources"]) main-paths)]
+                                  [:rig/java-src-dirs
+                                   (when (seq (get pairs :java-source-paths)) (vec (get pairs :java-source-paths)))]
+                                  [:rig/javac-opts
+                                   (when (seq (get pairs :javac-options)) (vec (get pairs :javac-options)))]
                                   [:deps (when (seq (get deps-res :deps)) (get deps-res :deps))]
                                   [:aliases aliases]
                                   [:jvm-opts

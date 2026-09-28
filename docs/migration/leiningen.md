@@ -89,9 +89,12 @@ nothing written.
 | `:repositories` | `:mvn/repos` |
 | `:deploy-repositories` | `:rig/publish` (only the first entry is migrated; the rest are dropped with a warning; the `:clojars` shorthand maps to the rig `clojars` repo) |
 | `:source-paths` / `:resource-paths` | `:paths` (omitted at the `["src" "resources"]` default) |
+| `:java-source-paths` | `:rig/java-src-dirs` |
+| `:javac-options` | `:rig/javac-opts` |
 | `:test-paths` | the `:test` alias's `:extra-paths` |
 | `:profiles` → `:test`, `:dev` | `:aliases` — `:dependencies` → `:extra-deps`, path keys → `:extra-paths`, `:jvm-opts` → `:jvm-opts` |
 | `:profiles` → `:uberjar` | `:rig/uberjar? true` |
+| `:uberjar-name` | `:rig/uberjar-file` — `target/` + the name; a missing `.jar` suffix is appended |
 
 Single-segment coordinates are expanded (`aero` → `aero/aero`), the same
 rule `rig new` applies.

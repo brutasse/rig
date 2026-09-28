@@ -870,3 +870,42 @@
     (is (= {:mvn/version "1.0.0"}
            (get-in (file-edn ws "deps.edn") [:deps 'a/b])))
     (is (not (some #(re-find #"no rig equivalent" %) (warnings r))))))
+
+(deftest lein-java-source-paths-and-javac-options-migrate
+  ;; lein :java-source-paths / :javac-options map to the existing
+  ;; :rig/java-src-dirs / :rig/javac-opts (no new keys); they are no longer
+  ;; reported as dropped.
+  (let [text "(defproject com.example/java \"0.1.0\"
+ :java-source-paths [\"src/java\"]
+ :javac-options [\"-target\" \"1.8\" \"-source\" \"1.8\"]
+ :dependencies [[org.clojure/clojure \"1.12.1\"]])"
+        ws (temp-ws {"project.clj" text})
+        r (run ws)]
+    (is (empty? (problems r)))
+    (let [d (file-edn ws "deps.edn")]
+      (is (= ["src/java"] (get d :rig/java-src-dirs)))
+      (is (= ["-target" "1.8" "-source" "1.8"] (get d :rig/javac-opts))))
+    (is (not (some #(re-find #":java-source-paths|:javac-options" %)
+                   (warnings r))))))
+
+(deftest lein-uberjar-name-migrates-to-rig-uberjar-file
+  ;; lein :uberjar-name maps to the existing :rig/uberjar-file, rooted at
+  ;; target/; a name without a .jar suffix gets one (rig implies
+  ;; :rig/uberjar? from a declared :rig/uberjar-file).
+  (let [ws (temp-ws {"project.clj"
+                     "(defproject com.example/uber \"0.1.0\"
+ :uberjar-name \"metadump.jar\"
+ :dependencies [[org.clojure/clojure \"1.12.1\"]])\n"})
+        r (run ws)]
+    (is (empty? (problems r)))
+    (is (= "target/metadump.jar"
+           (get (file-edn ws "deps.edn") :rig/uberjar-file)))
+    (is (not (some #(re-find #":uberjar-name" %) (warnings r)))))
+  (let [ws (temp-ws {"project.clj"
+                     "(defproject com.example/uber \"0.1.0\"
+ :uberjar-name \"metadump\"
+ :dependencies [[org.clojure/clojure \"1.12.1\"]])\n"})
+        r (run ws)]
+    (is (empty? (problems r)))
+    (is (= "target/metadump.jar"
+           (get (file-edn ws "deps.edn") :rig/uberjar-file)))))
