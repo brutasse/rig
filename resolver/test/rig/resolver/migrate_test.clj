@@ -648,3 +648,143 @@
     (is (empty? (problems r2)))
     (is (empty? (warnings r2)))
     (is (every? false? (map #(get % "changed") (get r2 "edits"))))))
+
+;; --- lein :managed-dependencies / :parent-project (issue 04) ---
+
+(deftest lein-managed-dependencies-materialize-bare-deps
+  (let [ws (temp-ws {"project.clj"
+                     "(defproject foo/bar \"1.0.0\"
+ :managed-dependencies [[\"a/b\" \"1.0.0\"]
+                        [\"c/d\" \"2.0.0\"]]
+ :dependencies [[a/b]
+                [c/d]
+                [e/f \"9.9.9\"]])\n"})
+        r (run ws)]
+    (is (empty? (problems r)))
+    (is (some #(re-find #"(?i)transitive version constraints" %) (warnings r)))
+    (let [d (file-edn ws "deps.edn")]
+      (is (= {:mvn/version "1.0.0"} (get-in d [:deps 'a/b])))
+      (is (= {:mvn/version "2.0.0"} (get-in d [:deps 'c/d])))
+      (is (= {:mvn/version "9.9.9"} (get-in d [:deps 'e/f]))))))
+
+(deftest lein-managed-version-token-materializes-the-project-version
+  (let [ws (temp-ws {"project.clj"
+                     "(defproject foo/bar \"1.2.3\"
+ :managed-dependencies [[foo/sub :version]]
+ :dependencies [[foo/sub]])\n"})
+        r (run ws)]
+    (is (empty? (problems r)))
+    (is (= {:mvn/version "1.2.3"}
+           (get-in (file-edn ws "deps.edn") [:deps 'foo/sub])))))
+
+(deftest lein-version-token-in-the-dep-vector
+  (let [ws (temp-ws {"project.clj"
+                     "(defproject foo/bar \"4.5.6\"
+ :dependencies [[foo/bar :version]
+                [a/b \"1.0\"]])\n"})
+        r (run ws)]
+    (is (empty? (problems r)))
+    (let [d (file-edn ws "deps.edn")]
+      (is (= {:mvn/version "4.5.6"} (get-in d [:deps 'foo/bar])))
+      (is (= {:mvn/version "1.0"} (get-in d [:deps 'a/b]))))))
+
+(deftest lein-versionless-dep-keeps-its-own-exclusions
+  (let [ws (temp-ws {"project.clj"
+                     "(defproject foo/bar \"1.0.0\"
+ :managed-dependencies [[\"a/b\" \"1.0.0\" :exclusions [x/y]]]
+ :dependencies [[a/b :exclusions [z/w]]])\n"})
+        r (run ws)]
+    (is (empty? (problems r)))
+    (is (= {:mvn/version "1.0.0" :exclusions '[z/w]}
+           (get-in (file-edn ws "deps.edn") [:deps 'a/b])))))
+
+(deftest lein-bare-dep-inherits-the-pool-entry-exclusions
+  (let [ws (temp-ws {"project.clj"
+                     "(defproject foo/bar \"1.0.0\"
+ :managed-dependencies [[\"a/b\" \"1.0.0\" :exclusions [x/y]]]
+ :dependencies [[a/b]])\n"})
+        r (run ws)]
+    (is (empty? (problems r)))
+    (is (= {:mvn/version "1.0.0" :exclusions '[x/y]}
+           (get-in (file-edn ws "deps.edn") [:deps 'a/b])))))
+
+(deftest lein-versionless-dep-without-pool-entry-is-a-problem
+  (let [ws (temp-ws {"project.clj"
+                     "(defproject foo/bar \"1.0.0\"
+ :managed-dependencies [[\"c/d\" \"2.0.0\"]]
+ :dependencies [[a/b]
+                [c/d]])\n"})
+        r (run ws)]
+    (is (= 1 (count (problems r))))
+    (is (some #(re-find #"declares no version" %) (problems r)))
+    (is (false? (.exists (io/file ws "deps.edn"))))))
+
+(deftest lein-managed-version-var-is-a-problem
+  (let [ws (temp-ws {"project.clj"
+                     "(def sub-v \"1.0.0\")
+ (defproject foo/bar \"1.0.0\"
+ :managed-dependencies [[\"a/b\" ~sub-v]]
+ :dependencies [[a/b]])\n"})
+        r (run ws)]
+    (is (= 1 (count (problems r))))
+    (is (some #(re-find #"lein-replace var" %) (problems r)))
+    (is (some #(re-find #"sub-v" %) (problems r)))
+    (is (false? (.exists (io/file ws "deps.edn"))))))
+
+(deftest lein-profile-deps-materialize-from-the-root-pool
+  (let [ws (temp-ws {"project.clj"
+                     "(defproject foo/bar \"1.0.0\"
+ :managed-dependencies [[\"a/b\" \"1.0.0\"]]
+ :dependencies []
+ :profiles {:dev  {:dependencies [[a/b]]}
+            :test {:dependencies [[a/b]]}})\n"})
+        r (run ws)]
+    (is (empty? (problems r)))
+    (let [d (file-edn ws "deps.edn")]
+      (is (= {:mvn/version "1.0.0"} (get-in d [:aliases :dev :extra-deps 'a/b])))
+      (is (= {:mvn/version "1.0.0"} (get-in d [:aliases :test :extra-deps 'a/b]))))))
+
+(deftest lein-parent-managed-dependencies-inherit
+  (let [ws (temp-ws {"parent.clj"
+                     "(defproject foo/parent \"0.0.1\"
+ :managed-dependencies [[\"a/b\" \"1.0.0\"]
+                        [\"c/d\" \"2.0.0\"]])\n"
+                     "project.clj"
+                     "(defproject foo/bar \"1.0.0\"
+ :parent-project {:path \"parent.clj\" :inherit [:managed-dependencies]}
+ :managed-dependencies [[\"a/b\" \"3.0.0\"]]
+ :dependencies [[a/b]
+                [c/d]])\n"})
+        r (run ws)]
+    (is (empty? (problems r)))
+    (is (some #(re-find #"other inherited keys are dropped" %) (warnings r)))
+    (let [d (file-edn ws "deps.edn")]
+      ;; the manifest's own pin wins over the parent's
+      (is (= {:mvn/version "3.0.0"} (get-in d [:deps 'a/b])))
+      ;; the parent's pin is inherited
+      (is (= {:mvn/version "2.0.0"} (get-in d [:deps 'c/d]))))))
+
+(deftest lein-missing-parent-project-is-a-single-clear-problem
+  (let [ws (temp-ws {"project.clj"
+                     "(defproject foo/bar \"1.0.0\"
+ :parent-project {:path \"../../project.clj\" :inherit [:managed-dependencies]}
+ :dependencies [[a/b]
+                [c/d]])\n"})
+        r (run ws)]
+    (is (= 1 (count (problems r))))
+    (is (some #(re-find #":parent-project path" %) (problems r)))
+    (is (false? (.exists (io/file ws "deps.edn"))))))
+
+(deftest lein-managed-and-parent-keys-are-not-dropped
+  (let [ws (temp-ws {"parent.clj"
+                     "(defproject foo/parent \"0.0.1\")\n"
+                     "project.clj"
+                     "(defproject foo/bar \"1.0.0\"
+ :managed-dependencies [[\"a/b\" \"1.0.0\"]]
+ :parent-project {:path \"parent.clj\" :inherit [:managed-dependencies]}
+ :dependencies [[a/b]])\n"})
+        r (run ws)]
+    (is (empty? (problems r)))
+    (is (= {:mvn/version "1.0.0"}
+           (get-in (file-edn ws "deps.edn") [:deps 'a/b])))
+    (is (not (some #(re-find #"no rig equivalent" %) (warnings r))))))

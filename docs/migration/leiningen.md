@@ -72,7 +72,8 @@ kaocha 1.0.669 predates kaocha.runner/exec-fn …` — see below.)
 Every decision is reported: dropped content is a warning on stdout
 (`project.clj: profile :docgen dropped (…)`), and blocking problems
 (`:sign-releases true` in a deploy repository, an unparseable file, no
-`defproject` form) abort with nothing written.
+`defproject` form, a missing `:parent-project` path) abort with
+nothing written.
 
 ## The key mapping
 
@@ -83,6 +84,8 @@ Every decision is reported: dropped content is a warning on stdout
 | version literal (`"1.2.3"`) | `:rig/version` |
 | version var whose body is `(slurp "…")` | `:rig/version-file` — omitted for the `VERSION` default |
 | `:dependencies` | `:deps` (symbol coordinates; `:exclusions`, `:local/root`, `:git/url` + `:git/sha` pass through) |
+| `:managed-dependencies` | versionless deps' versions materialized to `:mvn/version` — a literal pin → the pin, the `:version` token → the project's own version; the dep's own `:exclusions` win over the pool entry's; unreferenced pins drop with a warning |
+| `:parent-project` | `:managed-dependencies` inherited via `:inherit [:managed-dependencies]` materialized from the parent manifest (parent pool as base, own entries win); other inherited keys drop with a warning; a missing parent path is a blocking problem |
 | `:repositories` | `:mvn/repos` |
 | `:deploy-repositories` | `:rig/publish` (only the first entry is migrated; the rest are dropped with a warning; the `:clojars` shorthand maps to the rig `clojars` repo) |
 | `:source-paths` / `:resource-paths` | `:paths` (omitted at the `["src" "resources"]` default) |
@@ -130,7 +133,13 @@ per occurrence** — nothing is silently lost:
   `rig exec`;
 - `:aot`, `:global-vars`, `:native-image` (the `:graalvm` profile);
 - every profile other than `:test`, `:dev` and `:uberjar` (a `:docgen`
-  that only adds dependencies is a `rig exec` away).
+  that only adds dependencies is a `rig exec` away);
+- `:managed-dependencies` pins no versionless dep references — the pool
+  exists to supply versions to declared deps; pins nothing references
+  are dropped with a warning (transitive version constraints are lost);
+- `~var`-backed pool pins (lein-replace interpolation) — not resolved;
+  a dep whose version comes from one is a blocking problem naming the
+  var.
 
 Version vars rig cannot interpret (neither a string literal nor a
 `(slurp "…")` body) produce a warning and no version key — the manifest
@@ -190,6 +199,15 @@ keep it as a reference; `deps.edn` wins while both exist).
   them with `rig update <coord>`.
 - **`~/.m2` credentials carry over.** Deploying through an authenticated
   repository needs the same settings.xml as `lein deploy` did.
-- **Multi-module Leiningen workspaces are out of scope.** One
-  `project.clj` per project; a `:global-vars`-driven or plugin-glued
-  module tree needs manual decomposition into `:rig/modules` first.
+- **The root of a lein-sub/lein-parent monorepo migrates; the modules
+  do not.** Versionless deps at the root — including sibling modules
+  pinned in `:managed-dependencies` with the `:version` token —
+  materialize at the project version. The module `project.clj` files
+  carry no legacy keys, so rig leaves them alone; the `:sub` tree still
+  needs manual decomposition into `:rig/modules` + `:local/root` deps.
+- **Materialized sibling refs are published-artifact
+  requirements.** A `:version` self/sibling ref materializes to the
+  project's own (typically `-SNAPSHOT`) version as a `:mvn/version`
+  requirement; `rig lock` only succeeds if that artifact has been
+  published, or after the ref is rewritten to `:local/root` in a
+  decomposed workspace.
