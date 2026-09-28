@@ -312,8 +312,9 @@
 ;; --- leiningen (project.clj) conversion ---
 ;;
 ;; When the workspace has no deps.edn but does have a project.clj, `migrate`
-;; generates a new root deps.edn in the :rig/* model; project.clj is left
-;; untouched (the user deletes it in the cleanup step). The transform is
+;; generates a new root deps.edn in the :rig/* model, plus one deps.edn
+;; per :sub module; the project.clj files are left untouched (the user
+;; deletes them in the cleanup step). The transform is
 ;; mechanical: what cannot be expressed (profiles other than :test/:dev,
 ;; plugins, lein task aliases, native-image builds, ...) is dropped with a
 ;; warning; what cannot be guessed is a problem that blocks the write.
@@ -321,7 +322,7 @@
 (def lein-handled-keys
   #{:main :dependencies :repositories :deploy-repositories :profiles
     :source-paths :resource-paths :test-paths :jvm-opts
-    :managed-dependencies :parent-project
+    :managed-dependencies :parent-project :sub
     :java-source-paths :javac-options :uberjar-name})
 
 (def default-kaocha "1.66.1034")
@@ -529,8 +530,10 @@
 (defn- parent-managed
   "The pool inherited from the manifest's :parent-project (its
   :managed-dependencies), when :inherit or :include names
-  :managed-dependencies. A missing or malformed parent manifest is a
-  problem. `dir` is the directory holding the manifest."
+  :managed-dependencies. Also returns the parent's static ~var defs
+  (:vars), so the inherited pool entries can be materialized. A missing
+  or malformed parent manifest is a problem. `dir` is the directory
+  holding the manifest."
   [pp dir]
   (let [inherit (get pp :inherit)
         include (get pp :include)
@@ -539,15 +542,17 @@
                      (and (sequential? include)
                           (some #(= :managed-dependencies %) include)))]
     (if (not managed?)
-      {:pool {} :problems []}
+      {:pool {} :problems [] :vars {}}
       (let [path (get pp :path)]
         (if (nil? path)
-          {:pool {} :problems [":parent-project declares no :path"]}
-          (let [text (try (slurp (io/file dir path))
+          {:pool {} :problems [":parent-project declares no :path"] :vars {}}
+          (let [pfile (io/file dir path)
+                text (try (slurp pfile)
                           (catch java.io.IOException _ nil))]
             (if (nil? text)
               {:pool {} :problems [(str ":parent-project path " path
-                                       " not found; cannot materialize versionless deps")]}
+                                       " not found; cannot materialize versionless deps")]
+               :vars {}}
               (let [forms (try (top-level-forms text)
                                (catch Exception e
                                  (throw (ex-info
@@ -557,8 +562,10 @@
                     dp (defproject-of forms)]
                 (if (nil? dp)
                   {:pool {} :problems
-                   [(str ":parent-project " path " has no defproject form")]}
-                  (managed-pool (get (nth dp 2) :managed-dependencies)))))))))))
+                   [(str ":parent-project " path " has no defproject form")]
+                   :vars {}}
+                  (let [res (managed-pool (get (nth dp 2) :managed-dependencies))]
+                    (assoc res :vars (version-vars forms (io/file (.getParent pfile))))))))))))))
 
 (defn- dep-entries
   "leiningen :dependencies (or a profile's) entries ->
@@ -569,8 +576,11 @@
   literal versions and :self (the project's own version) are
   resolvable. `pool` is the :pool value of managed-pool (root +
   inherited); `vversion` the resolved project version, nil when it is
-  not a literal; `vvars` the static ~var map (version-vars)."
-  [entries pool vversion vvars]
+  not a literal; `vvars` the static ~var map (version-vars);
+  `siblings` {coord-sym module-root} of the workspace's :sub modules
+  (already module-relative) — a sibling coord resolves to :local/root,
+  winning over a declared version or pool entry."
+  [entries pool vversion vvars siblings]
   (let [mat (fn [v excl]
               (cond-> {:mvn/version v}
                 (some? excl) (assoc :exclusions (sym-exclusions excl))))]
@@ -621,6 +631,9 @@
                                :warnings (concat warnings warns)})
                          (merge acc {:problems (conj problems
                                 (str "dep " coord " declares :git/url and :git/sha incompletely"))}))
+                       (contains? siblings dep-sym)
+                       (merge acc {:deps (assoc deps dep-sym {:local/root (get siblings dep-sym)})
+                             :warnings (concat warnings warns)})
                        (string? ver)
                        (merge acc {:deps (assoc deps dep-sym (mat ver excl))
                              :warnings (concat warnings warns)})
@@ -639,7 +652,7 @@
                            (string? mv)
                            (merge acc {:deps (assoc deps dep-sym (mat mv (or excl pexcl)))
                                  :warnings (concat warnings warns)})
-                           (= mv :self)
+                           (contains? #{:self :version} mv)
                            (if (some? vversion)
                              (merge acc {:deps (assoc deps dep-sym (mat vversion (or excl pexcl)))
                                    :warnings (concat warnings warns)})
@@ -800,11 +813,11 @@
   always yields an alias with a kaocha :exec-fn (rig test hard-requires
   one); other profiles yield an alias only when they carry expressible
   content."
-  [name p test-defaults kaocha-ver pool vversion vvars]
+  [name p test-defaults kaocha-ver pool vversion vvars siblings]
   (let [test? (= name :test)
         map? (or (nil? p) (map? p))
         p (or p {})
-        dres (dep-entries (get p :dependencies) pool vversion vvars)
+        dres (dep-entries (get p :dependencies) pool vversion vvars siblings)
         d (get dres :deps)
         dw (get dres :warnings)
         dp (get dres :problems)
@@ -836,9 +849,178 @@
                   dropped)
              dw)
      dp]))
+(defn- pool->rig-deps
+  "Materialize the managed pool as the root manifest's :rig/deps map: a
+  workspace module becomes {:local/root dir} (workspace-root-relative),
+  a version resolves as in dep-entries (literal, :self -> the
+  project's own literal version, ~var -> its static def). Returns
+  {:deps m :problems [..]} (deps nil when the pool is empty)."
+  [pool siblings vversion vvars]
+  (let [mat (fn [v excl]
+              (cond-> {:mvn/version v}
+                (some? excl) (assoc :exclusions (sym-exclusions excl))))
+        res (reduce (fn [{:keys [deps problems] :as acc} [k entry]]
+                      (let [mv (get entry :version)
+                            excl (get entry :exclusions)]
+                        (cond
+                          (contains? siblings k)
+                          (assoc acc :deps (assoc deps k {:local/root (get siblings k)}))
+                          (string? mv)
+                          (assoc acc :deps (assoc deps k (mat mv excl)))
+                          (contains? #{:self :version} mv)
+                          (if (some? vversion)
+                            (assoc acc :deps (assoc deps k (mat vversion excl)))
+                            (update acc :problems conj
+                                    (str ":managed-dependencies entry " (str k)
+                                         " uses :version, but the project version is not a literal (cannot materialize it)")))
+                          (symbol? mv)
+                          (if-let [v (get vvars mv)]
+                            (assoc acc :deps (assoc deps k (mat v excl)))
+                            (update acc :problems conj
+                                    (str ":managed-dependencies entry " (str k) " version " (str mv)
+                                         " is a lein-replace var that cannot be resolved statically (pin it explicitly)")))
+                          :true
+                          (update acc :problems conj
+                                  (str ":managed-dependencies entry " (str k) " declares no version")))))
+                    {:deps {} :problems []}
+                    (seq pool))]
+    (assoc res :deps (when (seq (get res :deps)) (get res :deps)))))
+
+(defn- lein-target
+  "The :rig/* target data for one leiningen defproject. `mdir` is the
+  directory holding the manifest (version vars and :parent-project
+  paths resolve against it); `siblings` {coord-sym module-root} of the
+  workspace's :sub modules, module-relative to this manifest; `root?`
+  selects the root-only keys (:rig/modules, :rig/deps, :rig/publish).
+  Returns {:target m :problems [str] :warnings [str]} (messages
+  unprefixed; the caller prefixes them with the manifest path)."
+  [mdir forms dp siblings root?]
+  (let [[coord vform pairs] dp
+        lib (to-sym coord)
+        main (to-sym (get pairs :main))
+        vinfo (version-info forms vform)
+        vversion (get vinfo :version)
+        sub (some->> (get pairs :sub) (map str) vec)
+        pp (get pairs :parent-project)
+        pp-managed? (or (some #(= :managed-dependencies %) (get pp :inherit))
+                        (some #(= :managed-dependencies %) (get pp :include)))
+        parent (if pp-managed? (parent-managed pp mdir) {:pool {} :problems [] :vars {}})
+        vvars (merge (get parent :vars {}) (version-vars forms mdir))
+        mp (managed-pool (get pairs :managed-dependencies))
+        pool (merge (get parent :pool) (get mp :pool))
+        deps-res (dep-entries (get pairs :dependencies) pool vversion vvars siblings)
+        repos-res (repos-of (get pairs :repositories))
+        pub (when root? (lein-publish (get pairs :deploy-repositories) (get repos-res :repos)))
+        source-paths (effective-paths ["src"] (get pairs :source-paths))
+        resource-paths (effective-paths ["resources"] (get pairs :resource-paths))
+        main-paths (vec (concat source-paths resource-paths))
+        test-defaults (effective-paths ["test"] (get pairs :test-paths))
+        profiles (or (get pairs :profiles) {})
+        merged-test (merged-test-profile (get profiles :dev) (get profiles :test))
+        ;; Effective kaocha pin for the test classpath: the merged
+        ;; :test profile's (later declarations win), else the base.
+        declared-kaocha (or (kaocha-version (get (dep-entries (get merged-test :dependencies) pool vversion vvars siblings) :deps))
+                            (kaocha-version (get deps-res :deps)))
+        kaocha-bump (and declared-kaocha (kaocha-predates-exec-fn declared-kaocha))
+        kaocha-ver (if kaocha-bump
+                     default-kaocha
+                     (or declared-kaocha default-kaocha))
+        test (profile-alias :test merged-test test-defaults kaocha-ver pool vversion vvars siblings)
+        [test-alias test-w test-p] test
+        dev (if (some? (get profiles :dev))
+              (profile-alias :dev (get profiles :dev) test-defaults kaocha-ver pool vversion vvars siblings)
+              [{} [] []])
+        [dev-alias dev-w dev-p] dev
+        aliases (cond-> {:test test-alias}
+                  (seq dev-alias) (assoc :dev dev-alias))
+        rig-deps (when (and root? (seq sub))
+                   (pool->rig-deps pool siblings vversion vvars))
+        target (into {}
+                     (remove (fn [[_ v]] (nil? v))
+                             [[:rig/lib lib]
+                              [:rig/main main]
+                              [:rig/modules (when (and root? (seq sub)) sub)]
+                              [:rig/deps (when rig-deps (get rig-deps :deps))]
+                              [:rig/version (get vinfo :version)]
+                              [:rig/version-file
+                               (when (and (some? (get vinfo :version-file))
+                                          (not= (get vinfo :version-file) "VERSION"))
+                                 (get vinfo :version-file))]
+                              [:rig/uberjar? (when (some? (get profiles :uberjar)) true)]
+                              [:rig/uberjar-file
+                               (when (some? (get pairs :uberjar-name))
+                                 (let [n (str (get pairs :uberjar-name))]
+                                   (str "target/" (if (str/ends-with? n ".jar") n (str n ".jar")))))]
+                              [:rig/publish (get pub :publish)]
+                              [:mvn/repos
+                               (let [m (merge (get repos-res :repos) (get pub :repos))]
+                                 (when (seq m) m))]
+                              [:paths (when (not= main-paths ["src"]) main-paths)]
+                              [:rig/artifact-dirs
+                               (when (not= main-paths ["src" "resources"]) main-paths)]
+                              [:rig/java-src-dirs
+                               (when (seq (get pairs :java-source-paths)) (vec (get pairs :java-source-paths)))]
+                              [:rig/javac-opts
+                               (when (seq (get pairs :javac-options)) (vec (get pairs :javac-options)))]
+                              [:deps (when (seq (get deps-res :deps)) (get deps-res :deps))]
+                              [:aliases aliases]
+                              [:jvm-opts
+                               (when (seq (get pairs :jvm-opts)) (vec (get pairs :jvm-opts)))]]))
+        ;; When the parent lookup failed, the pool is known to be
+        ;; incomplete: the per-dep "no :managed-dependencies entry"
+        ;; problems are derivative of that single failure, so they
+        ;; are dropped (the parent problem names the cause).
+        strip-miss (fn [ps]
+                     (if (seq (get parent :problems))
+                       (filter #(not (re-find #"no :managed-dependencies entry" %)) ps)
+                       ps))
+        problems (concat (get parent :problems)
+                         (get mp :problems)
+                         (strip-miss (get deps-res :problems))
+                         (when rig-deps (get rig-deps :problems))
+                         (get pub :problems)
+                         (strip-miss test-p)
+                         (strip-miss dev-p)
+                         (when (and (not root?) (seq sub))
+                           ["nested :sub is not supported (flatten the module hierarchy)"]))
+        warnings (concat (get vinfo :warnings)
+                         (get deps-res :warnings)
+                         (get repos-res :warnings)
+                         (get pub :warnings)
+                         test-w
+                         dev-w
+                         ;; The pins are carried by :rig/deps (root with
+                         ;; :sub); only when it is not emitted are they
+                         ;; actually dropped from the manifest.
+                         (when (and (some? (get pairs :managed-dependencies))
+                                     (nil? (and rig-deps (get rig-deps :deps))))
+                           [":managed-dependencies pins not referenced by a versionless dep are dropped (transitive version constraints are lost)"])
+                         (when (and (not root?) (some? (get pairs :deploy-repositories)))
+                           [":deploy-repositories dropped (publish is configured in the root manifest)"])
+                         (when (and pp-managed? (empty? (get parent :problems)))
+                           ["inherited :managed-dependencies is migrated, other inherited keys are dropped"])
+                         (when kaocha-bump
+                           [(str "the project's kaocha " declared-kaocha
+                                 " predates kaocha.runner/exec-fn (introduced in "
+                                 kaocha-exec-fn-min "), so the :test alias uses the rig default pin "
+                                 default-kaocha)])
+                         (map (fn [k]
+                                (str "dropped " (str k) " (no rig equivalent)"))
+                               (filter (fn [k] (not (contains? lein-handled-keys k)))
+                                       (keys pairs)))
+                         (map (fn [k]
+                                (str "profile :" (str (name k))
+                                     " dropped (only :test and :dev migrate to :aliases)"))
+                               (filter (fn [k] (not (contains? #{:test :dev :uberjar} k)))
+                                       (keys profiles)))
+                         (when (some? (get profiles :uberjar))
+                           ["profile :uberjar dropped (:rig/uberjar? true emitted for `rig build --uber`)"]))]
+    {:target target :problems (vec problems) :warnings (vec warnings)}))
+
 (defn- lein-migrate
-  "Convert a Leiningen project.clj to a new root deps.edn in the :rig/*
-  model. Returns {\"edits\" [{file changed}] \"warnings\" [str]
+  "Convert a Leiningen project.clj (and its :sub modules, when any) to
+  new deps.edn files in the :rig/* model: one for the root, one per
+  module. Returns {\"edits\" [{file changed}] \"warnings\" [str]
   \"problems\" [str]}."
   [ws lein-file dry-run?]
   (let [text (slurp lein-file)
@@ -848,121 +1030,72 @@
         dp (defproject-of forms)]
     (if (nil? dp)
       {"edits" [] "warnings" [] "problems" ["project.clj: no defproject form found"]}
-      (let [prefix (fn [m] (str "project.clj: " m))
-            [coord vform pairs] dp
-            lib (to-sym coord)
-            main (to-sym (get pairs :main))
-            vinfo (version-info forms vform)
-            vversion (get vinfo :version)
-            vvars (version-vars forms ws)
-            pp (get pairs :parent-project)
-            pp-managed? (or (some #(= :managed-dependencies %) (get pp :inherit))
-                            (some #(= :managed-dependencies %) (get pp :include)))
-            parent (if pp-managed? (parent-managed pp ws) {:pool {} :problems []})
-            mp (managed-pool (get pairs :managed-dependencies))
-            pool (merge (get parent :pool) (get mp :pool))
-            deps-res (dep-entries (get pairs :dependencies) pool vversion vvars)
-            repos-res (repos-of (get pairs :repositories))
-            pub (lein-publish (get pairs :deploy-repositories) (get repos-res :repos))
-            source-paths (effective-paths ["src"] (get pairs :source-paths))
-            resource-paths (effective-paths ["resources"] (get pairs :resource-paths))
-            main-paths (vec (concat source-paths resource-paths))
-            test-defaults (effective-paths ["test"] (get pairs :test-paths))
-            profiles (or (get pairs :profiles) {})
-            merged-test (merged-test-profile (get profiles :dev) (get profiles :test))
-            ;; Effective kaocha pin for the test classpath: the merged
-            ;; :test profile's (later declarations win), else the base.
-            declared-kaocha (or (kaocha-version (get (dep-entries (get merged-test :dependencies) pool vversion vvars) :deps))
-                                (kaocha-version (get deps-res :deps)))
-            kaocha-bump (and declared-kaocha (kaocha-predates-exec-fn declared-kaocha))
-            kaocha-ver (if kaocha-bump
-                         default-kaocha
-                         (or declared-kaocha default-kaocha))
-            test (profile-alias :test merged-test test-defaults kaocha-ver pool vversion vvars)
-            [test-alias test-w test-p] test
-            dev (if (some? (get profiles :dev))
-                  (profile-alias :dev (get profiles :dev) test-defaults kaocha-ver pool vversion vvars)
-                  [{} [] []])
-            [dev-alias dev-w dev-p] dev
-            aliases (cond-> {:test test-alias}
-                      (seq dev-alias) (assoc :dev dev-alias))
-            target (into {}
-                         (remove (fn [[_ v]] (nil? v))
-                                 [[:rig/lib lib]
-                                  [:rig/main main]
-                                  [:rig/version (get vinfo :version)]
-                                  [:rig/version-file
-                                   (when (and (some? (get vinfo :version-file))
-                                              (not= (get vinfo :version-file) "VERSION"))
-                                     (get vinfo :version-file))]
-                                  [:rig/uberjar? (when (some? (get profiles :uberjar)) true)]
-                                  [:rig/uberjar-file
-                                   (when (some? (get pairs :uberjar-name))
-                                     (let [n (str (get pairs :uberjar-name))]
-                                       (str "target/" (if (str/ends-with? n ".jar") n (str n ".jar")))))]
-                                  [:rig/publish (get pub :publish)]
-                                  [:mvn/repos
-                                   (let [m (merge (get repos-res :repos) (get pub :repos))]
-                                     (when (seq m) m))]
-                                  [:paths (when (not= main-paths ["src"]) main-paths)]
-                                  [:rig/artifact-dirs
-                                   (when (not= main-paths ["src" "resources"]) main-paths)]
-                                  [:rig/java-src-dirs
-                                   (when (seq (get pairs :java-source-paths)) (vec (get pairs :java-source-paths)))]
-                                  [:rig/javac-opts
-                                   (when (seq (get pairs :javac-options)) (vec (get pairs :javac-options)))]
-                                  [:deps (when (seq (get deps-res :deps)) (get deps-res :deps))]
-                                  [:aliases aliases]
-                                  [:jvm-opts
-                                   (when (seq (get pairs :jvm-opts)) (vec (get pairs :jvm-opts)))]]))
-            ;; When the parent lookup failed, the pool is known to be
-            ;; incomplete: the per-dep "no :managed-dependencies entry"
-            ;; problems are derivative of that single failure, so they
-            ;; are dropped (the parent problem names the cause).
-            strip-miss (fn [ps]
-                         (if (seq (get parent :problems))
-                           (filter #(not (re-find #"no :managed-dependencies entry" %)) ps)
-                           ps))
-            problems (concat (get parent :problems)
-                             (get mp :problems)
-                             (strip-miss (get deps-res :problems))
-                             (get pub :problems)
-                             (strip-miss test-p)
-                             (strip-miss dev-p))
-            warnings (concat (get vinfo :warnings)
-                             (get deps-res :warnings)
-                             (get repos-res :warnings)
-                             (get pub :warnings)
-                             test-w
-                             dev-w
-                             (when (some? (get pairs :managed-dependencies))
-                               [":managed-dependencies pins not referenced by a versionless dep are dropped (transitive version constraints are lost)"])
-                             (when (and pp-managed? (empty? (get parent :problems)))
-                               ["inherited :managed-dependencies is migrated, other inherited keys are dropped"])
-                             (when kaocha-bump
-                               [(str "the project's kaocha " declared-kaocha
-                                     " predates kaocha.runner/exec-fn (introduced in "
-                                     kaocha-exec-fn-min "), so the :test alias uses the rig default pin "
-                                     default-kaocha)])
-                             (map (fn [k]
-                                    (str "dropped " (str k) " (no rig equivalent)"))
-                                  (filter (fn [k] (not (contains? lein-handled-keys k)))
-                                          (keys pairs)))
-                             (map (fn [k]
-                                    (str "profile :" (str (name k))
-                                         " dropped (only :test and :dev migrate to :aliases)"))
-                                  (filter (fn [k] (not (contains? #{:test :dev :uberjar} k)))
-                                          (keys profiles)))
-                             (when (some? (get profiles :uberjar))
-                               ["profile :uberjar dropped (:rig/uberjar? true emitted for `rig build --uber`)"]))]
+      (let [sub (some->> (nth dp 2) :sub (map str) vec)
+            ;; Read every :sub module's project.clj: the sibling module
+            ;; coordinates (for :local/root resolution) and their
+            ;; defproject (one deps.edn is generated per module).
+            modules (mapv (fn [dir]
+                            (let [mf (io/file ws dir "project.clj")]
+                              (if (.exists mf)
+                                (let [mforms (try (top-level-forms (slurp mf))
+                                                  (catch Exception e
+                                                    (throw (ex-info
+                                                            (str dir "/project.clj: parse error: "
+                                                                 (.getMessage e))
+                                                            {}))))]
+                                  {:dir dir :forms mforms :dp (defproject-of mforms)})
+                                {:dir dir :forms nil :dp nil :missing? true})))
+                          (or sub []))
+            coord-sym (fn [c]
+                        (let [s (str c)]
+                          (to-sym (if (str/includes? s "/") s (str s "/" s)))))
+            siblings (into {}
+                           (for [m modules
+                                 :when (and (some? (:forms m)) (:dp m))]
+                             [(coord-sym (first (:dp m))) (canonicalize (:dir m) ".")]))
+            root-res (lein-target ws forms dp siblings true)
+            root-target (get root-res :target)
+            module-res (mapv (fn [m]
+                               (if (and (some? (:forms m)) (:dp m))
+                                 (let [mdir (io/file ws (:dir m))
+                                       msibs (into {}
+                                                   (for [[k v] siblings]
+                                                     [k (canonicalize v (:dir m))]))
+                                       res (lein-target mdir (:forms m) (:dp m) msibs false)]
+                                   {:file (str (:dir m) "/deps.edn")
+                                    :target (get res :target)
+                                    :problems (map (fn [p] (str (:dir m) "/project.clj: " p))
+                                                   (get res :problems))
+                                    :warnings (map (fn [w] (str (:dir m) "/project.clj: " w))
+                                                   (get res :warnings))})
+                                 {:file (str (:dir m) "/deps.edn")
+                                  :target nil :problems [] :warnings []}))
+                             modules)
+            problems (concat (map (fn [p] (str "project.clj: " p))
+                                  (get root-res :problems))
+                             (mapv (fn [m]
+                                     (cond
+                                       (:missing? m) (str (:dir m) "/project.clj: not found")
+                                       (nil? (:dp m)) (str (:dir m) "/project.clj: no defproject form found")
+                                       :else nil))
+                                   (filter #(nil? (:dp %)) modules))
+                             (mapcat :problems module-res))
+            warnings (concat (map (fn [w] (str "project.clj: " w))
+                                  (get root-res :warnings))
+                             (mapcat :warnings module-res))]
         (if (seq problems)
-          {"edits" [] "warnings" (vec (map prefix warnings)) "problems" (vec (map prefix problems))}
-          (let [out (format! (with-out-str
-            (binding [*print-namespace-maps* false]
-              (pprint/pprint target))))]
-            (when-not dry-run? (spit (io/file ws "deps.edn") out))
-            {"edits" [{"file" "deps.edn" "changed" true}]
-             "warnings" (vec (map prefix warnings))
+          {"edits" [] "warnings" (vec warnings) "problems" (vec problems)}
+          (let [write (fn [path target]
+                        (let [out (format! (with-out-str
+                                   (binding [*print-namespace-maps* false]
+                                     (pprint/pprint target))))]
+                          (when-not dry-run? (spit (io/file ws path) out))
+                          {"file" path "changed" true}))]
+            {"edits" (vec (concat [(write "deps.edn" root-target)]
+                                  (for [mr module-res
+                                        :when (some? (:target mr))]
+                                    (write (:file mr) (:target mr)))))
+             "warnings" (vec warnings)
              "problems" []}))))))
 
 ;; --- zipper-level application (comment-preserving) ---
@@ -1213,7 +1346,8 @@
 
 (defn migrate
   "Kernel op: migrate the legacy manifests of a workspace in place, or
-  convert a Leiningen project.clj to a new root deps.edn."
+  convert a Leiningen project.clj (and its :sub modules) to new
+  deps.edn files."
   [request]
   (let [ws (str (:workspace request))
         dry-run? (true? (get-in request [:args :dry-run?]))

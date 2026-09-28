@@ -909,3 +909,196 @@
     (is (empty? (problems r)))
     (is (= "target/metadump.jar"
            (get (file-edn ws "deps.edn") :rig/uberjar-file)))))
+
+;; --- lein :sub monorepo (issue 05) ---
+
+(def lein-sub-fixture
+  {"project.clj"
+   "(defproject foo/parent \"1.0.0\"
+  :managed-dependencies [[\"a/b\" \"1.0.0\"]
+                         [foo/m :version]
+                         [foo/n :version]
+                         [org.clojure/clojure \"1.12.1\"]]
+  :deploy-repositories [[\"releases\" :clojars] [\"snapshots\" :clojars]]
+  :sub [\"modules/m\" \"modules/n\"])"
+   "modules/m/project.clj"
+   "(defproject foo/m \"1.0.0\"
+  :parent-project {:path \"../../project.clj\" :inherit [:managed-dependencies :deploy-repositories]}
+  :source-paths [\"src/clj\"]
+  :dependencies [[a/b]
+                 [foo/n]
+                 [org.clojure/clojure]])"
+   "modules/n/project.clj"
+   "(defproject foo/n \"1.0.0\"
+  :parent-project {:path \"../../project.clj\" :inherit [:managed-dependencies]}
+  :dependencies [[a/b]])"})
+
+(deftest lein-sub-monorepo-migrates-root-and-modules
+  (let [ws (temp-ws lein-sub-fixture)
+        r (run ws)]
+    (is (empty? (problems r)))
+    (is (= ["deps.edn" "modules/m/deps.edn" "modules/n/deps.edn"]
+           (map #(get % "file") (get r "edits"))))
+    (is (every? true? (map #(get % "changed") (get r "edits"))))
+    (is (some #(re-find #"first :deploy-repositories" %) (warnings r)))
+    (is (= 2 (count (filter #(re-find #"inherited :managed-dependencies" %)
+                            (warnings r)))))
+    (is (every? #(not (re-find #"transitive version constraints" %)) (warnings r)))
+    (is (every? #(not (re-find #"no rig equivalent" %)) (warnings r)))
+    (let [root (file-edn ws "deps.edn")]
+      (is (= 'foo/parent (get root :rig/lib)))
+      (is (= "1.0.0" (get root :rig/version)))
+      (is (= ["modules/m" "modules/n"] (get root :rig/modules)))
+      (is (= {:local/root "modules/m"} (get-in root [:rig/deps 'foo/m])))
+      (is (= {:local/root "modules/n"} (get-in root [:rig/deps 'foo/n])))
+      (is (= {:mvn/version "1.0.0"} (get-in root [:rig/deps 'a/b])))
+      (is (= {:mvn/version "1.12.1"}
+             (get-in root [:rig/deps 'org.clojure/clojure])))
+      (is (= {:repo "clojars"} (get root :rig/publish))))
+    (let [m (file-edn ws "modules/m/deps.edn")]
+      (is (= 'foo/m (get m :rig/lib)))
+      (is (= "1.0.0" (get m :rig/version)))
+      (is (= {:mvn/version "1.0.0"} (get-in m [:deps 'a/b])))
+      (is (= {:local/root "../n"} (get-in m [:deps 'foo/n])))
+      (is (= {:mvn/version "1.12.1"}
+             (get-in m [:deps 'org.clojure/clojure])))
+      (is (= ["src/clj" "resources"] (get m :paths)))
+      (is (= ["src/clj" "resources"] (get m :rig/artifact-dirs)))
+      (is (= "1.66.1034"
+             (get-in m [:aliases :test :extra-deps
+                        'lambdaisland/kaocha :mvn/version])))
+      (is (nil? (get m :rig/publish)))
+      (is (nil? (get m :rig/modules)))
+      (is (nil? (get m :rig/deps))))
+    (let [n (file-edn ws "modules/n/deps.edn")]
+      (is (= 'foo/n (get n :rig/lib)))
+      (is (= {:mvn/version "1.0.0"} (get-in n [:deps 'a/b]))))))
+
+(deftest lein-sub-second-run-is-a-no-op
+  (let [ws (temp-ws lein-sub-fixture)
+        r1 (run ws)
+        r2 (run ws)]
+    (is (empty? (problems r1)))
+    (is (empty? (problems r2)))
+    (is (empty? (warnings r2)))
+    (is (= 3 (count (get r2 "edits"))))
+    (is (every? false? (map #(get % "changed") (get r2 "edits"))))))
+
+(deftest lein-sub-missing-module-manifest-is-a-problem
+  (let [ws (temp-ws {"project.clj"
+                     "(defproject foo/parent \"1.0.0\"
+  :sub [\"modules/m\" \"modules/n\"])"
+        "modules/m/project.clj"
+        "(defproject foo/m \"1.0.0\")"})
+        r (run ws)]
+    (is (= ["modules/n/project.clj: not found"] (problems r)))
+    (is (empty? (get r "edits")))
+    (is (false? (.exists (io/file ws "deps.edn"))))))
+
+(deftest lein-sub-module-without-defproject-is-a-problem
+  (let [ws (temp-ws {"project.clj"
+                     "(defproject foo/parent \"1.0.0\" :sub [\"modules/m\"])"
+        "modules/m/project.clj"
+        "(ns foo.m)\n"})
+        r (run ws)]
+    (is (= ["modules/m/project.clj: no defproject form found"] (problems r)))
+    (is (false? (.exists (io/file ws "deps.edn"))))))
+
+(deftest lein-sub-versionless-dep-not-in-pool-blocks-all-writes
+  (let [ws (temp-ws {"project.clj"
+                     "(defproject foo/parent \"1.0.0\"
+  :managed-dependencies [[\"a/b\" \"1.0.0\"]]
+  :sub [\"modules/m\"])"
+        "modules/m/project.clj"
+        "(defproject foo/m \"1.0.0\"
+  :parent-project {:path \"../../project.clj\" :inherit [:managed-dependencies]}
+  :dependencies [[a/b]
+                 [zz/z]])"})
+        r (run ws)]
+    (is (= ["modules/m/project.clj: dep zz/z declares no version, :local/root or :git/url (no :managed-dependencies entry)"]
+           (problems r)))
+    (is (false? (.exists (io/file ws "deps.edn"))))
+    (is (false? (.exists (io/file ws "modules/m/deps.edn"))))))
+
+(deftest lein-sub-pool-versions-materialize-in-rig-deps
+  ;; the :version token and ~var pool entries materialize at the root
+  ;; (:rig/deps), and an inherited pool entry materializes in a module
+  ;; against the module's own version and the parent's static ~var defs.
+  (let [ws (temp-ws {"project.clj"
+                     "(def otel \"1.54.1\")
+(defproject foo/parent \"1.2.3\"
+  :managed-dependencies [[\"a/b\" \"1.0.0\"]
+                         [foo/other :version]
+                         [io.opentelemetry/otel ~otel]]
+  :sub [\"modules/m\"])"
+        "modules/m/project.clj"
+        "(defproject foo/m \"1.0.0\"
+  :parent-project {:path \"../../project.clj\" :inherit [:managed-dependencies]}
+  :dependencies [[foo/other]
+                 [io.opentelemetry/otel]])"})
+        r (run ws)]
+    (is (empty? (problems r)))
+    (let [root (file-edn ws "deps.edn")
+          m (file-edn ws "modules/m/deps.edn")]
+      (is (= {:mvn/version "1.2.3"} (get-in root [:rig/deps 'foo/other])))
+      (is (= {:mvn/version "1.54.1"}
+             (get-in root [:rig/deps 'io.opentelemetry/otel])))
+      (is (= {:mvn/version "1.0.0"} (get-in m [:deps 'foo/other])))
+      (is (= {:mvn/version "1.54.1"}
+             (get-in m [:deps 'io.opentelemetry/otel]))))))
+
+(deftest lein-sub-pool-version-var-not-static-is-a-problem
+  (let [ws (temp-ws {"project.clj"
+                     "(def otel (inc 0))
+(defproject foo/parent \"1.0.0\"
+  :managed-dependencies [[\"a/b\" ~otel]]
+  :sub [\"modules/m\"])"
+        "modules/m/project.clj"
+        "(defproject foo/m \"1.0.0\"
+  :parent-project {:path \"../../project.clj\" :inherit [:managed-dependencies]}
+  :dependencies [[a/b]])"})
+        r (run ws)]
+    (is (= 2 (count (problems r))))
+    (is (some #(re-find #"project\.clj.*cannot be resolved statically" %)
+              (problems r)))
+    (is (some #(re-find #"modules/m/project\.clj.*cannot be resolved statically" %)
+              (problems r)))
+    (is (false? (.exists (io/file ws "deps.edn"))))))
+
+(deftest lein-sub-sibling-dep-in-the-root-dependencies
+  (let [ws (temp-ws {"project.clj"
+                     "(defproject foo/parent \"1.0.0\"
+  :managed-dependencies [[foo/m :version]]
+  :sub [\"modules/m\"]
+  :dependencies [[foo/m :version]
+                 [a/b \"1.0.0\"]])"
+        "modules/m/project.clj"
+        "(defproject foo/m \"1.0.0\"
+  :parent-project {:path \"../../project.clj\" :inherit [:managed-dependencies]})"})
+        r (run ws)]
+    (is (empty? (problems r)))
+    (let [root (file-edn ws "deps.edn")]
+      (is (= {:local/root "modules/m"} (get-in root [:deps 'foo/m])))
+      (is (= {:mvn/version "1.0.0"} (get-in root [:deps 'a/b])))
+      (is (= {:local/root "modules/m"} (get-in root [:rig/deps 'foo/m]))))))
+
+(deftest lein-sub-dry-run-writes-nothing
+  (let [ws (temp-ws lein-sub-fixture)
+        r (run ws :dry-run? true)]
+    (is (empty? (problems r)))
+    (is (= 3 (count (get r "edits"))))
+    (is (every? true? (map #(get % "changed") (get r "edits"))))
+    (is (false? (.exists (io/file ws "deps.edn"))))
+    (is (false? (.exists (io/file ws "modules/m/deps.edn"))))))
+
+(deftest lein-sub-nested-sub-is-a-problem
+  (let [ws (temp-ws {"project.clj"
+                     "(defproject foo/parent \"1.0.0\" :sub [\"modules/m\"])"
+        "modules/m/project.clj"
+        "(defproject foo/m \"1.0.0\" :sub [\"deep\"])"
+        "modules/m/deep/project.clj"
+        "(defproject foo/deep \"1.0.0\")"})
+        r (run ws)]
+    (is (= ["modules/m/project.clj: nested :sub is not supported (flatten the module hierarchy)"]
+           (problems r)))
+    (is (false? (.exists (io/file ws "deps.edn"))))))

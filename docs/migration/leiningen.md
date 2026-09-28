@@ -40,7 +40,8 @@ rig migrate --dry-run   # preview the warnings; nothing is written
 rig migrate             # writes deps.edn; project.clj is not touched
 ```
 
-One command, one file. If both `deps.edn` and `project.clj` exist,
+One command, one `deps.edn` per manifest: the root, plus one per `:sub`
+module. If both `deps.edn` and `project.clj` exist,
 `deps.edn` wins (the legacy/tools.deps migration path runs instead); if
 neither does, the command fails. Re-running `rig migrate` after the
 conversion is a fixed point — the generated manifest has no legacy
@@ -86,6 +87,7 @@ nothing written.
 | `:dependencies` | `:deps` (symbol coordinates; `:exclusions`, `:local/root`, `:git/url` + `:git/sha` pass through; `~var` versions resolve from a top-level literal / `(slurp "…")` def) |
 | `:managed-dependencies` | versionless deps' versions materialized to `:mvn/version` — a literal pin → the pin, the `:version` token → the project's own version; the dep's own `:exclusions` win over the pool entry's; unreferenced pins drop with a warning |
 | `:parent-project` | `:managed-dependencies` inherited via `:inherit [:managed-dependencies]` materialized from the parent manifest (parent pool as base, own entries win); other inherited keys drop with a warning; a missing parent path is a blocking problem |
+| `:sub` | root `:rig/modules`, one `deps.edn` per module (`project.clj` files untouched); sibling-module deps → `:local/root` (module-relative, winning over any declared version); the root's `:managed-dependencies` pins move to the root's `:rig/deps`; nested `:sub` is a blocking problem (flatten the module hierarchy) |
 | `:repositories` | `:mvn/repos` |
 | `:deploy-repositories` | `:rig/publish` (only the first entry is migrated; the rest are dropped with a warning; the `:clojars` shorthand maps to the rig `clojars` repo) |
 | `:source-paths` / `:resource-paths` | `:paths` (omitted at the `["src" "resources"]` default) |
@@ -203,15 +205,19 @@ keep it as a reference; `deps.edn` wins while both exist).
   them with `rig update <coord>`.
 - **`~/.m2` credentials carry over.** Deploying through an authenticated
   repository needs the same settings.xml as `lein deploy` did.
-- **The root of a lein-sub/lein-parent monorepo migrates; the modules
-  do not.** Versionless deps at the root — including sibling modules
-  pinned in `:managed-dependencies` with the `:version` token —
-  materialize at the project version. The module `project.clj` files
-  carry no legacy keys, so rig leaves them alone; the `:sub` tree still
-  needs manual decomposition into `:rig/modules` + `:local/root` deps.
+- **A `:sub` monorepo migrates as a whole.** The root gains
+  `:rig/modules`, and each module gets its own `deps.edn` next to the
+  `project.clj` that is left untouched. Not touched: a `:sub` declared
+  by a module (nested `:sub` is a blocking problem — flatten the
+  hierarchy), and `project.clj` files that are not in the root's
+  `:sub` list.
 - **Materialized sibling refs are published-artifact
   requirements.** A `:version` self/sibling ref materializes to the
   project's own (typically `-SNAPSHOT`) version as a `:mvn/version`
   requirement; `rig lock` only succeeds if that artifact has been
   published, or after the ref is rewritten to `:local/root` in a
-  decomposed workspace.
+  decomposed workspace. Even without the rewrite, a decomposed
+  workspace can lock: a published coordinate for a module that exists
+  in the workspace — direct or pulled in by a transitive POM — loses
+  to the local module ([local modules beat published
+  coordinates](../internals/resolution.md#local-modules-beat-published-coordinates)).

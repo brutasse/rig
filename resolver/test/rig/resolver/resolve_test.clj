@@ -2,6 +2,7 @@
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.test :refer :all]
+            [clojure.tools.deps.extensions :as ext]
             [rig.resolver.manifest :as manifest]
             [rig.resolver.resolve :as resolve]
             [rig.resolver.versions :as versions])
@@ -670,4 +671,81 @@
       (finally
         (.stop srv 0)
         (rm! m2)
+        (rm! (str root))))))
+
+;; --- Local vs published coordinate: a workspace module referenced by a
+;; --- published transitive POM under its published coordinates enters a
+;; --- sibling's basis as both a :local/root and a :mvn/version
+;; --- coordinate (neither via a top dep — a top dep wins without a
+;; --- version comparison). The kernel registers compare-versions for
+;; --- the cross-type pairs so the local module always wins (monorepo
+;; --- semantics, matching lein).
+
+(deftest local-coordinate-ranks-above-mvn-coordinate
+  ;; dominates? picks the strictly greater coordinate, so the local side of
+  ;; the pair must rank above the mvn side in both directions.
+  (is (= 1 (ext/compare-versions 'a/b {:local/root "/x"} {:mvn/version "1.0"} {})))
+  (is (= -1 (ext/compare-versions 'a/b {:mvn/version "1.0"} {:local/root "/x"} {}))))
+
+(deftest resolve-lock-local-module-wins-over-published-coordinate
+  (let [group "rig.ktest.localwin"
+        pv "1.0" ;; published parent version
+        iv "0.1" ;; published version of the local module
+        root (doto (java.io.File. (str (System/getProperty "java.io.tmpdir") "/"
+                                       (str "rig-localwin-" (java.util.UUID/randomUUID))))
+               (.mkdirs) (.deleteOnExit))
+        [base seen srv] (start-serving (str root) nil)
+        parent-path (repo-artifacts! (str root) group "parent" pv)
+        _ (repo-artifacts! (str root) group "inner" iv)
+        parent-pom (io/file (str root parent-path "/" pv "/parent-" pv ".pom"))
+        m2p (m2-dir-of group "parent")
+        m2i (m2-dir-of group "inner")]
+    (rm! m2p)
+    (rm! m2i)
+    (try
+      (do
+        (spit parent-pom (str "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+                              "<project xmlns=\"http://maven.apache.org/POM/4.0.0\">\n"
+                              "  <modelVersion>4.0.0</modelVersion>\n"
+                              "  <groupId>" group "</groupId>\n"
+                              "  <artifactId>parent</artifactId>\n"
+                              "  <version>" pv "</version>\n"
+                              "  <packaging>jar</packaging>\n"
+                              "  <dependencies>\n"
+                              "    <dependency>\n"
+                              "      <groupId>" group "</groupId>\n"
+                              "      <artifactId>inner</artifactId>\n"
+                              "      <version>" iv "</version>\n"
+                              "    </dependency>\n"
+                              "  </dependencies>\n"
+                              "</project>\n"))
+        (spit (io/file (str root parent-path "/" pv "/parent-" pv ".pom.sha1")) (sha1-hex parent-pom))
+        (doto (io/file root "ws" "inner" "src") (.mkdirs))
+        (doto (io/file root "ws" "mid") (.mkdirs))
+        (spit (io/file root "ws" "deps.edn")
+              (str "{:rig/lib rig.ktest.localwin/root\n"
+                   " :rig/modules [\".\" \"mid\" \"inner\"]\n"
+                   " :deps {" group "/parent {:mvn/version \"" pv "\"}\n"
+                   "        " group "/mid {:local/root \"mid\"}}\n"
+                   " :mvn/repos {\"central\" {:url \"" base "\"}\n"
+                   "            \"clojars\" {:url \"" base "\"}}}\n"))
+        (spit (io/file root "ws" "mid" "deps.edn")
+              (str "{:rig/lib " group "/mid\n"
+                   " :deps {" group "/inner {:local/root \"../inner\"}}}\n"))
+        (spit (io/file root "ws" "inner" "deps.edn")
+              (str "{:rig/lib " group "/inner\n :paths [\"src\"]}\n"))
+        (let [ws (str (io/file root "ws"))
+              lock (-> (resolve/resolve-lock {:workspace ws}) (get "lock"))
+              cp (get-in lock ["modules" "." :classpath])
+              arts (get lock "artifacts")]
+          (is (some #(= "inner" (get % "local")) cp)
+              "the local module is on the classpath")
+          (is (nil? (some #(and (= "inner" (get % :name)) (= "mvn" (get % :kind))) arts))
+              "the published coordinate was not selected or locked")
+          (is (some #(and (= "parent" (get % :name)) (= pv (get % :version))) arts)
+              "the published parent resolved normally")))
+      (finally
+        (.stop srv 0)
+        (rm! m2p)
+        (rm! m2i)
         (rm! (str root))))))

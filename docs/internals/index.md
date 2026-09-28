@@ -164,8 +164,9 @@ makes a stable jar sha256 pin possible.
 ## Where the guarantees live
 
 - **Ecosystem-consistent version resolution** — the kernel delegates
-  graph resolution to `clojure.tools.deps` and adds only a selection
-  layer for floating requirements: [version resolution](resolution.md).
+  graph resolution to `clojure.tools.deps`, adding a selection layer
+  for floating requirements and a local-beats-published coordinate
+  comparison: [version resolution](resolution.md).
 - **A build closed to the lockfile** — no EDN on the hot path, a
   validated lock, Go-computed hashes, gated sources:
   [the closed build](closed-build.md).
