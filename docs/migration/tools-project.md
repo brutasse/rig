@@ -70,7 +70,7 @@ Limitations of this setup:
 | `:exoscale.project/deploy?` | `:rig/publish?` |
 | `:slipset.deps-deploy/exec-args` | `:rig/publish` |
 | `:exoscale.project/target-dir` | `:rig/target-dir` |
-| `:exoscale.project/src-dirs` | `:rig/src-dirs` |
+| `:exoscale.project/src-dirs` | `:rig/artifact-dirs` |
 | `:exoscale.project/java-src-dirs` | `:rig/java-src-dirs` |
 | `:exoscale.project/javac-opts` | `:rig/javac-opts` |
 | `:exoscale.project/extra-clean-targets` | drop — `rig clean` removes the target directory; use `rig exec` for anything else |

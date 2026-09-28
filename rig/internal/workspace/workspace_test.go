@@ -138,6 +138,30 @@ func TestFindBadLockFails(t *testing.T) {
 	}
 }
 
+func TestFindNoLockMigratesOldSchema(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "deps.edn"), "{:rig/lib x/standalone}\n")
+	doc := lockfile.ForTest(".")
+	doc.Version = lockfile.SupportedVersion - 1
+	if err := doc.Save(filepath.Join(dir, "deps.lock")); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := Find(dir); err == nil {
+		t.Error("Find: want error for unsupported lock schema")
+	}
+	r, err := FindNoLock(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Dir != dir {
+		t.Errorf("dir = %s, want %s", r.Dir, dir)
+	}
+	if r.Lock != nil {
+		t.Error("don't want lock")
+	}
+}
+
 func TestResolve(t *testing.T) {
 	root := t.TempDir()
 	writeLock(t, root, ".", "modules/app", "modules/lib")

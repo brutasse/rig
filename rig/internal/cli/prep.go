@@ -314,7 +314,7 @@ func (e *hotEnv) prepState(m string, mod lockfile.Module, ran map[string]bool) (
 // prep build file count as a change).
 func (e *hotEnv) sourceDigest(m string, mod lockfile.Module) (string, error) {
 	dir := e.modDir(m)
-	dirs := absJoin(dir, mod.Build.SrcDirs)
+	dirs := absJoin(dir, mod.Build.ArtifactDirs)
 	dirs = append(dirs, absJoin(dir, mod.Build.JavaSrcDirs)...)
 	if al, ok := mod.Aliases[mod.PrepAlias]; ok {
 		dirs = append(dirs, absJoin(dir, al.Paths)...)
@@ -437,11 +437,11 @@ func (e *hotEnv) runJavaPrep(ctx context.Context, m string, mod lockfile.Module)
 		cps = append(cps, map[string]any{"id": en.ID, "paths": en.Paths})
 	}
 	dir := e.modDir(m)
-	// src-dirs is an empty vector, not absent: tools.build's compile-clj
+	// artifact-dirs is an empty vector, not absent: tools.build's compile-clj
 	// falls back to scanning the whole basis for namespaces when it is nil.
 	cfg := map[string]any{
 		"classpath":     cps,
-		"src-dirs":      []string{},
+		"artifact-dirs": []string{},
 		"java-src-dirs": absJoin(dir, mod.Build.JavaSrcDirs),
 		"class-dir":     filepath.Join(dir, mod.Build.ClassDir),
 	}

@@ -27,7 +27,7 @@
   {:exoscale.project/modules :rig/modules
    :exoscale.project/lib :rig/lib
    :exoscale.project/main :rig/main
-   :exoscale.project/src-dirs :rig/src-dirs
+   :exoscale.project/src-dirs :rig/artifact-dirs
    :exoscale.project/java-src-dirs :rig/java-src-dirs
    :exoscale.project/javac-opts :rig/javac-opts
    :exoscale.project/version :rig/version
@@ -545,21 +545,23 @@
                     "only the first :deploy-repositories entry is migrated (rig publishes to one repository)")))))))
 
 (defn- effective-paths
-  "The effective leiningen path list (with :append/:prepend/:replace
-  forms) against a default."
+  "The effective leiningen path list against a default: plain entries
+  replace the default (top-level leiningen semantics, where the ^:replace
+  metadata is a no-op), :prepend/:append extend the base, :replace
+  overrides it."
   [default ps]
-  (let [[rep prep app] (reduce (fn [[rep prep app] x]
-                                 (if (and (sequential? x) (keyword? (first x)))
-                                   (case (first x)
-                                     :replace [(next x) prep app]
-                                     :prepend [rep (concat (next x) prep) app]
-                                     :append [rep prep (concat app (next x))]
-                                     [rep prep app])
-                                   [rep prep app]))
-                               [nil [] []] (or ps []))]
-    (vec (if (sequential? rep)
-           (concat prep rep app)
-           (concat prep default app)))))
+  (let [[rep prep app plain] (reduce (fn [[rep prep app plain] x]
+                                      (if (and (sequential? x) (keyword? (first x)))
+                                        (case (first x)
+                                          :replace [(next x) prep app plain]
+                                          :prepend [rep (concat (next x) prep) app plain]
+                                          :append [rep prep (concat app (next x)) plain]
+                                          [rep prep app plain])
+                                        [rep prep app (conj plain x)]))
+                                    [nil [] [] []] (or ps []))]
+    (vec (cond (sequential? rep) (concat prep rep app)
+               (seq plain)      (concat prep plain app)
+               :else            (concat prep default app)))))
 
 (defn- added-paths
   "The paths a leiningen path list adds, without its default (for an
@@ -699,7 +701,7 @@
                                    (let [m (merge (get repos-res :repos) (get pub :repos))]
                                      (when (seq m) m))]
                                   [:paths (when (not= main-paths ["src"]) main-paths)]
-                                  [:rig/src-dirs
+                                  [:rig/artifact-dirs
                                    (when (not= main-paths ["src" "resources"]) main-paths)]
                                   [:deps (when (seq (get deps-res :deps)) (get deps-res :deps))]
                                   [:aliases aliases]

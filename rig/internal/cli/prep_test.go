@@ -131,7 +131,7 @@ func TestPrepState(t *testing.T) {
 	doc := lockfile.ForTest(".")
 	m := doc.Modules["."]
 	m.PrepEnsure, m.PrepAlias, m.PrepFn = []string{"target/classes"}, "prep", "build/prep"
-	m.Build.SrcDirs = []string{"src"}
+	m.Build.ArtifactDirs = []string{"src"}
 	m.Aliases = map[string]lockfile.Alias{"prep": {Paths: []string{"build"}}}
 	e := prepEnv(t, dir, doc)
 

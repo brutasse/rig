@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "tool": {
     "name": "rig",
     "version": "0.0.0-test"
@@ -49,7 +49,7 @@
       ],
       "aliases": null,
       "build": {
-        "src-dirs": null,
+        "artifact-dirs": null,
         "java-src-dirs": null,
         "class-dir": "target/classes",
         "jar": false,
@@ -74,7 +74,7 @@
       ],
       "aliases": null,
       "build": {
-        "src-dirs": null,
+        "artifact-dirs": null,
         "java-src-dirs": null,
         "class-dir": "target/classes",
         "jar": false,

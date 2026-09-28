@@ -117,7 +117,7 @@ func (e *hotEnv) buildOne(ctx context.Context, m string, uber, native bool) (str
 	cfg := map[string]any{
 		"dir":           dir,
 		"classpath":     cps,
-		"src-dirs":      absJoin(dir, mod.Build.SrcDirs),
+		"artifact-dirs": absJoin(dir, mod.Build.ArtifactDirs),
 		"java-src-dirs": absJoin(dir, mod.Build.JavaSrcDirs),
 		"class-dir":     filepath.Join(dir, mod.Build.ClassDir),
 		"jar?":          buildJar,

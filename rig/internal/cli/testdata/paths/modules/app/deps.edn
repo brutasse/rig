@@ -1,0 +1,4 @@
+{:rig/lib example/paths
+ :rig/version "0.1.0"
+ :paths ["src2"]
+ :deps {org.clojure/clojure {:mvn/version "1.11.0"}}}

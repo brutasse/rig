@@ -27,7 +27,10 @@ func newLockCmd(o *opts) *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
-			root, err := workspace.Find(".")
+			// FindNoLock: the kernel reads the existing lock itself (raw JSON,
+			// pins preserved) and writes the current schema, so a lock of an
+			// older schema must not block the re-lock.
+			root, err := workspace.FindNoLock(".")
 			if err != nil {
 				return err
 			}
