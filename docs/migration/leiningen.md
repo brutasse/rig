@@ -96,6 +96,7 @@ nothing written.
 | `:test-paths` | the `:test` alias's `:extra-paths` |
 | `:profiles` → `:test`, `:dev` | `:aliases` — `:dependencies` → `:extra-deps`, path keys → `:extra-paths`, `:jvm-opts` → `:jvm-opts` |
 | `:profiles` → `:uberjar` | `:rig/uberjar? true` |
+| `:profiles` → `:provided` | merged into the base manifest — `:dependencies` → `:deps` (a base declaration wins the version conflict), path keys → `:paths`, `:jvm-opts` → `:jvm-opts`; lein keeps `:provided` active by default, so it belongs to the base build |
 | `:uberjar-name` | `:rig/uberjar-file` — `target/` + the name; a missing `.jar` suffix is appended |
 
 Single-segment coordinates are expanded (`aero` → `aero/aero`), the same
@@ -137,8 +138,8 @@ per occurrence** — nothing is silently lost:
 - `:aliases` (Leiningen task aliases) — lein task invocations become
   `rig exec`;
 - `:aot`, `:global-vars`, `:native-image` (the `:graalvm` profile);
-- every profile other than `:test`, `:dev` and `:uberjar` (a `:docgen`
-  that only adds dependencies is a `rig exec` away);
+- every profile other than `:test`, `:dev`, `:uberjar` and `:provided`
+  (a `:docgen` that only adds dependencies is a `rig exec` away);
 - `:managed-dependencies` pins no versionless dep references — the pool
   exists to supply versions to declared deps; pins nothing references
   are dropped with a warning (transitive version constraints are lost);
@@ -203,6 +204,12 @@ keep it as a reference; `deps.edn` wins while both exist).
 - **Exact versions only.** `RELEASE`/`LATEST` in `:dependencies` migrate
   as-is and then become `rig check` errors (`floating-version`); pin
   them with `rig update <coord>`.
+- **A `:provided` dep loses its scope.** Lein activates `:provided` by
+  default, so its dependencies merge into base `:deps` and become
+  regular (compile-scope) dependencies in the published POM. For a
+  library, downstream consumers who ship the same artifact themselves
+  (say, a JDBC driver) may now hit version conflicts where lein's
+  provided scope would have kept them out of the way.
 - **`~/.m2` credentials carry over.** Deploying through an authenticated
   repository needs the same settings.xml as `lein deploy` did.
 - **A `:sub` monorepo migrates as a whole.** The root gains
