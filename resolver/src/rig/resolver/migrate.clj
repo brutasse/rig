@@ -791,6 +791,23 @@
                                         (map data->node v)))
     :else (throw (ex-info (str "migrate: cannot serialize value of type " (class v)) {}))))
 
+(defn- namespaced-map-node?
+  "True if nd is a `#:qualifier {…}` (namespaced map) node."
+  [nd]
+  (and (some? nd)
+       (= "rewrite_clj.node.namespaced_map.NamespacedMapNode"
+          (.getName (.getClass nd)))))
+
+(defn- expand-namespaced-maps
+  "Rewrite every `#:qualifier {…}` node in the tree as the equivalent plain map
+  (`#:mvn{:version \"1.0\"}` -> `{:mvn/version \"1.0\"}`), so the migrated
+  manifest uses the standard tools.deps requirement notation rather than the
+  compact reader-macro form."
+  [ztop]
+  (z/prewalk ztop
+             (fn [zloc] (namespaced-map-node? (z/node zloc)))
+             (fn [zloc] (z/edit zloc (fn [_] (data->node (n/sexpr (z/node zloc))))))))
+
 (defn- rename-key
   "Rename key k1 to k2 in the map at path (value + comments preserved)."
   [ztop path k1 k2]
@@ -972,7 +989,7 @@
                 []
                 (for [{:keys [file label data target]} results]
                   (let [text (slurp file)
-                        raw (z/root-string (apply-migration (z/of-string text) data target))
+                        raw (z/root-string (expand-namespaced-maps (apply-migration (z/of-string text) data target)))
                         changed? (not= text raw)]
                     (when (and (not dry-run?) changed?)
                       (spit file (format! raw)))

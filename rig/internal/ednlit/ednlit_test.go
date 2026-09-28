@@ -59,6 +59,13 @@ func TestParse(t *testing.T) {
 		{`{:a 1, :b 2}`, Map{{K: Keyword{Name: "a"}, V: int64(1)}, {K: Keyword{Name: "b"}, V: int64(2)}}},
 		{`{a b, c d}`, Map{{K: Symbol{Name: "a"}, V: Symbol{Name: "b"}}, {K: Symbol{Name: "c"}, V: Symbol{Name: "d"}}}},
 		{`{:a [1, 2], :b #{3,}}`, Map{{K: Keyword{Name: "a"}, V: []any{int64(1), int64(2)}}, {K: Keyword{Name: "b"}, V: Set{int64(3)}}}},
+		// namespaced maps (the `#:qualifier {…}` reader macro)
+		{`#:mvn{:version "1.0"}`, Map{{K: Keyword{NS: "mvn", Name: "version"}, V: "1.0"}}},
+		{`#:mvn{:version "1.0" :classifier "sources"}`, Map{{K: Keyword{NS: "mvn", Name: "version"}, V: "1.0"}, {K: Keyword{NS: "mvn", Name: "classifier"}, V: "sources"}}},
+		{`#:git{:url "git://x" :sha "abc"}`, Map{{K: Keyword{NS: "git", Name: "url"}, V: "git://x"}, {K: Keyword{NS: "git", Name: "sha"}, V: "abc"}}},
+		{`#:local{:root "modules/core"}`, Map{{K: Keyword{NS: "local", Name: "root"}, V: "modules/core"}}},
+		{`#:mvn {:version "1.0"}`, Map{{K: Keyword{NS: "mvn", Name: "version"}, V: "1.0"}}},
+		{`{:deps {a/b #:mvn{:version "1.11.1"}}}`, Map{{K: Keyword{Name: "deps"}, V: Map{{K: Symbol{NS: "a", Name: "b"}, V: Map{{K: Keyword{NS: "mvn", Name: "version"}, V: "1.11.1"}}}}}}},
 	}
 	for _, c := range cases {
 		got, err := Parse(c.in)
@@ -81,6 +88,9 @@ func TestParseErrors(t *testing.T) {
 		`"unterminated`,
 		`"bad \q escape"`,
 		`#x 1`,
+		`#:`,
+		`#:mvn`,
+		`#:mvn [1]`,
 		`{:a 1 2}`,
 		`[1] trailing`,
 		`'`,
