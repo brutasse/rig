@@ -77,15 +77,22 @@ func (s *Store) Add(src, sha string) error {
 		return err
 	}
 	dst := s.ArtifactPath(sha)
-	tmp := dst + ".tmp"
-	if err := copyFile(src, tmp); err != nil {
+	// A unique temp per call: concurrent Adds of the same sha (identical
+	// content served from different URLs) must not collide on one shared
+	// "<sha>.tmp" — the second rename would fail with ENOENT.
+	tmp, err := os.CreateTemp(s.Artifacts(), "."+sha+".*.tmp")
+	if err != nil {
 		return err
 	}
-	if err := os.Rename(tmp, dst); err != nil {
-		os.Remove(tmp)
+	name := tmp.Name()
+	defer os.Remove(name)
+	if err := tmp.Close(); err != nil {
 		return err
 	}
-	return nil
+	if err := copyFile(src, name); err != nil {
+		return err
+	}
+	return os.Rename(name, dst)
 }
 
 // RecordedSHA returns the sha256 previously recorded for url, if any. Callers

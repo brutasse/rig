@@ -141,6 +141,7 @@ func Execute() int {
 		newNewModuleCmd(o),
 		newSelfUpdateCmd(o),
 		newJVMCmd(o),
+		newGraalVMCmd(o),
 	)
 	// Dynamic completion: -p/--path offers the workspace's module paths,
 	// --alias offers the target module's locked aliases (lockfile reads only).

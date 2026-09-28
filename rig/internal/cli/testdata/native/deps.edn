@@ -1,0 +1,2 @@
+{:rig/modules ["modules/app"]
+ :rig/jvm "21"}

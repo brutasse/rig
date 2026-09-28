@@ -13,6 +13,7 @@ import (
 	"github.com/brutasse/rig/internal/cache"
 	"github.com/brutasse/rig/internal/classpath"
 	"github.com/brutasse/rig/internal/fetch"
+	"github.com/brutasse/rig/internal/graal"
 	"github.com/brutasse/rig/internal/jdk"
 	"github.com/brutasse/rig/internal/kernel"
 	"github.com/brutasse/rig/internal/lockfile"
@@ -136,6 +137,18 @@ func completeLock(ctx context.Context, client *fetch.Client, store *cache.Store,
 				return fmt.Errorf("lock: jvm: %w", err)
 			}
 			j.Version = a.Version
+		}
+	}
+	if g := lock.GraalVM; g != nil {
+		if g.Vendor == "" {
+			g.Vendor = graal.Vendor
+		}
+		if g.Version == "" && !client.Offline {
+			a, err := graal.NewAPI("").Resolve(ctx, g.Requested)
+			if err != nil {
+				return fmt.Errorf("lock: graalvm: %w", err)
+			}
+			g.Version = a.Version
 		}
 	}
 

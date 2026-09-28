@@ -1,0 +1,6 @@
+{:rig/lib example/native-app
+ :rig/version "0.1.0"
+ :rig/main app.core
+ :rig/native? true
+ :paths ["src"]
+ :deps {org.clojure/clojure {:mvn/version "1.11.0"}}}

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/brutasse/rig/internal/digest"
@@ -76,6 +77,34 @@ func TestBadSHA(t *testing.T) {
 	p, _ := makeArtifact(t, "x")
 	if err := store.Add(p, "xyz"); err == nil {
 		t.Error("expected error for bad sha")
+	}
+}
+
+// TestAddConcurrentSameSHA is the CI flake: two repositories serve byte-identical
+// artifacts at different URLs, so the lock fetches them in parallel and both
+// Adds target the same sha. The staging temp must be unique per call; a shared
+// "<sha>.tmp" lets the second rename hit a file the first already moved (ENOENT).
+func TestAddConcurrentSameSHA(t *testing.T) {
+	store := NewAt(t.TempDir())
+	path, sha := makeArtifact(t, "identical bytes")
+	const n = 16
+	var wg sync.WaitGroup
+	errs := make([]error, n)
+	for i := range errs {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			errs[i] = store.Add(path, sha)
+		}(i)
+	}
+	wg.Wait()
+	for i, err := range errs {
+		if err != nil {
+			t.Fatalf("add %d: %v", i, err)
+		}
+	}
+	if err := store.Verify(sha); err != nil {
+		t.Errorf("verify: %v", err)
 	}
 }
 

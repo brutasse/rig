@@ -72,6 +72,16 @@
     (true? (get data :rig/uberjar?))
     (boolean (uberjar-file data))))
 (defn uber-opts [data] (get data :rig/uber-opts))
+(defn native-file [data] (get data :rig/native-file))
+(defn native?
+  "True when the module declares a native-image build. An explicit
+  :rig/native? wins, including an explicit false; otherwise declaring a
+  :rig/native-file implies one."
+  [data]
+  (if (contains? data :rig/native?)
+    (true? (get data :rig/native?))
+    (boolean (native-file data))))
+(defn native-opts [data] (get data :rig/native-opts))
 (defn ns-compile [data] (get data :rig/ns-compile))
 (defn prep-ensure
   "The prep output paths the module declares via :deps/prep-lib :ensure —

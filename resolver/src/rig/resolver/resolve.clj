@@ -107,7 +107,12 @@
                         "main" (manifest/main-ns data)
                         "opts" (or (manifest/uber-opts data) {})})}
       (seq ns-compile) (assoc :ns-compile ns-compile)
-      (seq (manifest/javac-opts data)) (assoc :javac-opts (manifest/javac-opts data)))))
+      (seq (manifest/javac-opts data)) (assoc :javac-opts (manifest/javac-opts data))
+      (manifest/native? data)
+      (assoc :native {"file" (or (manifest/native-file data)
+                                 (str target "/" artifact))
+                      "main" (manifest/main-ns data)
+                      "opts" (or (manifest/native-opts data) [])}))))
 
 (defn- publish-plan
   [data]
@@ -249,6 +254,17 @@
                             {"vendor" "temurin"
                              "requested" requested
                              "version" old-version}))
+                  "graalvm" (when (and (get root-data :rig/jvm)
+                                       (some :native (map :build (vals modules))))
+                              (let [requested (str (get root-data :rig/jvm))
+                                    old (get lock :graalvm)
+                                    old-version (when (and (map? old)
+                                                           (= requested (get old :requested))
+                                                           (get old :version))
+                                                  (get old :version))]
+                                {"vendor" "graalvm"
+                                 "requested" requested
+                                 "version" old-version}))
                   "artifacts" artifacts
                   "skipped" (mapv skip-entry
                                   (distinct (sort-by (juxt :coord :version :reason)
