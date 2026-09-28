@@ -320,7 +320,8 @@
 
 (def lein-handled-keys
   #{:main :dependencies :repositories :deploy-repositories :profiles
-    :source-paths :resource-paths :test-paths :jvm-opts})
+    :source-paths :resource-paths :test-paths :jvm-opts
+    :managed-dependencies :parent-project})
 
 (def default-kaocha "1.66.1034")
 
@@ -425,56 +426,203 @@
 
 (def lein-dep-options #{:exclusions :local/root :git/url :git/sha})
 
+(defn- sym-exclusions
+  "Maven exclusion coords as symbols (rig's shape)."
+  [xs]
+  (vec (map (fn [x] (if (symbol? x) x (symbol x))) xs)))
+
+(defn- unquote-var
+  "The lein-replace var of a `~var` slot (the reader produces
+  `(clojure.core/unquote var`), else nil."
+  [x]
+  (when (and (sequential? x)
+             (= (count x) 2)
+             (= (first x) 'clojure.core/unquote)
+             (symbol? (second x)))
+    (second x)))
+
+(defn- managed-pool
+  "Leiningen :managed-dependencies -> {:pool {coord-sym {:version v
+  :exclusions [..]}} :problems [..]}. v is a literal string, :self (the
+  lein :version token) or a symbol (an unresolved lein-replace ~var).
+  The leiningen form is a vector of [coord version ...opts] entries; a
+  map of {coord version-or-spec} is accepted as well."
+  [managed]
+  (cond
+    (nil? managed)
+    {:pool {} :problems []}
+    (not (or (map? managed) (sequential? managed)))
+    {:pool {} :problems [(str ":managed-dependencies is not a vector or a map: "
+                             (pr-str managed))]}
+    :else
+    (let [pairs (if (map? managed)
+                  (map (fn [[k v]]
+                         [[nil]
+                          [k (or (unquote-var v)
+                                 (if (map? v) (get v :mvn/version) v))
+                           (when (map? v) (vec (get v :exclusions)))]])
+                       managed)
+                  (map (fn [e]
+                         (let [ok (and (sequential? e)
+                                       (>= (count e) 2)
+                                       (or (string? (first e))
+                                           (symbol? (first e))))]
+                           [e
+                            (when ok
+                             (let [tail (nthnext e 1)
+                                   var (unquote-var (first tail))
+                                   vf (or var (first tail))
+                                   opts (into {}
+                                              (map vec
+                                                   (partition 2
+                                                            (vec (if (or (some? var)
+                                                                         (string? vf)
+                                                                         (= :version vf))
+                                                                   (next tail)
+                                                                   tail)))))
+                                   excl (when (contains? opts :exclusions)
+                                          (vec (get opts :exclusions)))]
+                                [(first e)
+                                 (cond
+                                   (string? vf) vf
+                                   (= :version vf) :self
+                                   :else vf)
+                                 excl]))]))
+                       managed))]
+     (reduce (fn [acc [raw norm]]
+               (if (nil? norm)
+                 (update acc :problems conj
+                         (str ":managed-dependencies entry " (pr-str raw)
+                              " is not a [coord version ...] entry"))
+                 (let [[k vform excl] norm
+                       seg (str k)
+                       coord (if (str/includes? seg "/") seg (str seg "/" seg))]
+                   (assoc-in acc [:pool (to-sym coord)]
+                             (cond-> {:version vform}
+                               (some? excl)
+                               (assoc :exclusions excl))))))
+             {:pool {} :problems []}
+             pairs))))
+
+(defn- parent-managed
+  "The pool inherited from the manifest's :parent-project (its
+  :managed-dependencies), when :inherit or :include names
+  :managed-dependencies. A missing or malformed parent manifest is a
+  problem. `dir` is the directory holding the manifest."
+  [pp dir]
+  (let [inherit (get pp :inherit)
+        include (get pp :include)
+        managed? (or (and (sequential? inherit)
+                          (some #(= :managed-dependencies %) inherit))
+                     (and (sequential? include)
+                          (some #(= :managed-dependencies %) include)))]
+    (if (not managed?)
+      {:pool {} :problems []}
+      (let [path (get pp :path)]
+        (if (nil? path)
+          {:pool {} :problems [":parent-project declares no :path"]}
+          (let [text (try (slurp (io/file dir path))
+                          (catch java.io.IOException _ nil))]
+            (if (nil? text)
+              {:pool {} :problems [(str ":parent-project path " path
+                                       " not found; cannot materialize versionless deps")]}
+              (let [forms (try (top-level-forms text)
+                               (catch Exception e
+                                 (throw (ex-info
+                                         (str "parent manifest " path
+                                              ": parse error: " (.getMessage e))
+                                         {}))))
+                    dp (defproject-of forms)]
+                (if (nil? dp)
+                  {:pool {} :problems
+                   [(str ":parent-project " path " has no defproject form")]}
+                  (managed-pool (get (nth dp 2) :managed-dependencies)))))))))))
+
 (defn- dep-entries
   "leiningen :dependencies (or a profile's) entries ->
-  {:deps {coord spec} :warnings [..] :problems [..]}."
-  [entries]
-  (reduce (fn [{:keys [deps warnings problems] :as acc} e]
-            (if (and (sequential? e)
-                     (>= (count e) 2)
-                     (or (string? (first e)) (symbol? (first e))))
-              (let [seg (str (first e))
-                    coord (if (str/includes? seg "/") seg (str seg "/" seg))
-                    dep-sym (to-sym coord)
-                    tail (nthnext e 1)
-                    ver (when (string? (first tail)) (first tail))
-                    opt-vec (vec (if (string? (first tail)) (next tail) tail))]
-                (if (odd? (count opt-vec))
-                  (merge acc {:problems (conj problems
-                         (str "dep " coord " has an odd number of option elements"))})
-                  (let [opts (into {} (map vec (partition 2 opt-vec)))
-                        unknown (filter #(not (contains? lein-dep-options %)) (keys opts))
-                        warns (map (fn [k]
-                                     (str "dep " coord ": leiningen option " (str k)
-                                          " is not supported by rig (dropped)"))
-                                   unknown)
-                        root (get opts :local/root)
-                        git (select-keys opts [:git/url :git/sha])]
-                    (cond
-                      (some? root)
-                      (merge acc {:deps (assoc deps dep-sym {:local/root (str root)})
-                            :warnings (concat warnings warns)})
-                      (or (get git :git/url) (get git :git/sha))
-                      (if (= 2 (count git))
-                        (merge acc {:deps (assoc deps dep-sym (into {} (sort-by key git)))
-                              :warnings (concat warnings warns)})
-                        (merge acc {:problems (conj problems
-                               (str "dep " coord " declares :git/url and :git/sha incompletely"))}))
-                      (some? ver)
-                      (let [spec (cond-> {:mvn/version ver}
-                                   (contains? opts :exclusions)
-                                   (assoc :exclusions
-                                          (vec (map (fn [x]
-                                                      (if (symbol? x) x (symbol x)))
-                                                    (get opts :exclusions)))))]
-                        (merge acc {:deps (assoc deps dep-sym spec)
-                              :warnings (concat warnings warns)}))
-                      :true
-                      (merge acc {:problems (conj problems
-                             (str "dep " coord " declares no version, :local/root or :git/url"))})))))
-              (merge acc {:problems (conj problems (str "dep " (pr-str e) " is not a [group artifact ...] entry"))})))
-          {:deps {} :warnings [] :problems []}
-          (when (sequential? entries) entries)))
+  {:deps {coord spec} :warnings [..] :problems [..]}. An entry without
+  a version, :local/root or :git/url (or carrying lein's :version
+  token) is materialized from the :managed-dependencies pool: literal
+  versions and :self (the project's own version) are resolvable, ~vars
+  are problems. `pool` is the :pool value of managed-pool (root +
+  inherited); `vversion` the resolved project version, nil when it is
+  not a literal."
+  [entries pool vversion]
+  (let [mat (fn [v excl]
+              (cond-> {:mvn/version v}
+                (some? excl) (assoc :exclusions (sym-exclusions excl))))]
+    (reduce (fn [{:keys [deps warnings problems] :as acc} e]
+              (if (and (sequential? e)
+                       (>= (count e) 1)
+                       (or (string? (first e)) (symbol? (first e))))
+               (let [seg (str (first e))
+                     coord (if (str/includes? seg "/") seg (str seg "/" seg))
+                     dep-sym (to-sym coord)
+                     tail (nthnext e 1)
+                     t0 (first tail)
+                     ver (cond
+                           (string? t0) t0
+                           (= :version t0) :version
+                           :else nil)
+                     opt-vec (vec (if (or (string? t0) (= :version t0))
+                                    (next tail)
+                                    tail))]
+                 (if (odd? (count opt-vec))
+                   (merge acc {:problems (conj problems
+                          (str "dep " coord " has an odd number of option elements"))})
+                   (let [opts (into {} (map vec (partition 2 opt-vec)))
+                         unknown (filter #(not (contains? lein-dep-options %)) (keys opts))
+                         warns (map (fn [k]
+                                      (str "dep " coord ": leiningen option " (str k)
+                                           " is not supported by rig (dropped)"))
+                                    unknown)
+                         root (get opts :local/root)
+                         git (select-keys opts [:git/url :git/sha])
+                         excl (when (contains? opts :exclusions)
+                                (get opts :exclusions))]
+                     (cond
+                       (some? root)
+                       (merge acc {:deps (assoc deps dep-sym {:local/root (str root)})
+                             :warnings (concat warnings warns)})
+                       (or (get git :git/url) (get git :git/sha))
+                       (if (= 2 (count git))
+                         (merge acc {:deps (assoc deps dep-sym (into {} (sort-by key git)))
+                               :warnings (concat warnings warns)})
+                         (merge acc {:problems (conj problems
+                                (str "dep " coord " declares :git/url and :git/sha incompletely"))}))
+                       (string? ver)
+                       (merge acc {:deps (assoc deps dep-sym (mat ver excl))
+                             :warnings (concat warnings warns)})
+                       (= ver :version)
+                       (if (some? vversion)
+                         (merge acc {:deps (assoc deps dep-sym (mat vversion excl))
+                               :warnings (concat warnings warns)})
+                         (merge acc {:problems (conj problems
+                                (str "dep " coord " uses the :version token, but the project version is not a literal (cannot materialize it)"))}))
+                       :true
+                       (let [entry (get pool dep-sym)
+                             mv (when entry (get entry :version))
+                             pexcl (when entry (get entry :exclusions))]
+                         (cond
+                           (string? mv)
+                           (merge acc {:deps (assoc deps dep-sym (mat mv (or excl pexcl)))
+                                 :warnings (concat warnings warns)})
+                           (= mv :self)
+                           (if (some? vversion)
+                             (merge acc {:deps (assoc deps dep-sym (mat vversion (or excl pexcl)))
+                                   :warnings (concat warnings warns)})
+                             (merge acc {:problems (conj problems
+                                    (str "dep " coord "'s :managed-dependencies entry uses :version, but the project version is not a literal (cannot materialize it)"))}))
+                           (symbol? mv)
+                           (merge acc {:problems (conj problems
+                                  (str "dep " coord "'s :managed-dependencies version " (str mv)
+                                       " is a lein-replace var (unsupported; pin it explicitly)"))})
+                           :true
+                           (merge acc {:problems (conj problems
+                                  (str "dep " coord " declares no version, :local/root or :git/url (no :managed-dependencies entry)"))})))))))
+               (merge acc {:problems (conj problems (str "dep " (pr-str e) " is not a [group artifact ...] entry"))})))
+           {:deps {} :warnings [] :problems []}
+           (when (sequential? entries) entries))))
 
 (defn- repos-of
   "leiningen :repositories (map {id url-or-spec} or vector [id url]
@@ -617,11 +765,11 @@
   always yields an alias with a kaocha :exec-fn (rig test hard-requires
   one); other profiles yield an alias only when they carry expressible
   content."
-  [name p test-defaults kaocha-ver]
+  [name p test-defaults kaocha-ver pool vversion]
   (let [test? (= name :test)
         map? (or (nil? p) (map? p))
         p (or p {})
-        dres (dep-entries (get p :dependencies))
+        dres (dep-entries (get p :dependencies) pool vversion)
         d (get dres :deps)
         dw (get dres :warnings)
         dp (get dres :problems)
@@ -670,7 +818,14 @@
             lib (to-sym coord)
             main (to-sym (get pairs :main))
             vinfo (version-info forms vform)
-            deps-res (dep-entries (get pairs :dependencies))
+            vversion (get vinfo :version)
+            pp (get pairs :parent-project)
+            pp-managed? (or (some #(= :managed-dependencies %) (get pp :inherit))
+                            (some #(= :managed-dependencies %) (get pp :include)))
+            parent (if pp-managed? (parent-managed pp ws) {:pool {} :problems []})
+            mp (managed-pool (get pairs :managed-dependencies))
+            pool (merge (get parent :pool) (get mp :pool))
+            deps-res (dep-entries (get pairs :dependencies) pool vversion)
             repos-res (repos-of (get pairs :repositories))
             pub (lein-publish (get pairs :deploy-repositories) (get repos-res :repos))
             source-paths (effective-paths ["src"] (get pairs :source-paths))
@@ -681,16 +836,16 @@
             merged-test (merged-test-profile (get profiles :dev) (get profiles :test))
             ;; Effective kaocha pin for the test classpath: the merged
             ;; :test profile's (later declarations win), else the base.
-            declared-kaocha (or (kaocha-version (get (dep-entries (get merged-test :dependencies)) :deps))
+            declared-kaocha (or (kaocha-version (get (dep-entries (get merged-test :dependencies) pool vversion) :deps))
                                 (kaocha-version (get deps-res :deps)))
             kaocha-bump (and declared-kaocha (kaocha-predates-exec-fn declared-kaocha))
             kaocha-ver (if kaocha-bump
                          default-kaocha
                          (or declared-kaocha default-kaocha))
-            test (profile-alias :test merged-test test-defaults kaocha-ver)
+            test (profile-alias :test merged-test test-defaults kaocha-ver pool vversion)
             [test-alias test-w test-p] test
             dev (if (some? (get profiles :dev))
-                  (profile-alias :dev (get profiles :dev) test-defaults kaocha-ver)
+                  (profile-alias :dev (get profiles :dev) test-defaults kaocha-ver pool vversion)
                   [{} [] []])
             [dev-alias dev-w dev-p] dev
             aliases (cond-> {:test test-alias}
@@ -716,16 +871,30 @@
                                   [:aliases aliases]
                                   [:jvm-opts
                                    (when (seq (get pairs :jvm-opts)) (vec (get pairs :jvm-opts)))]]))
-            problems (concat (get deps-res :problems)
+            ;; When the parent lookup failed, the pool is known to be
+            ;; incomplete: the per-dep "no :managed-dependencies entry"
+            ;; problems are derivative of that single failure, so they
+            ;; are dropped (the parent problem names the cause).
+            strip-miss (fn [ps]
+                         (if (seq (get parent :problems))
+                           (filter #(not (re-find #"no :managed-dependencies entry" %)) ps)
+                           ps))
+            problems (concat (get parent :problems)
+                             (get mp :problems)
+                             (strip-miss (get deps-res :problems))
                              (get pub :problems)
-                             test-p
-                             dev-p)
+                             (strip-miss test-p)
+                             (strip-miss dev-p))
             warnings (concat (get vinfo :warnings)
                              (get deps-res :warnings)
                              (get repos-res :warnings)
                              (get pub :warnings)
                              test-w
                              dev-w
+                             (when (some? (get pairs :managed-dependencies))
+                               [":managed-dependencies pins not referenced by a versionless dep are dropped (transitive version constraints are lost)"])
+                             (when (and pp-managed? (empty? (get parent :problems)))
+                               ["inherited :managed-dependencies is migrated, other inherited keys are dropped"])
                              (when kaocha-bump
                                [(str "the project's kaocha " declared-kaocha
                                      " predates kaocha.runner/exec-fn (introduced in "
