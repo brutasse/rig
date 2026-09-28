@@ -84,7 +84,9 @@ func (e *hotEnv) buildOne(ctx context.Context, m string, uber, native bool) (str
 		return "", exitf(2, "module %s declares no jar", m)
 	}
 
-	if err := e.ensurePreps(ctx, m, mod); err != nil {
+	// The module build compiles the target's own java (kernel, javac
+	// first); ensurePreps only prepares the local dependencies.
+	if err := e.ensurePreps(ctx, m, mod, false); err != nil {
 		return "", err
 	}
 
@@ -191,6 +193,16 @@ func (e *hotEnv) buildOne(ctx context.Context, m string, uber, native bool) (str
 		return "", fmt.Errorf("build: kernel returned no results")
 	}
 	r := parsed.Results[0]
+	// The build compiled the module's own java (when it declared
+	// java-src-dirs); record the javac stamp so test and run do not
+	// re-javac what the build just produced.
+	if hasJava(mod) {
+		if st, err := e.javacState(m, mod, nil); err == nil {
+			if err := e.writeStamp(m, mod, st, "javac", javacStampFile); err != nil {
+				return "", fmt.Errorf("build: %w", err)
+			}
+		}
+	}
 	if buildNative {
 		return e.buildNative(ctx, m, mod, r.ClassDir, entries)
 	}

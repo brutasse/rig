@@ -58,22 +58,47 @@ func TestPrepOrderCycle(t *testing.T) {
 }
 
 func TestPrepSet(t *testing.T) {
-	doc := lockfile.ForTest(".", "dep", "plain")
+	doc := lockfile.ForTest(".", "dep", "jdep", "plain")
 	local := func(m string) *string { return &m }
 	m := doc.Modules["."]
 	m.PrepEnsure, m.PrepAlias, m.PrepFn = []string{"target/classes"}, "prep", "build/prep"
-	m.Classpath = []lockfile.ClasspathEntry{{Local: local("dep")}, {Local: local("plain")}}
+	m.Classpath = []lockfile.ClasspathEntry{{Local: local("dep")}, {Local: local("jdep")}, {Local: local("plain")}}
 	doc.Modules["."] = m
 	dep := doc.Modules["dep"]
 	dep.PrepEnsure, dep.PrepAlias, dep.PrepFn = []string{"target/classes"}, "prep", "build/prep"
 	doc.Modules["dep"] = dep
+	jdep := doc.Modules["jdep"]
+	jdep.Build.JavaSrcDirs = []string{"java"}
+	doc.Modules["jdep"] = jdep
 	e := prepEnv(t, t.TempDir(), doc)
 
-	set, err := prepSet(e, ".", m)
+	set, err := prepSet(e, ".", m, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{".", "dep"}; !reflect.DeepEqual(set, want) {
+	// the local dep with java sources is in the set even without a prep fn
+	if want := []string{".", "dep", "jdep"}; !reflect.DeepEqual(set, want) {
+		t.Errorf("set = %v, want %v", set, want)
+	}
+
+	// the target's own java is prep'd only when the caller needs it
+	// compiled (test, run), not when the module build does it
+	tm := m
+	tm.PrepEnsure = nil
+	tm.Build.JavaSrcDirs = []string{"java"}
+	doc.Modules["."] = tm
+	set, err = prepSet(e, ".", tm, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"dep", "jdep"}; !reflect.DeepEqual(set, want) {
+		t.Errorf("set = %v, want %v", set, want)
+	}
+	set, err = prepSet(e, ".", tm, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{".", "dep", "jdep"}; !reflect.DeepEqual(set, want) {
 		t.Errorf("set = %v, want %v", set, want)
 	}
 }
@@ -89,7 +114,7 @@ func TestPrepSetLegacyLock(t *testing.T) {
 	doc.Modules["."] = root
 	e := prepEnv(t, t.TempDir(), doc)
 
-	_, err := prepSet(e, ".", root)
+	_, err := prepSet(e, ".", root, false)
 	if err == nil || !strings.Contains(err.Error(), "predates prep support") {
 		t.Errorf("err = %v, want predates prep support", err)
 	}
@@ -120,7 +145,7 @@ func TestPrepState(t *testing.T) {
 	}
 
 	// fresh stamp -> up to date
-	if err := e.writeStamp(".", m, st); err != nil {
+	if err := e.writeStamp(".", m, st, m.PrepFn, prepStampFile); err != nil {
 		t.Fatal(err)
 	}
 	st, err = e.prepState(".", m, nil)
@@ -140,7 +165,7 @@ func TestPrepState(t *testing.T) {
 
 	// prep build file changed -> stale (alias extra-paths count)
 	writeFile(t, filepath.Join(dir, "src", "a.clj"), "(ns a)\n")
-	writeFile(t, filepath.Join(dir, "build", "build.clj"), "(ns build)\n(defn prep [])\n")
+	writeFile(t, filepath.Join(dir, "build", "build.clj"), "(ns build)\n(defn prep [_])\n")
 	st, _ = e.prepState(".", m, nil)
 	if !st.stale || st.reason != "sources changed" {
 		t.Errorf("state = %+v, want stale 'sources changed'", st)
@@ -168,7 +193,7 @@ func TestPrepState(t *testing.T) {
 	_ = os.MkdirAll(filepath.Join(dir, "target", "classes"), 0o755)
 	writeFile(t, filepath.Join(dir, "target", "classes", "x.class"), "x")
 	stFresh, _ := e.prepState(".", m, nil)
-	if err := e.writeStamp(".", m, stFresh); err != nil {
+	if err := e.writeStamp(".", m, stFresh, m.PrepFn, prepStampFile); err != nil {
 		t.Fatal(err)
 	}
 	ref := doc.Artifacts[0].ID
@@ -176,6 +201,84 @@ func TestPrepState(t *testing.T) {
 	m4 := m
 	m4.Classpath = []lockfile.ClasspathEntry{{Ref: &ref}, {Local: &dep}}
 	st, _ = e.prepState(".", m4, map[string]bool{"dep": true})
+	if !st.stale || st.reason != "dependency dep re-prepped" {
+		t.Errorf("state = %+v, want stale 'dependency dep re-prepped'", st)
+	}
+}
+
+// TestJavacState walks the staleness matrix on a module whose declared
+// java sources have been javac'd and stamped.
+func TestJavacState(t *testing.T) {
+	dir := t.TempDir()
+	java := "package a;\n\npublic class A {}\n"
+	writeFile(t, filepath.Join(dir, "java", "a.java"), java)
+	writeFile(t, filepath.Join(dir, "target", "classes", "a", "A.class"), "A")
+
+	doc := lockfile.ForTest(".")
+	m := doc.Modules["."]
+	m.Build.JavaSrcDirs = []string{"java"}
+	e := prepEnv(t, dir, doc)
+
+	// no stamp -> stale
+	st, err := e.javacState(".", m, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !st.stale || st.reason != "no stamp" {
+		t.Fatalf("state = %+v, want stale 'no stamp'", st)
+	}
+
+	// fresh stamp -> up to date
+	if err := e.writeStamp(".", m, st, "javac", javacStampFile); err != nil {
+		t.Fatal(err)
+	}
+	st, err = e.javacState(".", m, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.stale {
+		t.Fatalf("fresh module reported stale: %s", st.reason)
+	}
+
+	// java source changed -> stale
+	writeFile(t, filepath.Join(dir, "java", "a.java"), java+"// changed\n")
+	st, _ = e.javacState(".", m, nil)
+	if !st.stale || st.reason != "sources changed" {
+		t.Errorf("state = %+v, want stale 'sources changed'", st)
+	}
+
+	// class-dir missing -> stale (checked before the stamp; re-stamp first)
+	writeFile(t, filepath.Join(dir, "java", "a.java"), java)
+	stFresh, _ := e.javacState(".", m, nil)
+	if err := e.writeStamp(".", m, stFresh, "javac", javacStampFile); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.RemoveAll(filepath.Join(dir, "target"))
+	st, _ = e.javacState(".", m, nil)
+	if !st.stale || !strings.HasPrefix(st.reason, "missing") {
+		t.Errorf("state = %+v, want stale 'missing ...'", st)
+	}
+
+	// manifest changed -> stale (re-stamp: the missing-output scenario
+	// wiped target/ and the stamp with it)
+	_ = os.MkdirAll(filepath.Join(dir, "target", "classes", "a"), 0o755)
+	writeFile(t, filepath.Join(dir, "target", "classes", "a", "A.class"), "A")
+	stFresh, _ = e.javacState(".", m, nil)
+	if err := e.writeStamp(".", m, stFresh, "javac", javacStampFile); err != nil {
+		t.Fatal(err)
+	}
+	m2 := m
+	m2.ManifestSHA256 = strings.Repeat("0", 64)
+	st, _ = e.javacState(".", m2, nil)
+	if !st.stale || st.reason != "manifest changed" {
+		t.Errorf("state = %+v, want stale 'manifest changed'", st)
+	}
+
+	// a re-prepped local dependency invalidates the stamp
+	dep := "dep"
+	m3 := m
+	m3.Classpath = append(m3.Classpath, lockfile.ClasspathEntry{Local: &dep})
+	st, _ = e.javacState(".", m3, map[string]bool{"dep": true})
 	if !st.stale || st.reason != "dependency dep re-prepped" {
 		t.Errorf("state = %+v, want stale 'dependency dep re-prepped'", st)
 	}
@@ -207,9 +310,10 @@ func TestDigestDirs(t *testing.T) {
 	}
 }
 
-// TestBuildPrepEndToEnd exercises the full flow: lock, build (prep runs in
-// dependency order), rebuild (no re-prep), source touch (transitive
-// re-prep), run and test (up to date), failing prep fn.
+// TestBuildPrepEndToEnd exercises the full flow: lock, build (native
+// javac and prep fns run in dependency order, javac before the fn of the
+// same module), rebuild (no re-prep), source touch (transitive re-prep),
+// run and test (up to date), failing prep fn.
 func TestBuildPrepEndToEnd(t *testing.T) {
 	jar := kernelJarPath(t)
 	if _, err := jvm.Find(); err != nil {
@@ -234,25 +338,41 @@ func TestBuildPrepEndToEnd(t *testing.T) {
 	writeFile(t, "deps.edn",
 		`{:rig/lib "example/root"
 	    :rig/main "root"
-	    :rig/modules ["a" "b"]
+	    :rig/modules ["a" "b" "c" "d"]
 	    :deps {org.clojure/clojure {:mvn/version "1.12.5"}
 	            example/a {:local/root "a"}
-	            example/b {:local/root "b"}}
+	            example/b {:local/root "b"}
+	            example/c {:local/root "c"}
+	            example/d {:local/root "d"}}
 	    :aliases {:test {:extra-paths ["test"]
 	                   :exec-fn test-exec/exec}}}`+"\n")
-	writeFile(t, "src/root.clj", "(ns root)\n(defn hello [] \"hello\")\n(defn -main [] (println \"root-main-ran\"))\n")
+	writeFile(t, "src/root.clj", "(ns root)\n(defn hello [] (str (c.Thing/hi) \"/\" (d.Thing/hi)))\n(defn -main [] (println \"root-main-ran\"))\n")
 	writeFile(t, "src/test_exec.clj", "(ns test-exec\n  (:require [clojure.test :as t]))\n\n(defn exec [opts]\n  (let [ns (symbol (or (:ns opts) \"root-test\"))]\n    (require ns)\n    (let [summary (t/run-tests ns)]\n      (and (zero? (:fail summary 0)) (zero? (:error summary 0))))))\n")
-	writeFile(t, "test/root_test.clj", "(ns root-test\n  (:require [clojure.test :refer :all] [root :as r]))\n(deftest main-works (is (= (r/hello) \"hello\")))\n")
+	writeFile(t, "test/root_test.clj", "(ns root-test\n  (:require [clojure.test :refer :all] [root :as r]))\n(deftest main-works (is (= (r/hello) \"c-java/d-java\")))\n")
 	writeFile(t, "a/deps.edn",
 		"{:rig/lib \"example/a\"\n :deps {org.clojure/clojure {:mvn/version \"1.12.5\"}}\n :deps/prep-lib {:ensure \"target/classes\" :alias :prep :fn prep}\n :aliases {:prep {:extra-paths [\"build\"] :ns-default build}}}\n")
+	// strict single-arg prep fn: a 0-arg invocation fails with an
+	// ArityException and the build errors out
 	writeFile(t, "a/build/build.clj",
-		"(ns build)\n\n(defn prep [& _]\n  (clojure.java.io/make-parents (clojure.java.io/file \"target\" \"classes\" \"marker.txt\"))\n  (spit \"target/classes/marker.txt\" \"a\")\n  (spit \"../prep-log\" \"a\\n\" :append true))\n")
+		"(ns build)\n\n(defn prep [_]\n  (clojure.java.io/make-parents (clojure.java.io/file \"target\" \"classes\" \"marker.txt\"))\n  (spit \"target/classes/marker.txt\" \"a\")\n  (spit \"../prep-log\" \"a\\n\" :append true))\n")
 	writeFile(t, "a/src/a.clj", "(ns a)\n")
 	writeFile(t, "b/deps.edn",
 		"{:rig/lib \"example/b\"\n :deps {org.clojure/clojure {:mvn/version \"1.12.5\"}\n        example/a {:local/root \"../a\"}}\n :deps/prep-lib {:ensure \"target/classes\" :alias :prep :fn prep}\n :aliases {:prep {:extra-paths [\"build\"] :ns-default build}}}\n")
 	writeFile(t, "b/build/build.clj",
-		"(ns build)\n\n(defn prep [& _]\n  (clojure.java.io/make-parents (clojure.java.io/file \"target\" \"classes\" \"marker.txt\"))\n  (spit \"target/classes/marker.txt\" \"b\")\n  (spit \"../prep-log\" \"b\\n\" :append true))\n")
+		"(ns build)\n\n(defn prep [_]\n  (clojure.java.io/make-parents (clojure.java.io/file \"target\" \"classes\" \"marker.txt\"))\n  (spit \"target/classes/marker.txt\" \"b\")\n  (spit \"../prep-log\" \"b\\n\" :append true))\n")
 	writeFile(t, "b/src/b.clj", "(ns b)\n")
+	// c: declared java sources, no prep-lib — rig javacs it natively.
+	// target/classes flows to the dependents' classpath via :paths.
+	writeFile(t, "c/deps.edn",
+		"{:rig/lib \"example/c\"\n :paths [\"target/classes\"]\n :deps {org.clojure/clojure {:mvn/version \"1.12.5\"}}\n :rig/java-src-dirs [\"java\"]}\n")
+	writeFile(t, "c/java/c/Thing.java", "package c;\n\npublic class Thing {\n  public static String hi() {\n    return \"c-java\";\n  }\n}\n")
+	// d: declared java sources AND a prep fn — the javac runs first, and
+	// the fn asserts the javac'd class is already in place.
+	writeFile(t, "d/deps.edn",
+		"{:rig/lib \"example/d\"\n :paths [\"src\" \"target/classes\"]\n :deps {example/c {:local/root \"../c\"}}\n :rig/java-src-dirs [\"java\"]\n :deps/prep-lib {:ensure \"target/classes\" :alias :prep :fn prep}\n :aliases {:prep {:extra-paths [\"build\"] :ns-default build}}}\n")
+	writeFile(t, "d/build/build.clj",
+		"(ns build)\n\n(defn prep [_]\n  (when-not (.exists (clojure.java.io/file \"target\" \"classes\" \"d\" \"Thing.class\"))\n    (throw (Exception. \"d prep ran before the javac\")))\n  (clojure.java.io/make-parents (clojure.java.io/file \"target\" \"classes\" \"marker.txt\"))\n  (spit \"target/classes/marker.txt\" \"d\")\n  (spit \"../prep-log\" \"d\\n\" :append true))\n")
+	writeFile(t, "d/java/d/Thing.java", "package d;\n\npublic class Thing {\n  public static String hi() {\n    return \"d-java\";\n  }\n}\n")
 
 	code, out := runCLI(t, "lock", "--cache-dir", cacheDir)
 	if code != 0 && strings.Contains(out, "status 429") {
@@ -266,28 +386,41 @@ func TestBuildPrepEndToEnd(t *testing.T) {
 		t.Fatalf("lock did not write deps.lock; out: %s", out)
 	}
 
-	// 1. build preps a and b, in dependency order, then builds the jar.
+	// 1. build preps everything, in dependency order: c javac'd natively,
+	// d javac'd before its own prep fn, then builds the jar (root's
+	// namespaces compile against the javac'd c and d classes).
 	code, out = runCLI(t, "build", "-p", ".", "--cache-dir", cacheDir)
 	if code != 0 {
 		t.Fatalf("build exit = %d, want 0; out: %s", code, out)
 	}
-	if !strings.Contains(out, "prep a:") || !strings.Contains(out, "prep b:") {
-		t.Fatalf("build out missing prep lines: %s", out)
+	for _, want := range []string{"prep a:", "prep b:", "prep c: javac", "prep d: javac", "prep d: build/prep"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("build out missing %q: %s", want, out)
+		}
 	}
-	ai := strings.Index(out, "prep a:")
-	bi := strings.Index(out, "prep b:")
-	if ai > bi {
-		t.Errorf("prep order: a after b in %q", out)
+	ai, bi := strings.Index(out, "prep a:"), strings.Index(out, "prep b:")
+	ci, dji, dpi := strings.Index(out, "prep c: javac"), strings.Index(out, "prep d: javac"), strings.Index(out, "prep d: build/prep")
+	if !(ai < bi && ci < dji && dji < dpi) {
+		t.Errorf("prep order wrong (a=%d b=%d c=%d d-javac=%d d-prep=%d): %s", ai, bi, ci, dji, dpi, out)
 	}
 	log, err := os.ReadFile("prep-log")
-	if err != nil || string(log) != "a\nb\n" {
-		t.Fatalf("prep-log = %q (err %v), want \"a\\nb\\n\"", log, err)
+	if err != nil || string(log) != "a\nb\nd\n" {
+		t.Fatalf("prep-log = %q (err %v), want \"a\\nb\\nd\\n\"", log, err)
 	}
-	if _, err := os.Stat("a/target/classes/marker.txt"); err != nil {
-		t.Fatalf("a prep output missing: %v", err)
-	}
-	if _, err := os.Stat("b/target/classes/marker.txt"); err != nil {
-		t.Fatalf("b prep output missing: %v", err)
+	for _, p := range []string{
+		"a/target/classes/marker.txt",
+		"b/target/classes/marker.txt",
+		"c/target/classes/c/Thing.class",
+		"d/target/classes/d/Thing.class",
+		"d/target/classes/marker.txt",
+		"a/target/.rig-prep.json",
+		"c/target/.rig-javac.json",
+		"d/target/.rig-javac.json",
+		"d/target/.rig-prep.json",
+	} {
+		if !statOK(p) {
+			t.Fatalf("%s missing after build; out: %s", p, out)
+		}
 	}
 	if !statOK("target/root-0.0.1.jar") {
 		t.Fatalf("root jar not built; out: %s", out)
@@ -302,19 +435,20 @@ func TestBuildPrepEndToEnd(t *testing.T) {
 		t.Fatalf("rebuild re-ran prep: %s", out)
 	}
 	log, _ = os.ReadFile("prep-log")
-	if string(log) != "a\nb\n" {
+	if string(log) != "a\nb\nd\n" {
 		t.Fatalf("prep re-ran on rebuild: %q", log)
 	}
 
-	// 3. touching a's source re-preps a and (transitively) b, in order.
+	// 3. touching a's source re-preps a and (transitively) b, in order —
+	// not c or d, which do not depend on a.
 	writeFile(t, "a/src/a.clj", "(ns a)\n;; touched\n")
 	code, out = runCLI(t, "build", "-p", ".", "--cache-dir", cacheDir)
 	if code != 0 {
 		t.Fatalf("touch rebuild exit = %d, want 0; out: %s", code, out)
 	}
 	log, _ = os.ReadFile("prep-log")
-	if string(log) != "a\nb\na\nb\n" {
-		t.Fatalf("prep-log after touch = %q, want a b a b", log)
+	if string(log) != "a\nb\nd\na\nb\n" {
+		t.Fatalf("prep-log after touch = %q, want a b d a b", log)
 	}
 
 	// 4. run and test see the preps as up to date.
@@ -339,8 +473,28 @@ func TestBuildPrepEndToEnd(t *testing.T) {
 		t.Fatalf("test re-ran prep: %s", out)
 	}
 
-	// 5. a failing prep fn fails the build.
-	writeFile(t, "b/build/build.clj", "(ns build)\n(defn prep [& _] (throw (Exception. \"prep boom\")))\n")
+	// 5. touching c's java re-javacs c and (transitively) re-preps d —
+	// javac and fn — while a and b stay up to date.
+	writeFile(t, "c/java/c/Thing.java", "package c;\n\npublic class Thing {\n  public static String hi() {\n    return \"c-java-2\";\n  }\n}\n")
+	code, out = runCLI(t, "build", "-p", ".", "--cache-dir", cacheDir)
+	if code != 0 {
+		t.Fatalf("touch-c rebuild exit = %d, want 0; out: %s", code, out)
+	}
+	for _, want := range []string{"prep c: javac", "prep d: javac", "prep d: build/prep"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("touch-c out missing %q: %s", want, out)
+		}
+	}
+	if strings.Contains(out, "prep a:") || strings.Contains(out, "prep b:") {
+		t.Fatalf("touch-c re-prepped unrelated modules: %s", out)
+	}
+	log, _ = os.ReadFile("prep-log")
+	if string(log) != "a\nb\nd\na\nb\nd\n" {
+		t.Fatalf("prep-log after touch-c = %q, want a b d a b d", log)
+	}
+
+	// 6. a failing prep fn fails the build.
+	writeFile(t, "b/build/build.clj", "(ns build)\n(defn prep [_] (throw (Exception. \"prep boom\")))\n")
 	code, out = runCLI(t, "build", "-p", ".", "--cache-dir", cacheDir)
 	if code == 0 {
 		t.Fatalf("build succeeded with failing prep; out: %s", out)
