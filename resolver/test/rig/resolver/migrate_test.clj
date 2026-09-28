@@ -616,6 +616,16 @@
     (is (= {:url "https://artifacts.example"}
            (get-in (file-edn ws "deps.edn") [:mvn/repos "my-registry"])))))
 
+(deftest leiningen-keyword-repository-ids-are-stringified
+  (let [ws (temp-ws {"project.clj"
+                    "(defproject foo/bar \"1.0\"
+ :repositories {:exoscale {:url \"https://artifacts.example\"}})\n"})
+         r (run ws)]
+    (is (empty? (problems r)))
+    (is (= {:url "https://artifacts.example"}
+           (get-in (file-edn ws "deps.edn") [:mvn/repos "exoscale"])))
+    (is (nil? (get-in (file-edn ws "deps.edn") [:mvn/repos :exoscale])))))
+
 (deftest leiningen-extra-deploy-repos-are-dropped-with-a-warning
   (let [ws (temp-ws {"project.clj"
                      "(defproject foo/bar \"1.0\"
@@ -719,17 +729,89 @@
     (is (some #(re-find #"declares no version" %) (problems r)))
     (is (false? (.exists (io/file ws "deps.edn"))))))
 
-(deftest lein-managed-version-var-is-a-problem
+(deftest lein-managed-version-var-resolves-a-static-def
   (let [ws (temp-ws {"project.clj"
-                     "(def sub-v \"1.0.0\")
+                    "(def sub-v \"1.0.0\")
  (defproject foo/bar \"1.0.0\"
  :managed-dependencies [[\"a/b\" ~sub-v]]
  :dependencies [[a/b]])\n"})
-        r (run ws)]
+         r (run ws)]
+    (is (empty? (problems r)))
+    (is (= {:mvn/version "1.0.0"}
+           (get-in (file-edn ws "deps.edn") [:deps 'a/b])))))
+
+(deftest lein-managed-version-var-computed-is-a-problem
+  (let [ws (temp-ws {"project.clj"
+                    "(def sub-v (inc 0))
+ (defproject foo/bar \"1.0.0\"
+ :managed-dependencies [[\"a/b\" ~sub-v]]
+ :dependencies [[a/b]])\n"})
+         r (run ws)]
     (is (= 1 (count (problems r))))
-    (is (some #(re-find #"lein-replace var" %) (problems r)))
+    (is (some #(re-find #"lein-replace var that cannot be resolved statically" %) (problems r)))
     (is (some #(re-find #"sub-v" %) (problems r)))
     (is (false? (.exists (io/file ws "deps.edn"))))))
+
+(deftest lein-version-var-resolves-a-static-def
+  (let [ws (temp-ws {"project.clj"
+                    "(def v \"1.0.0\")
+ (defproject foo/bar \"1.0.0\"
+ :dependencies [[\"a/b\" ~v]])\n"})
+         r (run ws)]
+    (is (empty? (problems r)))
+    (is (= {:mvn/version "1.0.0"}
+           (get-in (file-edn ws "deps.edn") [:deps 'a/b])))))
+
+(deftest lein-version-var-with-exclusions
+  (let [ws (temp-ws {"project.clj"
+                    "(def v \"1.0.0\")
+ (defproject foo/bar \"1.0.0\"
+ :dependencies [[\"a/b\" ~v :exclusions [x/y]]])\n"})
+         r (run ws)]
+    (is (empty? (problems r)))
+    (is (= {:mvn/version "1.0.0" :exclusions '[x/y]}
+           (get-in (file-edn ws "deps.edn") [:deps 'a/b])))))
+
+(deftest lein-profile-version-var-materializes-in-the-alias
+  (let [ws (temp-ws {"project.clj"
+                    "(def v \"1.0.0\")
+ (defproject foo/bar \"1.0.0\"
+ :dependencies []
+ :profiles {:test {:dependencies [[\"a/b\" ~v]]}})\n"})
+         r (run ws)]
+    (is (empty? (problems r)))
+    (is (= {:mvn/version "1.0.0"}
+           (get-in (file-edn ws "deps.edn") [:aliases :test :extra-deps 'a/b])))))
+
+(deftest lein-version-var-computed-is-a-problem
+  (let [ws (temp-ws {"project.clj"
+                    "(def v (inc 0))
+ (defproject foo/bar \"1.0.0\"
+ :dependencies [[\"a/b\" ~v]])\n"})
+         r (run ws)]
+    (is (= 1 (count (problems r))))
+    (is (some #(re-find #"version var ~v cannot be resolved statically" %) (problems r)))
+    (is (false? (.exists (io/file ws "deps.edn"))))))
+
+(deftest lein-version-var-undefined-is-a-problem
+  (let [ws (temp-ws {"project.clj"
+                    "(defproject foo/bar \"1.0.0\"
+ :dependencies [[\"a/b\" ~undefined-v]])\n"})
+         r (run ws)]
+    (is (= 1 (count (problems r))))
+    (is (some #(re-find #"version var ~undefined-v cannot be resolved statically" %) (problems r)))
+    (is (false? (.exists (io/file ws "deps.edn"))))))
+
+(deftest lein-version-var-slurps-a-file
+  (let [ws (temp-ws {"project.clj"
+                    "(def v (slurp \"VERSION\"))
+ (defproject foo/bar \"1.0.0\"
+ :dependencies [[\"a/b\" ~v]])"
+                    "VERSION" "2.5.0\n"})
+         r (run ws)]
+    (is (empty? (problems r)))
+    (is (= {:mvn/version "2.5.0"}
+           (get-in (file-edn ws "deps.edn") [:deps 'a/b])))))
 
 (deftest lein-profile-deps-materialize-from-the-root-pool
   (let [ws (temp-ws {"project.clj"

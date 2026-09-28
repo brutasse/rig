@@ -83,7 +83,7 @@ nothing written.
 | `:main` | `:rig/main` |
 | version literal (`"1.2.3"`) | `:rig/version` |
 | version var whose body is `(slurp "…")` | `:rig/version-file` — omitted for the `VERSION` default |
-| `:dependencies` | `:deps` (symbol coordinates; `:exclusions`, `:local/root`, `:git/url` + `:git/sha` pass through) |
+| `:dependencies` | `:deps` (symbol coordinates; `:exclusions`, `:local/root`, `:git/url` + `:git/sha` pass through; `~var` versions resolve from a top-level literal / `(slurp "…")` def) |
 | `:managed-dependencies` | versionless deps' versions materialized to `:mvn/version` — a literal pin → the pin, the `:version` token → the project's own version; the dep's own `:exclusions` win over the pool entry's; unreferenced pins drop with a warning |
 | `:parent-project` | `:managed-dependencies` inherited via `:inherit [:managed-dependencies]` materialized from the parent manifest (parent pool as base, own entries win); other inherited keys drop with a warning; a missing parent path is a blocking problem |
 | `:repositories` | `:mvn/repos` |
@@ -137,9 +137,10 @@ per occurrence** — nothing is silently lost:
 - `:managed-dependencies` pins no versionless dep references — the pool
   exists to supply versions to declared deps; pins nothing references
   are dropped with a warning (transitive version constraints are lost);
-- `~var`-backed pool pins (lein-replace interpolation) — not resolved;
-  a dep whose version comes from one is a blocking problem naming the
-  var.
+- `~var` versions whose var is computed or undefined (lein-replace
+  interpolation rig cannot evaluate) — a dep whose version comes from
+  one is a blocking problem naming the var and the dep; top-level
+  `(def var "literal")` and `(def var (slurp "…"))` defs resolve.
 
 Version vars rig cannot interpret (neither a string literal nor a
 `(slurp "…")` body) produce a warning and no version key — the manifest
