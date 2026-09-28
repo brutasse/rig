@@ -8,8 +8,11 @@ plus exactly where rig adds its own layer on top.
 rig does not re-implement Maven. For every module and alias, the kernel
 calls `clojure.tools.deps/create-basis` on the module's directory — the
 same function the `clojure` CLI uses. POM fetching, transitive
-dependencies, nearest-wins, exclusions, and repository precedence are all
-tools.deps semantics, unmodified.
+dependencies, nearest-wins, exclusions, and repository precedence are
+tools.deps semantics, unmodified — with one exception rig registers on
+top of the Maven comparator: a local module beats a published
+coordinate ([local modules beat published
+coordinates](#local-modules-beat-published-coordinates)).
 
 What rig owns is a single narrow question: *which exact version does a
 floating requirement (`RELEASE`/`LATEST`) mean today?* That is the one
@@ -112,11 +115,27 @@ mechanics and the escape hatches are on the
   major), and whether the jump is breaking — the same candidate pool
   that selection uses.
 
-## The one deliberate deviation
+## Deliberate deviations
 
-Cooldowns gate *selection only*. They change which version rig picks for
-a floating requirement — never the graph itself, never a concrete
+**Cooldowns gate *selection only*.** They change which version rig picks
+for a floating requirement — never the graph itself, never a concrete
 requirement, never the order tools.deps computes. The decision is
 additive and recorded: `skipped` in the lock, `refused`/`forced` on
 stderr. Set every cooldown to `"0s"` and rig's selection layer becomes
 the identity: what you get is exactly what `clojure` would give you.
+
+## Local modules beat published coordinates
+
+The second deviation lives in the graph, not in selection. When the same
+library enters a basis as both a `:local/root` requirement and a
+`:mvn/version` requirement — typically a transitive POM that references
+the module's own published artifact — vanilla tools.deps cannot order
+the two, and resolution fails. rig registers `compare-versions` methods
+for the cross-type pair so that the local module dominates, in either
+direction, and the lock records the local module; the published
+coordinate never enters the lock.
+
+The ranking follows tools.deps' own dominance rule — strictly-greater
+wins, so both directions agree — and it is what a workspace implies:
+the module is source you control, and a published artifact under the
+same coordinate must not shadow it.

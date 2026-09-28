@@ -4,9 +4,25 @@
             [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.tools.deps :as td]
+            [clojure.tools.deps.extensions :as ext]
             [rig.resolver.manifest :as manifest]
             [rig.resolver.plan :as plan]
             [rig.resolver.versions :as versions]))
+
+;; A workspace module can enter a module's basis twice under the same lib
+;; name: as a :local/root coordinate (a sibling module or :rig/deps entry)
+;; and as a published :mvn/version coordinate (a published transitive POM
+;; that still references the module's old published version). tools.deps
+;; only defines compare-versions for same-type pairs, so the cross-type
+;; comparison throws "Unable to compare versions" and the whole lock
+;; fails. Monorepo semantics (matching lein): the local module always
+;; wins over its published coordinates. dominates? picks the strictly
+;; greater coordinate, so local must rank above mvn in both directions.
+(defmethod ext/compare-versions [:local :mvn]
+  [_lib _local _mvn _config] 1)
+
+(defmethod ext/compare-versions [:mvn :local]
+  [_lib _mvn _local _config] -1)
 
 (defn- home-dir [] (System/getProperty "user.home"))
 (defn- m2dir [] (str (io/file (home-dir) ".m2" "repository")))
