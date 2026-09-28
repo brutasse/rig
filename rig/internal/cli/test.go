@@ -44,7 +44,9 @@ func runTest(ctx context.Context, o *opts, args []string) error {
 	var failed []string
 	for _, m := range targets {
 		mod := e.lock.Modules[m]
-		if err := e.ensurePreps(ctx, m, mod); err != nil {
+		// test never compiles the target itself: its declared java
+		// sources are javac'd here.
+		if err := e.ensurePreps(ctx, m, mod, true); err != nil {
 			return err
 		}
 		al := mod.Aliases["test"]

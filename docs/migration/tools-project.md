@@ -104,6 +104,12 @@ Full key reference: [configuration](../reference/config.md).
 | `test` | `rig test` |
 | `version` / `info` | `rig version` / `rig info` |
 
+Modules that declared `:deps/prep-lib` keep working — rig runs the prep
+function automatically, staleness-checked. If the function is just "javac
+my own sources into my class dir", rig does that natively now: declare
+`:rig/java-src-dirs` and drop the prep library. See
+[Java sources](../concepts/java.md).
+
 ## Step 1 — add the lock (do this first, ship it)
 
 Your manifests are already fully self-contained (that was the invariant

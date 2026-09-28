@@ -37,7 +37,9 @@ func runMain(ctx context.Context, o *opts, alias string, args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := e.ensurePreps(ctx, m, mod); err != nil {
+	// run never compiles the target itself: its declared java sources
+	// are javac'd here.
+	if err := e.ensurePreps(ctx, m, mod, true); err != nil {
 		return err
 	}
 	if mod.Main == "" {
@@ -85,7 +87,9 @@ func runRepl(ctx context.Context, o *opts, alias string) error {
 	if err != nil {
 		return err
 	}
-	if err := e.ensurePreps(ctx, m, mod); err != nil {
+	// repl never compiles the target itself: its declared java sources
+	// are javac'd here.
+	if err := e.ensurePreps(ctx, m, mod, true); err != nil {
 		return err
 	}
 	al, env, err := e.alias(m, alias)

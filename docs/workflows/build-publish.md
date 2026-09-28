@@ -21,6 +21,11 @@ built /…/modules/orchestrator/target/orchestrator.jar
 the uberjar and requires `:rig/uberjar?`. A module without an uberjar fails
 `--uber` with a usage error.
 
+Java: a module's `:rig/java-src-dirs` are javac'd before its Clojure is
+compiled, and local dependency modules that declare them are javac'd
+automatically before the consumer builds — see
+[Java sources](../concepts/java.md).
+
 `--native` builds a GraalVM native-image binary instead of a jar: the
 module declares `:rig/native?`, the workspace pins `:rig/jvm` (the
 GraalVM is derived from the pin, recorded in the lock as an exact

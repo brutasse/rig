@@ -17,6 +17,7 @@ nav = [
     "concepts/lockfile.md",
     "concepts/security.md",
     "concepts/workspace.md",
+    "concepts/java.md",
   ] },
   { "Workflows" = [
     "workflows/daily.md",
