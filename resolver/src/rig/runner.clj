@@ -75,10 +75,11 @@
     (let [ns-strs (->> (for [d rest
                              f (file-seq (io/file d))
                              :when (and (.isFile f)
-                                        (str/ends-with? (.getName f) ".clj")
+                                        (or (str/ends-with? (.getName f) ".clj")
+                                            (str/ends-with? (.getName f) ".cljc"))
                                         (not (str/ends-with? (.getName f) "_init.clj")))]
                         (str/join "."
-                                 (map #(str/replace % #"\.clj$" "")
+                                 (map #(str/replace % #"\.cljc?$" "")
                                       (str/split (str (.relativize (.toPath (io/file d))
                                                     (.toPath f)))
                                                 #"[\\/]"))))

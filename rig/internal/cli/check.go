@@ -162,7 +162,8 @@ func checkModuleLoads(ctx context.Context, e *hotEnv, m string) (*checkProblem, 
 		abs := filepath.Join(e.modDir(m), p)
 		srcDirs = append(srcDirs, abs)
 		filepath.WalkDir(abs, func(path string, d fs.DirEntry, err error) error {
-			if err == nil && !d.IsDir() && strings.HasSuffix(path, ".clj") &&
+			if err == nil && !d.IsDir() &&
+				(strings.HasSuffix(path, ".clj") || strings.HasSuffix(path, ".cljc")) &&
 				!strings.HasSuffix(path, "_init.clj") {
 				hasSrc = true
 			}
