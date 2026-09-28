@@ -106,3 +106,38 @@ func TestCheckLoadFail(t *testing.T) {
 		t.Errorf("check out missing the load error: %q", out)
 	}
 }
+
+func TestCheckCljcLoadFail(t *testing.T) {
+	hotSetup(t)
+	cleanFixture(t)
+	// A .cljc source must be loaded by stage 2 too: a .cljc namespace that
+	// cannot load must be flagged (a .clj-only walk would report vacuous ok).
+	writeFile(t, "modules/app/src/app/cljconly.cljc",
+		"(ns app.cljconly\n  (:require [nonexistent.cljc.thing :as t]))\n")
+	code, out := runCLI(t, "check", "--cache-dir", t.TempDir())
+	if code != 1 {
+		t.Fatalf("check exit = %d, want 1; out: %s", code, out)
+	}
+	if !strings.Contains(out, "load-fail") {
+		t.Errorf("check out missing load-fail: %q", out)
+	}
+	if !strings.Contains(out, "failed to load") {
+		t.Errorf("check out missing the load error: %q", out)
+	}
+}
+
+func TestCheckCljcLoads(t *testing.T) {
+	hotSetup(t)
+	cleanFixture(t)
+	// A loadable .cljc namespace must not break the check; its namespace
+	// name must be derived without the .cljc extension.
+	writeFile(t, "modules/app/src/app/shared.cljc",
+		"(ns app.shared\n  (:require [app.core :as c]))\n")
+	code, out := runCLI(t, "check", "--cache-dir", t.TempDir())
+	if code != 0 {
+		t.Fatalf("check exit = %d, want 0; out: %s", code, out)
+	}
+	if !strings.Contains(out, "check: ok") {
+		t.Errorf("check out = %q", out)
+	}
+}
