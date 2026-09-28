@@ -270,3 +270,35 @@
                "bogus javac opt must reach javac and fail the build"))
           (finally
             (delete-tree ws-dir)))))))
+
+(deftest clojure-compiles-against-own-java-classes
+  "A namespace referencing the module's own Java class must compile: javac
+  output lands in the class-dir, which leads the compile classpath, so the
+  Java sources have to be compiled before the Clojure ones."
+  (let [ws-dir (temp-dir)
+        ws (str ws-dir)
+        src-root (io/file ws-dir "src")
+        java-root (io/file ws-dir "java")
+        jar-file (str ws "/target/fixture.jar")
+        javac (javax.tools.ToolProvider/getSystemJavaCompiler)]
+    (when javac
+      (io/make-parents (io/file src-root "example" "core.clj"))
+      (spit (io/file src-root "example" "core.clj")
+            "(ns example.core)\n(defn hi [] (example.Greeter/greet))\n")
+      (io/make-parents (io/file java-root "example" "Greeter.java"))
+      (spit (io/file java-root "example" "Greeter.java")
+            "package example;\n\npublic class Greeter {\n  public static String greet() {\n    return \"hi\";\n  }\n}\n")
+      (let [cfg (-> (cfg ws src-root (io/file ws-dir "resources") false)
+                    (dissoc :main)
+                    (assoc :java-src-dirs [(str java-root)]))]
+        (try
+          (let [result (build/build {:args {:builds {"." cfg}}})]
+            (is (= jar-file (get-in result [:results 0 :jar])))
+            (is (contains? (zip-names jar-file) "example/Greeter.class"))
+            (is (contains? (zip-names jar-file) "example/core__init.class"))
+            (let [p (run-cmd (java) "-cp" (str jar-file ":" (System/getProperty "java.class.path"))
+                             "clojure.main" "-e" "(require (quote example.core)) (println (example.core/hi))")]
+              (is (zero? (:exit p)) (str "jar run failed: " (:out p) (:err p)))
+              (is (re-find #"hi" (:out p)))))
+          (finally
+            (delete-tree ws-dir)))))))
