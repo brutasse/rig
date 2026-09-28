@@ -84,7 +84,7 @@ Every decision is reported: dropped content is a warning on stdout
 | version var whose body is `(slurp "…")` | `:rig/version-file` — omitted for the `VERSION` default |
 | `:dependencies` | `:deps` (symbol coordinates; `:exclusions`, `:local/root`, `:git/url` + `:git/sha` pass through) |
 | `:repositories` | `:mvn/repos` |
-| `:deploy-repositories` | `:rig/publish` (only the first entry is migrated; the rest are dropped with a warning) |
+| `:deploy-repositories` | `:rig/publish` (only the first entry is migrated; the rest are dropped with a warning; the `:clojars` shorthand maps to the rig `clojars` repo) |
 | `:source-paths` / `:resource-paths` | `:paths` (omitted at the `["src" "resources"]` default) |
 | `:test-paths` | the `:test` alias's `:extra-paths` |
 | `:profiles` → `:test`, `:dev` | `:aliases` — `:dependencies` → `:extra-deps`, path keys → `:extra-paths`, `:jvm-opts` → `:jvm-opts` |

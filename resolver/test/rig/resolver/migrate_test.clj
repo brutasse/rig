@@ -486,6 +486,46 @@
     (is (empty? (get r "edits")))
     (is (false? (.exists (io/file ws "deps.edn"))))))
 
+(deftest leiningen-clojars-shorthand-emits-the-rig-clojars-repo
+  (let [ws (temp-ws {"project.clj" "(defproject foo/bar \"1.0\"\n  :deploy-repositories [[\"releases\" :clojars]])\n"})
+        r (run ws)]
+    (is (empty? (problems r)))
+    (let [d (file-edn ws "deps.edn")]
+      (is (= {:repo "clojars"} (get d :rig/publish)))
+      (is (nil? (get d :mvn/repos))))))
+
+(deftest leiningen-clojars-shorthand-map-form
+  (let [ws (temp-ws {"project.clj" "(defproject foo/bar \"1.0\"\n  :deploy-repositories {\"releases\" :clojars})\n"})
+        r (run ws)]
+    (is (empty? (problems r)))
+    (is (= {:repo "clojars"} (get (file-edn ws "deps.edn") :rig/publish)))))
+
+(deftest leiningen-clojars-shorthand-more-entries-are-a-warning
+  (let [ws (temp-ws {"project.clj" "(defproject foo/bar \"1.0\"\n  :deploy-repositories [[\"releases\" :clojars] [\"snapshots\" :clojars]])\n"})
+        r (run ws)]
+    (is (empty? (problems r)))
+    (is (= {:repo "clojars"} (get (file-edn ws "deps.edn") :rig/publish)))
+    (is (some #(re-find #"(?i)first :deploy-repositories" %) (warnings r)))))
+
+(deftest leiningen-clojars-shorthand-reuses-the-fetch-repo-id
+  (let [ws (temp-ws {"project.clj" "(defproject foo/bar \"1.0\"\n  :repositories {\"clojars\" {:url \"https://repo.clojars.org/\"}}\n  :deploy-repositories [[\"releases\" :clojars]])\n"})
+        r (run ws)]
+    (is (empty? (problems r)))
+    (let [d (file-edn ws "deps.edn")]
+      (is (= {:repo "clojars"} (get d :rig/publish)))
+      (is (= "https://repo.clojars.org/"
+             (get-in d [:mvn/repos "clojars" :url]))))))
+
+(deftest leiningen-unknown-deploy-shorthand-is-a-problem
+  (let [text "(defproject foo/bar \"1.0\"
+  :deploy-repositories [[\"releases\" :nope]])\n"
+         ws (temp-ws {"project.clj" text})
+         r (run ws)]
+    (is (some #(re-find #"not a spec map" %) (problems r)))
+    (is (some #(re-find #":clojars" %) (problems r)))
+    (is (empty? (get r "edits")))
+    (is (false? (.exists (io/file ws "deps.edn"))))))
+
 (deftest leiningen-test-alias-uses-the-rig-kaocha-pin
   (let [ws (temp-ws {"project.clj" "(defproject foo/bar \"1.0\")\n"})
         r (run ws)]
