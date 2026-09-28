@@ -119,6 +119,45 @@ func TestLockVerifyEndToEnd(t *testing.T) {
 	}
 }
 
+// TestLockNamespacedMapDeps checks that a manifest using the compact
+// `#:mvn{…}` reader-macro form in :deps locks cleanly. The ednlit reader
+// understands the `#:qualifier {…}` dispatch (mirroring the Clojure reader);
+// previously it failed with "unsupported dispatch" on such a manifest.
+func TestLockNamespacedMapDeps(t *testing.T) {
+	jar := kernelJarPath(t)
+	if _, err := jvm.Find(); err != nil {
+		t.Skipf("no java available: %v", err)
+	}
+	sha, err := digest.File(jar)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldSHA := kernel.Current.JARSHA
+	kernel.Current.JARSHA = sha
+	os.Setenv("RIG_KERNEL_JAR", jar)
+	t.Cleanup(func() {
+		kernel.Current.JARSHA = oldSHA
+		os.Unsetenv("RIG_KERNEL_JAR")
+	})
+
+	dir := t.TempDir()
+	t.Chdir(dir)
+	cacheDir := t.TempDir()
+	writeFile(t, "deps.edn", "{:rig/lib \"example/fixture\" :paths [\"src\"] :deps {org.clojure/clojure #:mvn{:version \"1.12.5\"}}}\n")
+
+	code, out := runCLI(t, "lock", "--cache-dir", cacheDir)
+	if code != 0 && strings.Contains(out, "status 429") {
+		time.Sleep(10 * time.Second)
+		code, out = runCLI(t, "lock", "--cache-dir", cacheDir)
+	}
+	if code != 0 {
+		t.Fatalf("lock exit = %d, want 0; out: %s", code, out)
+	}
+	if !statOK("deps.lock") {
+		t.Fatalf("lock did not write deps.lock; out: %s", out)
+	}
+}
+
 // TestLockRecordsJVM checks the full :rig/jvm flow end to end: the kernel
 // copies the pin into the lock and Go resolves the exact version through the
 // Adoptium API.

@@ -220,26 +220,68 @@ func (p *parser) key() (any, error) {
 
 func (p *parser) dispatch() (any, error) {
 	p.pos++
-	if c, ok := p.peek(); ok && c == '{' {
-		p.pos++
-		out := Set{}
-		for {
-			c, ok := p.peek()
-			if !ok {
-				return nil, p.fail("unclosed set")
+	if c, ok := p.peek(); ok {
+		switch c {
+		case '{':
+			p.pos++
+			out := Set{}
+			for {
+				c, ok := p.peek()
+				if !ok {
+					return nil, p.fail("unclosed set")
+				}
+				if c == '}' {
+					p.pos++
+					return out, nil
+				}
+				v, err := p.value()
+				if err != nil {
+					return nil, err
+				}
+				out = append(out, v)
 			}
-			if c == '}' {
-				p.pos++
-				return out, nil
-			}
-			v, err := p.value()
-			if err != nil {
-				return nil, err
-			}
-			out = append(out, v)
+		case ':':
+			return p.namespacedMap()
 		}
 	}
 	return nil, p.failAt(p.pos-1, "unsupported dispatch")
+}
+
+// namespacedMap parses a `#:qualifier {k v …}` form: a map whose unnamespaced
+// keyword keys are qualified with the qualifier's namespace. `#:mvn{:version
+// "1.0"}` reads as `{:mvn/version "1.0"}`. This mirrors the reader macro the
+// Clojure resolver relies on, so manifests using the compact form parse the
+// same in Go and Clojure.
+func (p *parser) namespacedMap() (any, error) {
+	q, err := p.keyword()
+	if err != nil {
+		return nil, err
+	}
+	kw, ok := q.(Keyword)
+	if !ok {
+		return nil, p.failAt(p.pos, "namespaced map qualifier must be a keyword")
+	}
+	prefix := kw.Name
+	if kw.NS != "" {
+		prefix = kw.NS + "/" + kw.Name
+	}
+	if c, ok := p.peek(); !ok || c != '{' {
+		return nil, p.failAt(p.pos, "expected map after namespaced map qualifier")
+	}
+	m, err := p.mapValue()
+	if err != nil {
+		return nil, err
+	}
+	mm, ok := m.(Map)
+	if !ok {
+		return nil, p.failAt(p.pos, "namespaced map value must be a map")
+	}
+	for i := range mm {
+		if k, ok := mm[i].K.(Keyword); ok && k.NS == "" {
+			mm[i].K = Keyword{NS: prefix, Name: k.Name}
+		}
+	}
+	return mm, nil
 }
 
 func (p *parser) string() (any, error) {

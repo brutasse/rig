@@ -113,6 +113,20 @@
       (is (re-find #":rig/deps\n \{" text))
       (is (not (re-find #":rig/deps \{.*\}\}" text))))))
 
+(deftest managed-namespaced-maps-are-expanded-to-plain-form
+  "The compact `#:mvn{…}` reader-macro form is rewritten to the standard
+  `{:mvn/version …}` notation, so the migrated manifest uses plain
+  requirement maps rather than the legacy compact form."
+  (let [ws (temp-ws {"deps.edn"
+                     "{:exoscale.project/lib x/y\n :exoscale.deps/managed-dependencies {a/b #:mvn{:version \"1.0.0\"}\n                                                 c/d #:mvn{:version \"2.0.0\" :classifier \"sources\"}}}\n"})
+        r (run ws)]
+    (is (empty? (problems r)))
+    (let [text (file-text ws "deps.edn")
+          d (file-edn ws "deps.edn")]
+      (is (= {:mvn/version "1.0.0"} (get (get d :rig/deps) 'a/b)))
+      (is (= {:mvn/version "2.0.0" :mvn/classifier "sources"} (get (get d :rig/deps) 'c/d)))
+      (is (nil? (re-find (re-pattern "#:") text))))))
+
 (deftest managed-dependencies-at-module-level-are-a-problem
   (let [ws (temp-ws {"deps.edn"
                      "{:exoscale.project/lib x/y :exoscale.project/modules [\"modules/m\"]}\n"
