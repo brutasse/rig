@@ -3,7 +3,7 @@
 
   No re-resolution: the classpath arrives fully resolved (absolute paths)
   from the Go side, and is turned into a tools.build basis. Each module is
-  compiled (and optionally java-compiled), then jarred and/or ubered per the
+  (optionally java-) then Clojure-compiled, then jarred and/or ubered per the
   :rig/build config recorded in the lock."
   (:require [cheshire.core :as json]
             [clojure.java.io :as io]
@@ -54,6 +54,12 @@
     ;; land in the jar/uber. compile-clj only compiles .clj; it never copies.
     (when (seq copy-dirs)
       (b/copy-dir {:src-dirs copy-dirs :target-dir class-dir}))
+    ;; javac before compile-clj: the module's own Java classes must already
+    ;; sit in the class-dir (which leads the compile classpath) so that
+    ;; Clojure code referencing them compiles.
+    (when (seq java-src-dirs)
+      (b/javac {:basis basis :src-dirs java-src-dirs :class-dir class-dir
+                :javac-opts (get cfg :javac-opts)}))
     ;; :ns-compile replaces the default (src dirs) set, so pass the union:
     ;; the module's own namespaces plus the declared entry points. The
     ;; compile script needs symbols (clojure.core/compile munges them).
@@ -65,9 +71,6 @@
                                             (mapcat (fn [d] (find/find-namespaces-in-dir (io/file d) find/clj))
                                                     src-dirs)
                                             extra))))))
-    (when (seq java-src-dirs)
-      (b/javac {:basis basis :src-dirs java-src-dirs :class-dir class-dir
-                :javac-opts (get cfg :javac-opts)}))
     (write-launch-descriptor class-dir (get cfg :launch))
     (cond-> {:class-dir class-dir}
       (get cfg :jar?)
