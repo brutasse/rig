@@ -196,7 +196,11 @@ func checkModuleLoads(ctx context.Context, e *hotEnv, m string) (*checkProblem, 
 		return nil, err
 	}
 	full := cp + string(filepath.ListSeparator) + e.runner
-	runArgs := append([]string{}, mod.JVMOpts...)
+	// The ns-load JVM is a build/validate JVM: it gets the workspace's
+	// :rig/compile-jvm-opts (same flags as the AOT build — a namespace that
+	// references a preview API must load under the same flags it compiled
+	// under), not the module's dev-execution :jvm-opts.
+	runArgs := append([]string{}, e.lock.CompileJVMOpts...)
 	runArgs = append(runArgs, "-cp", full, "rig.runner", "load-all")
 	runArgs = append(runArgs, srcDirs...)
 	err = jvm.Run{Java: e.java, Args: runArgs, Dir: e.modDir(m), Env: e.javaEnv}.Run()

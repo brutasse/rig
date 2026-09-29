@@ -170,6 +170,7 @@
      :prep-alias (manifest/prep-alias data)
      :prep-fn (manifest/prep-fn data)
      :jvm-opts (or (get data :jvm-opts) [])
+     :launch-opts (or (get data :rig/launch-opts) [])
      :paths (:paths base-mapped)
      :classpath (:classpath base-mapped)
      :aliases (into {}
@@ -299,6 +300,8 @@
                                 {"vendor" "graalvm"
                                  "requested" requested
                                  "version" old-version}))
+                  "compile-jvm-opts" (when-let [o (get root-data :rig/compile-jvm-opts)]
+                                       (vec o))
                   "artifacts" artifacts
                   "skipped" (mapv skip-entry
                                   (distinct (sort-by (juxt :coord :version :reason)

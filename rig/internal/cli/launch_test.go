@@ -16,7 +16,7 @@ import (
 )
 
 func TestLaunchFlagsOrder(t *testing.T) {
-	// No GC in :jvm-opts: all defaults first, module opts last (JVM
+	// No GC in :rig/launch-opts: all defaults first, module opts last (JVM
 	// last-wins).
 	flags := launchFlags([]string{"-Xmx2g"})
 	if len(flags) != len(launchDefaults)+1 {
@@ -26,9 +26,9 @@ func TestLaunchFlagsOrder(t *testing.T) {
 		t.Errorf("first flag = %q, want the rig G1 default first", flags[0])
 	}
 	if last := flags[len(flags)-1]; last != "-Xmx2g" {
-		t.Errorf("last flag = %q, want the module :jvm-opts last (JVM last-wins)", last)
+		t.Errorf("last flag = %q, want the module :rig/launch-opts last (JVM last-wins)", last)
 	}
-	// A GC in :jvm-opts replaces the G1 default — the JVM refuses two
+	// A GC in :rig/launch-opts replaces the G1 default — the JVM refuses two
 	// collectors.
 	flags = launchFlags([]string{"-XX:+UseZGC"})
 	if len(flags) != len(launchDefaults) {
@@ -36,11 +36,11 @@ func TestLaunchFlagsOrder(t *testing.T) {
 	}
 	for _, f := range flags {
 		if f == "-XX:+UseG1GC" {
-			t.Error("G1 default must be dropped when :jvm-opts selects a collector")
+			t.Error("G1 default must be dropped when :rig/launch-opts selects a collector")
 		}
 	}
 	if last := flags[len(flags)-1]; last != "-XX:+UseZGC" {
-		t.Errorf("last flag = %q, want the module :jvm-opts last", last)
+		t.Errorf("last flag = %q, want the module :rig/launch-opts last", last)
 	}
 }
 
@@ -99,7 +99,7 @@ func TestLaunchPlanFallbackToLock(t *testing.T) {
 	lock := lockfile.ForTest(".")
 	mod := lock.Modules["."]
 	mod.Main = "a.b"
-	mod.JVMOpts = []string{"-Xmx1g"}
+	mod.LaunchOpts = []string{"-Xmx1g"}
 	mod.Build = lockfile.Build{Jar: true, ClassDir: "target/classes", Uberjar: &lockfile.Uberjar{File: "target/x.jar", Main: "a.b"}}
 	lock.Modules["."] = mod
 	lock.JVM = &lockfile.JVM{Vendor: "temurin", Requested: "21", Version: "21.0.12.1+9"}
@@ -113,7 +113,7 @@ func TestLaunchPlanFallbackToLock(t *testing.T) {
 		t.Fatal(err)
 	}
 	if plan.main != "a.b" || !plan.uber || plan.java != 21 || len(plan.jvmOpts) != 1 {
-		t.Errorf("plan = %+v, want main a.b, uber, java 21, jvm-opts from the lock", plan)
+		t.Errorf("plan = %+v, want main a.b, uber, java 21, launch opts from the lock", plan)
 	}
 }
 
@@ -188,8 +188,8 @@ func TestHotLaunchJVMOverride(t *testing.T) {
 	if code, out := runCLI(t, "build", "-p", "modules/app", "--cache-dir", cacheDir, "--uber"); code != 0 {
 		t.Fatalf("build exit = %d; out: %s", code, out)
 	}
-	// The fixture module's :jvm-opts switch the collector to ZGC and print
-	// the effective flags: the override must win over rig's G1 default
+	// The fixture module's :rig/launch-opts switch the collector to ZGC and
+	// print the effective flags: the override must win over rig's G1 default
 	// (the JVM refuses two collectors, so a clean start is itself proof)
 	// and the rest of the default set must still be applied.
 	code, out := runCLI(t, "launch", "-p", "modules/app", "--cache-dir", cacheDir)

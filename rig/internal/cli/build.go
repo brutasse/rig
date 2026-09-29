@@ -149,13 +149,13 @@ func (e *hotEnv) buildOne(ctx context.Context, m string, uber, native bool) (str
 	// Bake the launch plan into the artifact (META-INF/rig/launch.json) so
 	// `rig launch <jar>` can run it without the workspace. Rig's production
 	// defaults are not baked in — the launching rig applies them; only the
-	// module's own :jvm-opts travel with the artifact.
+	// module's own :rig/launch-opts travel with the artifact.
 	if main, _ := cfg["main"].(string); main != "" {
 		launch := map[string]any{
 			"version":  1,
 			"rig":      Version,
 			"main":     main,
-			"jvm-opts": mod.JVMOpts,
+			"jvm-opts": mod.LaunchOpts,
 			"uber":     buildUber,
 		}
 		if v, err := jvm.Version(e.java); err == nil {
@@ -169,6 +169,7 @@ func (e *hotEnv) buildOne(ctx context.Context, m string, uber, native bool) (str
 		Workspace: e.root.Dir,
 		Modules:   []string{m},
 		Args:      map[string]any{"builds": map[string]any{m: cfg}},
+		JVMFlags:  e.lock.CompileJVMOpts,
 	})
 	if err != nil {
 		var oe *kernel.OpError

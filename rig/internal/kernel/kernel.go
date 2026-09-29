@@ -61,6 +61,10 @@ type Request struct {
 	Modules   []string       `json:"modules,omitempty"`
 	Lock      string         `json:"lock,omitempty"`
 	Args      map[string]any `json:"args"`
+	// JVMFlags are flags rig passes to the kernel JVM itself (before -jar),
+	// from the workspace's :rig/compile-jvm-opts. Only ops that compile or
+	// load the workspace's code set them; the kernel ignores the field.
+	JVMFlags []string `json:"jvm-flags,omitempty"`
 }
 
 // localOverride returns the artifact the developer pointed at via env,
@@ -204,7 +208,11 @@ func Call(ctx context.Context, jar, java string, req Request, env ...string) ([]
 	if err != nil {
 		return nil, err
 	}
-	cmd := exec.CommandContext(ctx, java, "-jar", jar, "--request", "-")
+	// JVM flags precede -jar: the kernel JVM runs on the workspace's pinned
+	// java, and :rig/compile-jvm-opts must reach it (e.g. --enable-preview
+	// for the AOT build).
+	args := append(append([]string{}, req.JVMFlags...), "-jar", jar, "--request", "-")
+	cmd := exec.CommandContext(ctx, java, args...)
 	// tools.deps refuses http:// custom repos unless this is set; the kernel
 	// serves :mvn/repos as rig defines them (local dev and E2E servers are
 	// http), so the kernel JVM always allows them.

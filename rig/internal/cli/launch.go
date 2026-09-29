@@ -23,11 +23,11 @@ import (
 )
 
 // launchDefaults is rig's production JVM flag set, applied by `rig launch`
-// before the module's :jvm-opts. The module opts come last, so for repeated
-// flags the JVM applies the module's value; collectors are the exception —
-// selecting two is a fatal VM error, so a collector in :jvm-opts replaces
-// the G1 default (launchFlags). JMX is loopback-only by design (same-host
-// monitoring) on a single fixed port.
+// before the module's :rig/launch-opts. The module opts come last, so for
+// repeated flags the JVM applies the module's value; collectors are the
+// exception — selecting two is a fatal VM error, so a collector in
+// :rig/launch-opts replaces the G1 default (launchFlags). JMX is
+// loopback-only by design (same-host monitoring) on a single fixed port.
 var launchDefaults = []string{
 	"-XX:+UseG1GC",
 	"-XX:+AlwaysPreTouch",
@@ -50,9 +50,11 @@ const launchDescriptorPath = "META-INF/rig/launch.json"
 // defaults are not baked in — the launching rig applies them, so the policy
 // tracks rig upgrades even for old artifacts.
 type launchDescriptor struct {
-	Version int      `json:"version"`
-	Rig     string   `json:"rig"`
-	Main    string   `json:"main"`
+	Version int    `json:"version"`
+	Rig     string `json:"rig"`
+	Main    string `json:"main"`
+	// JVMOpts is the module's :rig/launch-opts, baked in by the build. The
+	// JSON field name predates the key and stays for old artifacts.
 	JVMOpts []string `json:"jvm-opts"`
 	Java    int      `json:"java"` // feature version of the build JVM, 0 = unknown
 	Uber    bool     `json:"uber"`
@@ -65,17 +67,18 @@ func newLaunchCmd(o *opts) *cobra.Command {
 		Long: `Launches the module's built jar or uberjar — rig's production entrypoint.
 
 JVM flags, in order: rig's production defaults (G1 GC with AlwaysPreTouch,
-exit on OOM, loopback-only JMX on port 10101), then the module's :jvm-opts,
-which override the defaults (the last JVM flag wins; a :jvm-opts garbage
-collector replaces the G1 default, since the JVM refuses two collectors),
-then -jar or -cp and the main. The launch JVM's major version must exactly
-match the one the artifact was built with.
+exit on OOM, loopback-only JMX on port 10101), then the module's
+:rig/launch-opts, which override the defaults (the last JVM flag wins; a
+:rig/launch-opts garbage collector replaces the G1 default, since the JVM
+refuses two collectors), then -jar or -cp and the main. The launch JVM's
+major version must exactly match the one the artifact was built with.
 
 The first positional is the jar to launch, when it names an existing file.
 Otherwise, in a workspace, all positionals are passed to the main and the
 jar is the target module's build output from the lock (the uberjar when one
-is declared). With a jar, the launch plan (main, :jvm-opts, build JVM) comes
-from the descriptor the build bakes into the jar — no workspace needed.
+is declared). With a jar, the launch plan (main, :rig/launch-opts, build
+JVM) comes from the descriptor the build bakes into the jar — no workspace
+needed.
 
 rig launch never re-locks and never hits the network: the lock is inert data
 for it, a stale lock is ignored, and missing pieces (JDK, classpath
@@ -221,14 +224,14 @@ func runLaunch(ctx context.Context, o *opts, args []string) error {
 
 // gcFlagRe matches a garbage-collector selection flag (-XX:+UseZGC,
 // -XX:-UseG1GC, …). Selecting two collectors at once is a fatal VM error,
-// so when the module's :jvm-opts selects a collector, rig's G1 default is
-// dropped rather than appended.
+// so when the module's :rig/launch-opts selects a collector, rig's G1
+// default is dropped rather than appended.
 var gcFlagRe = regexp.MustCompile(`^-XX:[+-]Use[A-Za-z]*GC$`)
 
 // launchFlags is the JVM flags of a launch: rig's production defaults, then
-// the module's :jvm-opts (the JVM applies repeated flags last-wins, so the
-// module opts override the defaults). The G1 default is dropped when
-// :jvm-opts selects a collector.
+// the module's :rig/launch-opts (the JVM applies repeated flags last-wins,
+// so the module opts override the defaults). The G1 default is dropped when
+// :rig/launch-opts selects a collector.
 func launchFlags(jvmOpts []string) []string {
 	dropG1 := false
 	for _, f := range jvmOpts {
@@ -294,7 +297,7 @@ func launchPlanFor(o *opts, lock *lockfile.Document, root *workspace.Root, m, ab
 		}
 		java = jdk.FeatureVersion(v)
 	}
-	return launchPlan{main: main, jvmOpts: mod.JVMOpts, uber: isUber, java: java}, nil
+	return launchPlan{main: main, jvmOpts: mod.LaunchOpts, uber: isUber, java: java}, nil
 }
 
 var errNotZip = errors.New("not a jar")
