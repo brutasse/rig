@@ -25,10 +25,12 @@ Whatever you are coming from, the migration is the same five steps, and
    Verify the locked classpath is byte-identical to what the old tooling
    resolved (`clojure -Spath` is the oracle) and that the test suite is
    green.
-3. **Adopt the model.** Add `:rig/modules` and `:rig/deps` to the root,
-   rewrite the per-module tooling keys to `:rig/*`, and delete the legacy
-   machinery (managed maps, inherit markers, `:project` aliases,
-   deploy-config keys) — for legacy workspaces that whole rewrite is one
+3. **Adopt the model.** Add `:rig/modules` to the root (and `:rig/deps`
+   too, if you want to keep shared requirements), rewrite the per-module
+   tooling keys to `:rig/*`, and delete the legacy machinery (managed
+   maps — materialized into the modules, not lifted — inherit markers,
+   `:project` aliases, deploy-config keys) — for legacy workspaces that
+   whole rewrite is one
    `rig migrate` command (`--dry-run` first); plain tools.deps projects add
    the keys by hand. `rig check` now surfaces any drift the old
    machinery was hiding; resolve each finding with an explicit

@@ -126,12 +126,13 @@ What it does, mechanically:
 
 - Renames the `:exoscale.project/*` keys to `:rig/*` (incl. the inverted
   `:exoscale.project/bypass-test?` → `:rig/test?`).
-- Lifts `:exoscale.deps/managed-dependencies` into `:rig/deps` at the root
-  and applies the merge semantics it used to: managed requirements win over
-  module declarations; `:exoscale.deps/inherit` (`:all` or a subset) marks
-  which coords inherit. The resulting *effective* dependencies are
-  reproduced exactly — the migration introduces no version drift (fixing
-  drift is what `rig check` + `rig update` are for).
+- Materializes `:exoscale.deps/managed-dependencies` into the `:deps` of
+  every module that inherits from it and drops the pool (with a warning —
+  it is not carried as a `:rig/deps` shared requirement).
+  `:exoscale.deps/inherit` (`:all` or a subset) marks which coords
+  inherit; the managed entry fills the keys a module left undeclared, and
+  a declared version/source key wins over the managed one — each such win
+  is a per-dep warning, not a silent rewrite.
 - Drops `:exoscale.deps/managed-aliases` (only the `:project` alias exists;
   rig has no alias inheritance) and the `:project` aliases themselves.
 - Rewrites `:slipset.deps-deploy/exec-args` into `:rig/publish?` +
@@ -140,12 +141,13 @@ What it does, mechanically:
   repositories only).
 
 `--dry-run` runs the same analysis and reports per-file changes without
-writing anything. Blocking problems (e.g. an inherit marker on a coord that
-is not in the managed map, `:sign-releases? true`) abort the whole
+writing anything. Blocking problems (e.g. an inherit-only coord that is
+not in the managed map, `:sign-releases? true`) abort the whole
 migration with exit 1 and nothing is written.
 
-After `rig migrate`, run `rig lock` and `rig check`: the check reports the
-real drift the managed map had been masking.
+After `rig migrate`, run `rig lock` and `rig check`: the check reports
+the drift left among the module requirements and the lock (cross-module
+conflicts, stale pins).
 
 ## Inspection
 

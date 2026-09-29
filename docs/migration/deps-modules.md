@@ -60,6 +60,11 @@ Two files, one job each:
   with hashes, written by `rig lock`, committed, and checked by every
   command.
 
+The migration itself does not create `:rig/deps`: `rig migrate`
+materializes the pool into the modules' `:deps` and drops it, leaving
+each module self-contained. `:rig/deps` is what you opt into when you
+want a shared requirement across modules (step 3 below).
+
 There is no merge step. There is no on-disk rewriting of module manifests
 by the tooling — the only manifest edits rig makes are your explicit
 `rig add`/`update`/`remove` (and the one-shot `rig migrate`),
@@ -75,75 +80,83 @@ check: error [stale-lock] modules/app com.example/shared: manifest requires "1.0
 
 `rig migrate` does the mechanical part — steps 1 and 2 — in one command
 (`--dry-run` first, then the real run), reporting every file it changes.
-It reproduces the merge's *effective* dependencies exactly: it introduces
-no version drift, and it does not fix the drift the managed map had been
-masking — that is steps 3 and 4. What each step does, and what is left to
-you:
+Each module ends up declaring what it declared: the pool fills only the
+keys a module left undeclared, and a declared version/source key wins
+over the pool — each such win is a warning, not a silent rewrite. The
+migration does not fix the drift the managed map had been masking —
+that is steps 3 and 4. What each step does, and what is left to you:
 
-### 1. Lift the managed map into `:rig/deps`
+### 1. Materialize the managed map into the modules, then drop it
 
-Copy `:exoscale.deps/managed-dependencies` into `:rig/deps` at the root,
-dropping any `:exoscale.deps/inherit` markers found on the entries
-themselves (inert residue — a migrated manifest must carry no
-`exoscale.*` key anywhere), then delete the managed map (and
-`:exoscale.deps/managed-aliases` — there is no alias inheritance in rig;
-aliases are per-module, and shared test deps move to the modules' `:test`
-aliases or to `:rig/deps` requirements).
+Copy each pool entry into the `:deps` of every module that inherits it
+(`:exoscale.deps/inherit :all` or a key subset), dropping any
+`:exoscale.deps/inherit` markers found on the entries themselves (inert
+residue — a migrated manifest must carry no `exoscale.*` key anywhere),
+then delete the managed map (and `:exoscale.deps/managed-aliases` — there
+is no alias inheritance in rig; aliases are per-module, and shared test
+deps move to the modules' `:test` aliases or to `:rig/deps` requirements):
 
-A before/after from a migrated project's root (trimmed):
-
-```edn
-;; before
-:exoscale.deps/managed-dependencies
-{org.clojure/clojure {:mvn/version "1.11.0"}
- com.example/shared {:mvn/version "0.7.2" :exclusions [com.example/ex …]}
- org.clojure/test.check {:mvn/version "1.1.0"}}
-
-;; after
-:rig/deps
-{org.clojure/clojure {:mvn/version "1.11.0"}
- com.example/shared {:mvn/version "1.0.0" :exclusions [com.example/ex …]}
- org.clojure/test.check {:mvn/version "1.1.1"}}
+```
+migrate: deps.edn: :exoscale.deps/managed-dependencies dropped (versions materialized into the modules' :deps; not carried as :rig/deps shared requirements)
 ```
 
-The requirement maps keep their shape — `:mvn/version`, `:exclusions`,
-`:local/root`, `:git` all work.
-
-### 2. Delete the inherit markers
-
-Strip every `:exoscale.deps/inherit …` key from the modules' coordinates.
-The versions the merge used to inject are now either in the module's own
-`:deps` (if it declared them) or simply gone — the module requires what
-it requires, and the shared requirement in `:rig/deps` is the canonical
-version for cross-module coordinates.
+A before/after from a migrated module (trimmed; the pool values the merge
+used to inject are noted):
 
 ```edn
+;; pool: org.clojure/clojure {:mvn/version "1.11.0"}
+;;       com.example/thing-core {:mvn/version "2.0.0" :exclusions [something/else]}
+
 ;; before
-:deps {org.clojure/clojure {:exoscale.deps/inherit :all, :mvn/version "1.11.0"}
-       com.example/shared {:exclusions […], :exoscale.deps/inherit :all, :mvn/version "1.0.0"}}
+:deps {org.clojure/clojure {:exoscale.deps/inherit :all}
+       com.example/thing-core {:exoscale.deps/inherit [:mvn/version]
+                               :exclusions [something/else]}}
 
 ;; after
 :deps {org.clojure/clojure {:mvn/version "1.11.0"}
-       com.example/shared {:exclusions […], :mvn/version "1.0.0"}}
+       com.example/thing-core {:mvn/version "2.0.0"
+                               :exclusions [something/else]}}
 ```
 
-If a module used `:inherit [:mvn/version]` to inherit *only* the version
-while keeping a local exclusion, the result is the same: the module's
-own map wins on the keys it declares.
+The pool is **not** carried as a root `:rig/deps` shared requirement:
+pins no module declared were inert in the old model, and a shared
+requirement would turn them into live workspace-wide constraints. If you
+want the old "single version file" back, add the shared requirements to
+`:rig/deps` deliberately in step 3 — `rig update` keeps them in sync with
+the modules.
 
-### 3. Lock and surface the drift
+### 2. Declared values win over the pool
+
+Where a module declared a version/source key the pool also carries
+(`:mvn/version`, `:git/*`, `:local/root`), the module's value is kept:
+a repo whose CI never ran `merge-deps` built against the declared
+versions, and the migration does not change what it built against. Each
+such win over a differing pool value is a per-dep warning:
+
+```
+migrate: modules/app/deps.edn: dep com.example/shared: :mvn/version "1.0.0" (managed "0.7.2") (declared kept; merge-deps would have used the managed value)
+```
+
+The pool still fills the keys the module did not declare (a vector
+inherit selects a subset of the pool's keys). A pool `:local/root` is
+workspace-root-relative and is rewritten module-relative before the
+merge; a module's own `:local/root` is already module-relative and is
+kept as-is.
+
+### 3. Lock and surface the remaining drift
 
 ```sh
 rig lock
 rig check
 ```
 
-`rig check` compares the workspace requirement (`:rig/deps`), each module
-requirement, and the lock — the three places the old model let diverge.
-Fix each finding deliberately:
+The migration already warned about every declared-vs-managed divergence;
+`rig check` compares each module requirement against the lock (and
+against `:rig/deps`, if you added shared requirements above) — the
+places the old model let diverge. Fix each finding deliberately:
 
 ```sh
-rig update org.clojure/test.check 1.1.1   # settle the shared version
+rig update org.clojure/test.check 1.1.1   # settle a cross-module version
 ```
 
 ### 4. Drop the tooling

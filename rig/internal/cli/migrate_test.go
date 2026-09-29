@@ -77,7 +77,10 @@ func TestMigrateWrites(t *testing.T) {
 	if strings.Contains(string(got), "exoscale") {
 		t.Errorf("legacy keys remain:\n%s", got)
 	}
-	for _, want := range []string{":rig/lib x/y", `:rig/version-file "VERSION"`, ":rig/deps"} {
+	if strings.Contains(string(got), ":rig/deps") {
+		t.Errorf("managed-dependencies must not be carried as :rig/deps:\n%s", got)
+	}
+	for _, want := range []string{":rig/lib x/y", `:rig/version-file "VERSION"`, ":deps"} {
 		if !strings.Contains(string(got), want) {
 			t.Errorf("migrated manifest missing %q:\n%s", want, got)
 		}
