@@ -15,6 +15,12 @@
 #   builds the kernel on a Temurin 8 and runs its suite there — the floor
 #   gate: the kernel jar must load and run on Java 8 (Clojure 1.12's floor)
 #
+# Every build also scans both jars after assembly and fails on any class
+# above the Java 8 bytecode floor (class file v52). The release jar is
+# built on a JDK 21 runner, so this scan — not test-jvm8, which builds
+# its own jar — is what guarantees the released artifact stays loadable
+# on the floor.
+#
 # What release does:
 #   1. builds the kernel jar at the tag version, stamps it into the kernel
 #      pin (GitHub release URL + git sha + jar sha256)
