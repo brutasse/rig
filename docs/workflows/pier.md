@@ -16,8 +16,8 @@ and serves your corporate jars from the same bucket.
   Clojars artifacts on first request; a cold read hits the upstream, a warm
   read never does.
 
-This covers the Maven artifacts in `deps.lock`. The resolver kernel jar (a
-pinned GitHub release) and managed JDKs (Adoptium) are not Maven artifacts
+This covers the Maven artifacts in `deps.lock`. The resolver kernel and runner jars (pinned
+GitHub releases) and managed JDKs (Adoptium) are not Maven artifacts
 and keep their own verified sources.
 
 ## The Pier side

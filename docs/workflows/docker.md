@@ -11,6 +11,9 @@ The image contains:
   path the binary's pin expects
   (`/root/.local/share/rig/kernel/<git-sha>/rig-resolver.jar`). The release
   jar, hash-verified — no GitHub fetch on first use;
+- the rig.runner jar, **pre-baked** the same way
+  (`/root/.local/share/rig/runner/<git-sha>/rig-runner.jar`) — hot commands
+  append it to the project classpath, so `test` and `check` stage 2 need it;
 - a Temurin 21 JDK, so the image is a standalone Clojure base.
 
 ## As an app base
@@ -78,7 +81,7 @@ RUN rig lock
 RUN rig verify --frozen && rig test --frozen
 ```
 
-The second `COPY` brings the pre-baked kernel jar with it, so `rig` needs no
+The second `COPY` brings the pre-baked kernel and runner jars with it, so `rig` needs no
 GitHub access at runtime — it only talks to your artifact repositories.
 
 ## Pinned JVMs
@@ -100,7 +103,7 @@ user's home, or point every invocation at a shared dir with
 
 ## Offline builds
 
-The kernel jar is in the image, but the *artifact* cache is cold: `rig lock`
+The kernel and runner jars are in the image, but the *artifact* cache is cold: `rig lock`
 / `rig verify` in the Dockerfile fetch from your repositories (hash-checked
 against the lock). For hermetic `--offline` builds, warm the state dir in an
 earlier layer (or cache it across runs) first — see

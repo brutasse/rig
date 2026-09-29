@@ -96,7 +96,7 @@ add `--offline` to the gate:
 rig verify --frozen --offline && rig check --frozen --offline && rig test --frozen --offline
 ```
 
-`--offline` refuses the network, so every artifact (and the kernel jar)
+`--offline` refuses the network, so every artifact (and the kernel and runner jars)
 must already be in the rig cache (`~/.local/share/rig`) or a
 checksum-checked Maven repo (`~/.m2/repository`). On a cold cache it fails
 (exit 1) — that is the point: a green offline run is the hermeticity

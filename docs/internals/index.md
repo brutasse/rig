@@ -86,6 +86,7 @@ the cache is warm:
 | `run`, `repl`, `exec`, `verify` | nothing — pure Go |
 | `clean`, `lint` | nothing — no lock needed at all |
 | `test` | its jar, as the *last* classpath entry: it carries `rig.runner`, the exec-fn launcher that runs the module's test alias. The project's own Clojure comes first and wins on conflicts |
+| `check` (stage 2) | its jar, as the *last* classpath entry: module namespaces load on the locked base classpath via the runner's load-all. Stage 1 (lock vs manifests) is the cold kernel op |
 | `fmt` | its jar, run directly: a pinned `cljfmt` bundled inside it |
 
 **Cold commands run a kernel process**:
