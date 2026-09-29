@@ -49,6 +49,9 @@ func runTest(ctx context.Context, o *opts, args []string) error {
 	var failed []string
 	for _, m := range targets {
 		mod := e.lock.Modules[m]
+		if v := e.clojureBelowFloor(m); v != "" {
+			return fmt.Errorf("test: %s: org.clojure/clojure %s is below the %s floor: the rig runner cannot load on Clojure 1.7.x; upgrade the pin", m, v, runnerClojureFloor)
+		}
 		// test never compiles the target itself: its declared java
 		// sources are javac'd here.
 		if err := e.ensurePreps(ctx, m, mod, true); err != nil {

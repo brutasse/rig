@@ -27,7 +27,7 @@
   [e]
   (apply str (interpose "\n  caused by: "
                         (map (fn [x] (str (.getMessage x)))
-                             (take-while identity (iterate ex-cause e))))))
+                             (take-while identity (iterate #(.getCause ^java.lang.Throwable %) e))))))
 
 (defn apply-exec-fn
   "Resolve exec-fn (e.g. \"kaocha.runner/exec-fn\"), loading its namespace

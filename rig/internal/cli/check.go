@@ -183,6 +183,14 @@ func checkModuleLoads(ctx context.Context, e *hotEnv, m string) (*checkProblem, 
 	if !hasSrc {
 		return nil, nil
 	}
+	if v := e.clojureBelowFloor(m); v != "" {
+		return &checkProblem{
+			Severity: "error",
+			Kind:     "clojure-floor",
+			Module:   m,
+			Message:  fmt.Sprintf("org.clojure/clojure %s is below the %s floor: the rig runner cannot load on Clojure 1.7.x; upgrade the pin", v, runnerClojureFloor),
+		}, nil
+	}
 	cp, err := e.cpOf(ctx, m, "")
 	if err != nil {
 		return nil, err
