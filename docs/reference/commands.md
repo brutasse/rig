@@ -15,7 +15,7 @@ documentation of record; this page is the map.
 | `check` | cold+hot | Lock-vs-manifest consistency + namespace load per module. Never re-locks. |
 | `test [opt value…]` | hot | Run the modules' test exec-fns on locked classpaths. |
 | `run [args…]` | hot | Run the module's `:rig/main` on the (alias) classpath. |
-| `launch [jar] [args…]` | hot | Launch the built artifact with rig's production JVM flags (G1 + AlwaysPreTouch, exit-on-OOM, loopback JMX on 10101), overridable via `:jvm-opts`. The jar's baked launch plan, or the lock, supplies the main. Never re-locks, never uses the network. |
+| `launch [jar] [args…]` | hot | Launch the built artifact with rig's production JVM flags (G1 + AlwaysPreTouch, exit-on-OOM, loopback JMX on 10101), overridable via `:rig/launch-opts`. The jar's baked launch plan, or the lock, supplies the main. Never re-locks, never uses the network. |
 | `repl` | hot | `clojure.main` REPL on the (alias) classpath. |
 | `exec <cmd> [args…]` | hot | Run a command with the locked classpath as `CLASSPATH`. |
 | `build [--uber \| --native]` | cold | Jar / uberjar / native-image binary via the locked classpath. |
@@ -266,8 +266,8 @@ for a deployed app. Flags, in order:
    `ssl=false`; the RMI port is pinned to 10101 and
    `-Djava.rmi.server.hostname=127.0.0.1` keeps JMX to same-host
    clients).
-2. **the module's `:jvm-opts`** — later flags override the defaults
-   (last JVM flag wins). A garbage collector in `:jvm-opts` (e.g.
+2. **the module's `:rig/launch-opts`** — later flags override the defaults
+   (last JVM flag wins). A garbage collector in `:rig/launch-opts` (e.g.
    `-XX:+UseZGC`) *replaces* the G1 default: the JVM refuses to start with
    two collectors selected, so rig drops its own rather than pass both.
 3. `-jar <uberjar>`, or `-cp <locked classpath> <main>` for the plain jar.
@@ -276,7 +276,7 @@ The first positional is the jar, when it names an existing file; otherwise
 (in a workspace) all positionals go to the main and the jar is the target
 module's build output from the lock (the uberjar when one is declared).
 
-The launch plan (main, `:jvm-opts`, build JVM) comes from
+The launch plan (main, `:rig/launch-opts`, build JVM) comes from
 `META-INF/rig/launch.json` — the descriptor `rig build` bakes into every
 jar — so `rig launch <jar>` works outside the workspace (a standalone
 container). Without the descriptor, the lock is the plan.

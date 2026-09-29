@@ -18,6 +18,7 @@ Set in the root `deps.edn` of a workspace (a `deps.edn` containing
 | `:rig/cooldown` | `"48h"` | Minimum age of a version before it may be selected. `"0s"` disables. See [cooldowns](../concepts/security.md#cooldowns-the-adoption-window). |
 | `:rig/cooldown-repos` | — | Per-repository cooldown overrides, keyed by `:mvn/repos` id: `{"corp" "72h"}`. |
 | `:rig/jvm` | — | The JVM the project runs on, e.g. `"21"` or `"21.0.10+7"` (Temurin). Recorded in the lock as an exact version; `rig` installs it into its state dir when missing (see [JVMs](#jvms-rigjvm)). Minimum supported value: `8` — the kernel jar is built for Java 8, so older JVMs cannot load it. |
+| `:rig/compile-jvm-opts` | `[]` | JVM flags for the build/validate JVMs: the kernel AOT build and the check namespace load (see [JVM flags](#jvm-flags)). Version-sensitive flags like `--enable-preview` require a `:rig/jvm` pin. |
 | `:rig/version-file` | `"VERSION"` | Root version file recorded in the lock for the root module. |
 
 The root `deps.edn` may also carry its own `:deps`/`:aliases`/`:paths` —
@@ -48,6 +49,8 @@ Set in each module's `deps.edn`. All optional unless noted.
 | `:rig/artifact-dirs` | the module's own `:paths` entries (plain, in-module, excluding the `:rig/target-dir` tree), else `["src" "resources"]` | Directories compiled and copied into the artifact (jar/uber/native). The module's `:paths` are its classpath; artifact-dirs are what the build packages — external paths and build output on the classpath stay out of the artifact. |
 | `:rig/java-src-dirs` | `[]` | Java source directories (compiled into the jar). |
 | `:rig/javac-opts` | `[]` | javac options (used only when `:rig/java-src-dirs` is non-empty). When the workspace pins `:rig/jvm`, `--release <n>` is prepended unless the opts already set `--release`, `-source` or `-target`. |
+| `:jvm-opts` | `[]` | The standard tools.deps key: JVM flags for **dev execution** — `rig run`, `rig repl`, `rig exec`, `rig test`, `rig prep`. It does not apply to `rig build`, `rig check` or `rig launch` (see [JVM flags](#jvm-flags)). |
+| `:rig/launch-opts` | `[]` | JVM flags for **`rig launch`** (the production entrypoint); baked into the artifact's launch descriptor at build time (see [JVM flags](#jvm-flags)). |
 | `:rig/ns-compile` | — | Extra namespaces to AOT-compile alongside the module's own sources, e.g. `[:entry.main]`. |
 
 ## Test alias convention
@@ -201,6 +204,40 @@ always come through the proxy.
 
 Vendor: Temurin (Eclipse Adoptium), GA releases only.
 
+## JVM flags
+
+Three contexts, three keys — every JVM rig launches gets its flags from the
+key that matches how the JVM is used:
+
+| Key | Declared in | Applies to |
+|---|---|---|
+| `:rig/compile-jvm-opts` | workspace (root manifest) | The kernel AOT build (`rig build`) and the check namespace load (`rig check`, stage 2). |
+| `:jvm-opts` | module (standard tools.deps key) | Dev execution: `rig run`, `rig repl`, `rig exec`, `rig test`, `rig prep`. |
+| `:rig/launch-opts` | module | `rig launch` only. Baked into the artifact's launch descriptor at build time, so it travels with the jar. |
+
+`rig build`, `rig check` and `rig launch` never read `:jvm-opts`; dev
+execution never reads `:rig/launch-opts`. (`rig check`'s stage-1 metadata
+kernel op runs bare — it inspects the lock, not the code, so it needs no
+workspace flags.)
+
+The canonical case is `--enable-preview`: preview features are
+JVM-version-specific, so pin the JVM and set the flag in each context that
+compiles, loads or runs preview code:
+
+```edn
+;; root deps.edn
+{:rig/jvm "21"
+ :rig/compile-jvm-opts ["--enable-preview"]}
+
+;; module deps.edn
+{:rig/launch-opts ["--enable-preview"]
+ :jvm-opts ["--enable-preview"]}
+```
+
+A lock with `--enable-preview` in `:rig/compile-jvm-opts` but no `:rig/jvm`
+pin is rejected at load time: the preview set depends on the JVM version,
+and rig will not guess it.
+
 ## Native images (`rig build --native`)
 
 `:rig/native?` declares that a module builds a standalone native-image
@@ -260,16 +297,17 @@ The flag order is fixed:
    `-Djava.rmi.server.hostname=127.0.0.1` keeps JMX to same-host
    clients). There is no `MaxRAMPercentage` and no GC logging in the
    defaults.
-2. **the module's `:jvm-opts`** (the standard tools.deps key, from the
-   module manifest) — later flags override rig's defaults (last JVM flag
-   wins; a repeated `-D` re-sets the property). A garbage collector in
-   `:jvm-opts` (e.g. `-XX:+UseZGC`) *replaces* the G1 default: the JVM
-   refuses to start with two collectors selected, so rig drops its own
-   rather than pass both.
+2. **the module's `:rig/launch-opts`** (from the module manifest, or from
+   the baked launch descriptor when launching a jar standalone) — later
+   flags override rig's defaults (last JVM flag wins; a repeated `-D`
+   re-sets the property). A garbage collector in `:rig/launch-opts`
+   (e.g. `-XX:+UseZGC`) *replaces* the G1 default: the JVM refuses to
+   start with two collectors selected, so rig drops its own rather than
+   pass both.
 
 The JMX port is fixed at 10101; if it collides in your environment,
 override both `-Dcom.sun.management.jmxremote.port=…` and
-`-Dcom.sun.management.jmxremote.rmi.port=…` from `:jvm-opts`.
+`-Dcom.sun.management.jmxremote.rmi.port=…` from `:rig/launch-opts`.
 
 ### The launch descriptor
 
@@ -281,7 +319,9 @@ override both `-Dcom.sun.management.jmxremote.port=…` and
  "jvm-opts": ["-Xmx2g"], "java": 21, "uber": true}
 ```
 
-`main`, `jvm-opts`, `java` (the build JVM's feature version) and `uber` —
+`main`, `jvm-opts` (the module's `:rig/launch-opts` — the JSON field name
+predates the key and stays, so old artifacts keep launching), `java` (the
+build JVM's feature version) and `uber` —
 all taken from the lock at build time. rig's production defaults are *not*
 baked in: the launching rig applies them, so the policy follows rig
 upgrades even for old artifacts. `rig launch <jar>` reads the descriptor

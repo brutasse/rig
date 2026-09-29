@@ -64,6 +64,30 @@
     (is (= "25" (get-in lock ["jvm" "requested"])))
     (is (nil? (get-in lock ["jvm" "version"])))))
 
+(deftest compile-jvm-opts-are-copied-into-the-lock
+  (let [ws (temp-ws "{:rig/lib x/y\n :rig/compile-jvm-opts [\"--enable-preview\"]}\n")
+        lock (-> (resolve/resolve-lock {:workspace ws})
+                 (get "lock"))]
+    (is (= ["--enable-preview"] (get lock "compile-jvm-opts")))))
+
+(deftest no-compile-jvm-opts-key-without-declaration
+  (let [ws (temp-ws "{:rig/lib x/y}\n")
+        lock (-> (resolve/resolve-lock {:workspace ws})
+                 (get "lock"))]
+    (is (nil? (get lock "compile-jvm-opts")))))
+
+(deftest launch-opts-are-copied-into-the-lock-module
+  (let [ws (temp-ws "{:rig/lib x/y\n :rig/launch-opts [\"-Xmx1g\"]}\n")
+        lock (-> (resolve/resolve-lock {:workspace ws})
+                 (get "lock"))]
+    (is (= ["-Xmx1g"] (get-in lock ["modules" "." :launch-opts])))))
+
+(deftest no-launch-opts-key-without-declaration
+  (let [ws (temp-ws "{:rig/lib x/y}\n")
+        lock (-> (resolve/resolve-lock {:workspace ws})
+                 (get "lock"))]
+    (is (= [] (get-in lock ["modules" "." :launch-opts])))))
+
 (deftest resolve-lock-with-two-mvn-repos
   (let [ws (temp-ws "{:rig/lib x/y\n :mvn/repos {\"central\" {:url \"https://example.com/central\"} \"corp\" {:url \"https://example.com/corp\"}}}\n")
         lock (-> (resolve/resolve-lock {:workspace ws})

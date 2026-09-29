@@ -22,17 +22,20 @@ const SupportedVersion = 2
 const JVMFloor = 8
 
 type Document struct {
-	Version   int               `json:"version"`
-	Tool      Tool              `json:"tool"`
-	Resolver  Resolver          `json:"resolver"`
-	LockedAt  time.Time         `json:"locked_at"`
-	Workspace Workspace         `json:"workspace"`
-	Cooldown  Cooldown          `json:"cooldown"`
-	JVM       *JVM              `json:"jvm,omitempty"`
-	GraalVM   *GraalVM          `json:"graalvm,omitempty"`
-	Artifacts []Artifact        `json:"artifacts"`
-	Skipped   []Skipped         `json:"skipped"`
-	Modules   map[string]Module `json:"modules"`
+	Version   int       `json:"version"`
+	Tool      Tool      `json:"tool"`
+	Resolver  Resolver  `json:"resolver"`
+	LockedAt  time.Time `json:"locked_at"`
+	Workspace Workspace `json:"workspace"`
+	Cooldown  Cooldown  `json:"cooldown"`
+	JVM       *JVM      `json:"jvm,omitempty"`
+	GraalVM   *GraalVM  `json:"graalvm,omitempty"`
+	// CompileJVMOpts are the workspace's :rig/compile-jvm-opts: JVM flags for
+	// the build/validate JVMs (the kernel AOT build and the check ns-load).
+	CompileJVMOpts []string          `json:"compile-jvm-opts,omitempty"`
+	Artifacts      []Artifact        `json:"artifacts"`
+	Skipped        []Skipped         `json:"skipped"`
+	Modules        map[string]Module `json:"modules"`
 }
 
 type Tool struct {
@@ -106,20 +109,24 @@ type Skipped struct {
 }
 
 type Module struct {
-	ManifestSHA256 string           `json:"manifest_sha256"`
-	Lib            string           `json:"lib"`
-	Version        string           `json:"version"`
-	Main           string           `json:"main,omitempty"`
-	PrepEnsure     []string         `json:"prep-ensure,omitempty"`
-	PrepAlias      string           `json:"prep-alias,omitempty"`
-	PrepFn         string           `json:"prep-fn,omitempty"`
-	JVMOpts        []string         `json:"jvm-opts"`
-	Paths          []string         `json:"paths,omitempty"`
-	Classpath      []ClasspathEntry `json:"classpath"`
-	Aliases        map[string]Alias `json:"aliases"`
-	Build          Build            `json:"build"`
-	Publish        Publish          `json:"publish"`
-	Test           Test             `json:"test"`
+	ManifestSHA256 string   `json:"manifest_sha256"`
+	Lib            string   `json:"lib"`
+	Version        string   `json:"version"`
+	Main           string   `json:"main,omitempty"`
+	PrepEnsure     []string `json:"prep-ensure,omitempty"`
+	PrepAlias      string   `json:"prep-alias,omitempty"`
+	PrepFn         string   `json:"prep-fn,omitempty"`
+	// JVMOpts are the module's tools.deps :jvm-opts: dev-execution JVM
+	// flags (rig run / repl / exec / test / prep). LaunchOpts are the
+	// module's :rig/launch-opts, the prod JVM flags rig launch applies.
+	JVMOpts    []string         `json:"jvm-opts"`
+	LaunchOpts []string         `json:"launch-opts"`
+	Paths      []string         `json:"paths,omitempty"`
+	Classpath  []ClasspathEntry `json:"classpath"`
+	Aliases    map[string]Alias `json:"aliases"`
+	Build      Build            `json:"build"`
+	Publish    Publish          `json:"publish"`
+	Test       Test             `json:"test"`
 }
 
 type ClasspathEntry struct {
@@ -256,6 +263,11 @@ func (d *Document) Validate() error {
 		}
 		if d.JVM.Version != "" && !jdk.Satisfies(d.JVM.Requested, d.JVM.Version) {
 			return fmt.Errorf("jvm: locked version %q does not satisfy requested %q", d.JVM.Version, d.JVM.Requested)
+		}
+	}
+	for _, f := range d.CompileJVMOpts {
+		if f == "--enable-preview" && d.JVM == nil {
+			return errors.New("compile-jvm-opts: --enable-preview requires a :rig/jvm pin (preview features are JVM-version specific)")
 		}
 	}
 	if d.GraalVM != nil {

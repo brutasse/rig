@@ -31,6 +31,10 @@ A real lock (trimmed) from a multi-module workspace:
   // release the lock was resolved with. Absent when there is no pin.
   "jvm":    { "vendor": "temurin", "requested": "21", "version": "21.0.12.1+1" },
 
+  // JVM flags for the build/validate JVMs (from :rig/compile-jvm-opts in
+  // the root manifest). Absent when undeclared.
+  "compile-jvm-opts": ["--enable-preview"],
+
   // Every artifact in the resolved tree, deduplicated. Classpaths
   // reference ONLY these.
   "artifacts": [
@@ -80,6 +84,7 @@ A real lock (trimmed) from a multi-module workspace:
       "version": "1.0.0-SNAPSHOT",
       "main": null,
       "jvm-opts": [],
+      "launch-opts": [],
       "paths": ["src", "resources"],
       "classpath": [
         "org.clojure/clojure:1.12.5:jar",
