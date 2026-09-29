@@ -187,6 +187,55 @@
      :raw-artifacts (concat (:artifacts base-mapped)
                             (mapcat :artifacts (vals alias-maps)))}))
 
+(defn- local-roots-of
+  "The module's :local/root dependencies (its :deps and every alias's
+  :extra-deps) as [workspace-relative-dir canonical-abs] pairs. The manifest
+  values are module-dir-relative; the key is relative to the workspace root
+  (\"../..\" when the ref escapes it). A nil key means the abs cannot be
+  expressed relative to the workspace (different filesystem root)."
+  [data mdir ws]
+  (let [ws-path (.toPath (io/file ws))
+        rel (fn [abs]
+              (try (str (.relativize ws-path (.toPath (io/file abs))))
+                   (catch IllegalArgumentException _ nil)))
+        refs (concat (keep (fn [[_ spec]] (get spec :local/root))
+                          (get data :deps {}))
+                    (mapcat (fn [al]
+                              (keep (fn [[_ spec]] (get spec :local/root))
+                                    (get-in al [:extra-deps] {})))
+                            (vals (get data :aliases {}))))]
+    (for [r refs]
+      (let [abs (some-> (io/file mdir r) (.getCanonicalPath) str)]
+        [(rel abs) abs]))))
+
+(defn- local-modules
+  "Every :local/root dir referenced by the module manifests that is not
+  itself a workspace module and holds a manifest, as
+  {workspace-relative-dir canonical-abs}. Nested references are followed; the
+  search stops at already-seen dirs, so cycles terminate."
+  [ws module-dirs modules-abs root-data]
+  (loop [dirs modules-abs
+         extra {}
+         pending (vec module-dirs)]
+    (if (empty? pending)
+      extra
+      (let [m (peek pending)
+            mdir (get dirs m)
+            data (if (= m ".")
+                   root-data
+                   (some-> mdir (manifest/read-manifest) :data))
+            news (into {}
+                       (for [[rel abs] (local-roots-of data mdir ws)
+                             :when (and (seq rel)
+                                        (not (contains? dirs rel))
+                                        (.exists (io/file abs "deps.edn")))]
+                         [rel abs]))]
+        (if (empty? news)
+            (recur dirs extra (pop pending))
+            (recur (into dirs news)
+                   (merge extra news)
+                   (vec (concat (pop pending) (keys news)))))))))
+
 (defn resolver-id
   "Identity of this kernel. Normally from build-info.edn, baked into the
   jar at build time (build.clj); a placeholder when the namespace is
@@ -220,14 +269,22 @@
                      [(str (get a :group) "/" (get a :name)) (get a :version)]))
         now-ms (System/currentTimeMillis)
         module-dirs (manifest/modules-of root-data)
-        modules-abs (into {} (for [m module-dirs]
-                               [m (let [p (if (= m ".") ws (str (io/file ws m)))]
-                                    (try (some-> p (io/file) (.getCanonicalPath) str)
-                                         (catch Exception _ p)))]))
+        declared-abs (into {} (for [m module-dirs]
+                                [m (let [p (if (= m ".") ws (str (io/file ws m)))]
+                                     (try (some-> p (io/file) (.getCanonicalPath) str)
+                                          (catch Exception _ p)))]))
+        ;; A :local/root dependency that is not itself a workspace module
+        ;; (e.g. a dev/ test overlay with its own manifest) is locked as a
+        ;; local module: it enters the modules map so classpath
+        ;; {"local" m} entries expand to its own paths, but stays out of
+        ;; workspace.modules, so it is never a build/test/publish target.
+        local-mods (local-modules ws module-dirs declared-abs root-data)
+        modules-abs (into declared-abs local-mods)
         m2 (m2dir)
         gl (gitlibs-dir)
         manifests (into {ws root-man}
-                        (for [m (remove #(.equals % ".") module-dirs)]
+                        (for [m (concat (remove #(.equals % ".") module-dirs)
+                                        (keys local-mods))]
                           [(get modules-abs m) (manifest/read-manifest (get modules-abs m))]))
         git-deps (apply merge (map (fn [man] (git-deps-of (or (:data man) {}))) (vals manifests)))
          all-repos (let [extra (distinct (mapcat (fn [man]
@@ -238,7 +295,7 @@
                            (sort-by first extra)))
         state (atom {:skipped [] :refused []})
         modules (into {}
-                      (for [m module-dirs]
+                      (for [m (concat module-dirs (keys local-mods))]
                         (let [mdir (get modules-abs m)
                               man (get manifests mdir)
                               data (or (:data man) {})
