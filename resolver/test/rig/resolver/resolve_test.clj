@@ -136,6 +136,67 @@
         (is (some #(= "../sibling" (get % "local")) locals))
         (is (empty? bad))))))
 
+(deftest undeclared-local-root-overlay-locks-as-its-own-module
+  ;; A :local/root dep whose dir is not a workspace module (a dev/ test
+  ;; overlay with its own manifest) is locked as a local module: the
+  ;; classpath entry is {"local" "dev"}, expanded to the overlay's own
+  ;; paths — not mis-attributed to the enclosing root module
+  ;; ({"local" "."}).
+  (let [ws (doto (java.io.File.
+                   (str (java.nio.file.Files/createTempDirectory "rig-resolve-test"
+                                                                 (into-array java.nio.file.attribute.FileAttribute []))))
+                  (.deleteOnExit))]
+    (try
+      (do
+        (doto (io/file ws "dev") (.mkdirs) (.deleteOnExit))
+        (spit (io/file ws "dev" "deps.edn") "{:paths [\".\"]}\n")
+        (spit (io/file ws "deps.edn")
+              (str "{:rig/lib x/y\n"
+                   " :aliases {:test {:extra-deps {x/test-runner {:local/root \"dev\"}}}}}\n"))
+        (let [lock (-> (resolve/resolve-lock {:workspace (str ws)}) (get "lock"))]
+          (is (= ["."] (get-in lock ["workspace" "modules"]))
+              "the overlay is not a workspace module")
+          (is (contains? (get lock "modules") "dev")
+              "the overlay is locked as a module")
+          (is (= ["."] (get-in lock ["modules" "dev" :paths]))
+              "the overlay locks its own paths")
+          (let [cp (get-in lock ["modules" "." :aliases :test :classpath])
+                locals (filter #(and (map? %) (get % "local")) cp)]
+            (is (= [{"local" "dev"}] locals)
+                (str "the alias classpath references the overlay, got " (pr-str locals))))))
+      (finally (.deleteOnExit ws)))))
+
+(deftest nested-undeclared-local-roots-are-all-locked
+  ;; An overlay whose own manifest declares a second undeclared :local/root
+  ;; is followed: every level locks as a local module and reaches the
+  ;; referencing classpaths.
+  (let [ws (doto (java.io.File.
+                   (str (java.nio.file.Files/createTempDirectory "rig-resolve-test"
+                                                                 (into-array java.nio.file.attribute.FileAttribute []))))
+                  (.deleteOnExit))]
+    (try
+      (do
+        (doto (io/file ws "dev" "inner") (.mkdirs) (.deleteOnExit))
+        (spit (io/file ws "dev" "inner" "deps.edn") "{:paths [\".\"]}\n")
+        (spit (io/file ws "dev" "deps.edn")
+              (str "{:paths [\".\"]\n"
+                   " :deps {x/inner {:local/root \"inner\"}}}\n"))
+        (spit (io/file ws "deps.edn")
+              "{:rig/lib x/y\n :deps {x/test-runner {:local/root \"dev\"}}}\n")
+        (let [lock (-> (resolve/resolve-lock {:workspace (str ws)}) (get "lock"))
+              root-cp (get-in lock ["modules" "." :classpath])
+              dev-cp (get-in lock ["modules" "dev" :classpath])]
+          (is (= ["."] (get-in lock ["workspace" "modules"])))
+          (is (contains? (get lock "modules") "dev") "the overlay locks")
+          (is (contains? (get lock "modules") "dev/inner") "the nested overlay locks")
+          (is (some #(= "dev" (get % "local")) root-cp)
+              (str "root classpath: " (pr-str root-cp)))
+          (is (some #(= "dev/inner" (get % "local")) root-cp)
+              "the nested overlay reaches the root's classpath")
+          (is (some #(= "dev/inner" (get % "local")) dev-cp)
+              (str "dev classpath: " (pr-str dev-cp)))))
+      (finally (.deleteOnExit ws)))))
+
 (deftest uberjar-is-implicit-when-a-file-is-declared
   (let [ws (temp-ws "{:rig/lib x/y\n :rig/uberjar-file \"target/app.jar\"}\n")
         lock (-> (resolve/resolve-lock {:workspace ws})

@@ -70,6 +70,12 @@ and resource directories (relative to the workspace root). The build order
 follows the dependency graph: `rig test` runs modules in lock order, and a
 module's classpath always contains its local dependencies' code.
 
+A `:local/root` reference to a directory that is **not** a workspace module
+— a `dev/` test overlay with its own `deps.edn`, for instance — is locked as
+a local module too: the entry expands to that directory's own manifest
+paths. It stays out of `:rig/modules`, so it is never a build/test/publish
+target.
+
 ## `rig new-module`
 
 Add a module to an existing workspace:
