@@ -90,43 +90,34 @@
     (is (empty? (problems (run ws))))
     (is (= :git-count-revs (get (file-edn ws "modules/m/deps.edn") :rig/version-fn)))))
 
-(deftest root-managed-dependencies-become-rig-deps
+(deftest root-managed-dependencies-are-dropped-not-carried-as-rig-deps
+  "The pool is materialized into the modules' :deps, not carried as a
+  :rig/deps shared requirement: an inert pin (no module declares it) stays
+  inert and cannot become a stale-lock."
   (let [ws (temp-ws {"deps.edn"
-                     "{:exoscale.project/lib x/y\n :exoscale.deps/managed-dependencies {a/b {:mvn/version \"1.0.0\"}}}\n"})]
+                     "{:exoscale.project/lib x/y\n :exoscale.deps/managed-dependencies {a/b {:mvn/version \"1.0.0\"}}}"})]
     (let [r (run ws)]
       (is (empty? (problems r)))
+      (is (some #(re-find #"managed-dependencies dropped" %) (warnings r)))
       (let [d (file-edn ws "deps.edn")]
-        (is (= {:mvn/version "1.0.0"} (get (get d :rig/deps) 'a/b)))
+        (is (nil? (get d :rig/deps)))
         (is (nil? (get d :exoscale.deps/managed-dependencies)))))))
-
-(deftest rig-deps-preserves-managed-formatting
-  "Regression: the renamed managed-dependencies node must survive the
-  new-key pass; it used to be re-serialized compact on a single line."
-  (let [ws (temp-ws {"deps.edn"
-                     "{:exoscale.project/lib x/y\n :exoscale.deps/managed-dependencies\n {a/b {:mvn/version \"1.0.0\"}\n  c/d {:local/root \"modules/m\"}}}\n"})
-        r (run ws)]
-    (is (empty? (problems r)))
-    (let [text (file-text ws "deps.edn")
-          d (file-edn ws "deps.edn")]
-      (is (= {'a/b {:mvn/version "1.0.0"} 'c/d {:local/root "modules/m"}}
-             (get d :rig/deps)))
-      (is (re-find #":rig/deps\n \{" text))
-      (is (not (re-find #":rig/deps \{.*\}\}" text))))))
-
 (deftest managed-namespaced-maps-are-expanded-to-plain-form
-  "The compact `#:mvn{…}` reader-macro form is rewritten to the standard
-  `{:mvn/version …}` notation, so the migrated manifest uses plain
-  requirement maps rather than the legacy compact form."
+  "The compact `#:mvn{...}` reader-macro form in the pool materializes into
+  module deps as the standard `{:mvn/version ...}` notation, so the
+  migrated manifest uses plain requirement maps rather than the legacy
+  compact form."
   (let [ws (temp-ws {"deps.edn"
-                     "{:exoscale.project/lib x/y\n :exoscale.deps/managed-dependencies {a/b #:mvn{:version \"1.0.0\"}\n                                                 c/d #:mvn{:version \"2.0.0\" :classifier \"sources\"}}}\n"})
-        r (run ws)]
+                     "{:exoscale.project/lib x/y\n :exoscale.project/modules [\"modules/m\"]\n :exoscale.deps/managed-dependencies {a/b #:mvn{:version \"1.0.0\"}\n                                                 c/d #:mvn{:version \"2.0.0\" :classifier \"sources\"}}}"
+                     "modules/m/deps.edn"
+                     "{:exoscale.project/lib m/lib :deps {a/b {:exoscale.deps/inherit :all}\n                                              c/d {:exoscale.deps/inherit :all}}}"})
+         r (run ws)]
     (is (empty? (problems r)))
-    (let [text (file-text ws "deps.edn")
-          d (file-edn ws "deps.edn")]
-      (is (= {:mvn/version "1.0.0"} (get (get d :rig/deps) 'a/b)))
-      (is (= {:mvn/version "2.0.0" :mvn/classifier "sources"} (get (get d :rig/deps) 'c/d)))
+    (let [text (file-text ws "modules/m/deps.edn")
+          d (file-edn ws "modules/m/deps.edn")]
+      (is (= {:mvn/version "1.0.0"} (get (get d :deps) 'a/b)))
+      (is (= {:mvn/version "2.0.0" :mvn/classifier "sources"} (get (get d :deps) 'c/d)))
       (is (nil? (re-find (re-pattern "#:") text))))))
-
 (deftest managed-dependencies-at-module-level-are-a-problem
   (let [ws (temp-ws {"deps.edn"
                      "{:exoscale.project/lib x/y :exoscale.project/modules [\"modules/m\"]}\n"
@@ -137,47 +128,59 @@
     (is (re-find #"exoscale" (file-text ws "modules/m/deps.edn")))))
 
 (deftest inherit-all-materializes-managed-values
+  "The managed entry fills in the keys the module did not declare
+  (exclusions); a declared version wins over the managed one (a repo whose
+  CI never ran merge-deps resolved the declared version), reported as a
+  drift warning."
   (let [ws (temp-ws {"deps.edn" root-with-managed
                      "modules/m/deps.edn"
-                     "{:exoscale.project/lib m/lib\n :deps {a/b {:mvn/version \"0.9.0\" :exoscale.deps/inherit :all}\n                   plain/p {:mvn/version \"2.0.0\"}}}\n"})
-        r (run ws)]
+                     "{:exoscale.project/lib m/lib\n :deps {a/b {:mvn/version \"0.9.0\" :exoscale.deps/inherit :all}\n                   plain/p {:mvn/version \"2.0.0\"}}}"})
+         r (run ws)]
     (is (empty? (problems r)))
+    (is (some #(re-find #"a/b: :mvn/version \"0\.9\.0\" \(managed \"1\.0\.0\"\)" %) (warnings r)))
     (let [d (file-edn ws "modules/m/deps.edn")]
-      (is (= {:mvn/version "1.0.0" :exclusions '[x/y]}
+      (is (= {:mvn/version "0.9.0" :exclusions '[x/y]}
              (get (get d :deps) 'a/b)))
       (is (= {:mvn/version "2.0.0"} (get (get d :deps) 'plain/p))))))
 
-(deftest managed-inherit-marker-does-not-leak-into-migrated-manifests
-  "Regression: a managed entry's own :exoscale.deps/inherit marker used to
-  leak into the materialized module deps and the renamed :rig/deps; a
-  migrated manifest must carry no legacy-ns key anywhere."
+(deftest inherit-dep-with-matching-version-is-not-drift
   (let [ws (temp-ws {"deps.edn"
-                     "{:exoscale.project/lib x/y :exoscale.project/modules [\"modules/m\"]\n :exoscale.deps/managed-dependencies {a/b {:exoscale.deps/inherit :all :mvn/version \"1.0.0\"}}}\n"
+                     "{:exoscale.project/lib x/y\n :exoscale.project/modules [\"modules/m\"]\n :exoscale.deps/managed-dependencies {a/b {:mvn/version \"1.0.0\"}}}"
                      "modules/m/deps.edn"
-                     "{:exoscale.project/lib m/lib :deps {a/b {:exoscale.deps/inherit :all}}}\n"})
-        r (run ws)]
+                     "{:exoscale.project/lib m/lib :deps {a/b {:mvn/version \"1.0.0\" :exoscale.deps/inherit :all}}}"})
+         r (run ws)]
     (is (empty? (problems r)))
     (is (= {:mvn/version "1.0.0"}
            (get-in (file-edn ws "modules/m/deps.edn") [:deps 'a/b])))
+    (is (nil? (some #(re-find #"declared kept" %) (warnings r))))))
+(deftest managed-inherit-marker-does-not-leak-into-migrated-manifests
+  "Regression: a managed entry's own :exoscale.deps/inherit marker used to
+  leak into the materialized module deps; a migrated manifest must carry
+  no legacy-ns key anywhere."
+  (let [ws (temp-ws {"deps.edn"
+                     "{:exoscale.project/lib x/y :exoscale.project/modules [\"modules/m\"]\n :exoscale.deps/managed-dependencies {a/b {:exoscale.deps/inherit :all :mvn/version \"1.0.0\"}}}"
+                     "modules/m/deps.edn"
+                     "{:exoscale.project/lib m/lib :deps {a/b {:exoscale.deps/inherit :all}}}"})
+         r (run ws)]
+    (is (empty? (problems r)))
     (is (= {:mvn/version "1.0.0"}
-           (get-in (file-edn ws "deps.edn") [:rig/deps 'a/b])))
+           (get-in (file-edn ws "modules/m/deps.edn") [:deps 'a/b])))
     (is (not (re-find #"exoscale.deps/inherit" (file-text ws "deps.edn"))))
     (is (not (re-find #"exoscale.deps/inherit" (file-text ws "modules/m/deps.edn"))))))
-
 (deftest materialized-dep-with-extra-keyword-pair-stays-valid
   "Regression: the value node of a materialized dep map is built pair by
   pair; without a separator between pairs a keyword-valued pair glues the
-  next key (\":else\" + \":mvn/version\" -> \":else:mvn/version\"), leaving
-  an odd-form map the EDN reader rejects."
+  next key (":else" + ":mvn/version" -> ":else:mvn/version"), leaving an
+  odd-form map the EDN reader rejects. The declared version is kept
+  (declared wins over the managed one)."
   (let [ws (temp-ws {"deps.edn"
-                     "{:exoscale.project/lib x/y\n :exoscale.project/modules [\"modules/m\"]\n :exoscale.deps/managed-dependencies {a/b {:mvn/version \"1.0.0\"}}}\n"
+                     "{:exoscale.project/lib x/y\n :exoscale.project/modules [\"modules/m\"]\n :exoscale.deps/managed-dependencies {a/b {:mvn/version \"1.0.0\"}}}"
                      "modules/m/deps.edn"
-                     "{:exoscale.project/lib x/m\n :deps {a/b {:exoscale.deps/inherit :all\n                      :mvn/version \"0.9.0\"\n                      :something :else}}}\n"})
-        r (run ws)]
+                     "{:exoscale.project/lib x/m\n :deps {a/b {:exoscale.deps/inherit :all\n                      :mvn/version \"0.9.0\"\n                      :something :else}}}"})
+         r (run ws)]
     (is (empty? (problems r)))
-    (is (= {:mvn/version "1.0.0" :something :else}
+    (is (= {:mvn/version "0.9.0" :something :else}
            (get (get (file-edn ws "modules/m/deps.edn") :deps) 'a/b)))))
-
 (deftest inherit-vector-selects-managed-keys
   (let [ws (temp-ws {"deps.edn" root-with-managed
                      "modules/m/deps.edn"
@@ -227,6 +230,36 @@
     (is (empty? (problems r)))
     (is (= "modules/m"
            (get-in (file-edn ws "modules/n/deps.edn") [:deps 'e/f :deps/root])))))
+
+(deftest declared-local-root-is-kept-module-relative
+  (let [ws (temp-ws {"deps.edn"
+                     "{:exoscale.project/lib x/y\n :exoscale.project/modules [\"modules/m\" \"modules/n\" \"modules/p\"]\n :exoscale.deps/managed-dependencies {c/d {:local/root \"modules/m\"}}}\n"
+                     "modules/m/deps.edn"
+                     "{:exoscale.project/lib m/lib}\n"
+                     "modules/n/deps.edn"
+                     "{:exoscale.project/lib n/lib :deps {c/d {:local/root \"../m\" :exoscale.deps/inherit :all}}}\n"
+                     "modules/p/deps.edn"
+                     "{:exoscale.project/lib p/lib :deps {c/d {:local/root \"elsewhere\" :exoscale.deps/inherit :all}}}\n"})
+        r (run ws)]
+    (is (empty? (problems r)))
+    ;; a declared module-relative :local/root pointing at the pool target is
+    ;; kept as-is (not re-canonicalized) and is not drift
+    (is (= "../m" (get-in (file-edn ws "modules/n/deps.edn") [:deps 'c/d :local/root])))
+    (is (not (some #(re-find #"modules/n.*dep c/d" %) (warnings r))))
+    ;; a declared :local/root pointing elsewhere wins over the pool, with drift
+    (is (= "elsewhere"
+           (get-in (file-edn ws "modules/p/deps.edn") [:deps 'c/d :local/root])))
+    (is (some #(re-find #"modules/p.*dep c/d: :local/root \"elsewhere\" \(managed \"\.\./m\"\)" %)
+              (warnings r)))))
+
+(deftest root-listed-in-modules-is-migrated-once
+  (let [ws (temp-ws {"deps.edn"
+                     "{:exoscale.project/lib x/y\n :exoscale.project/modules [\".\" \"modules/m\"]\n :exoscale.deps/managed-dependencies {a/b {:mvn/version \"1.0.0\"}}\n :deps {a/b {:exoscale.deps/inherit :all}}}\n"
+                     "modules/m/deps.edn"
+                     "{:exoscale.project/lib m/lib :deps {a/b {:exoscale.deps/inherit :all}}}\n"})
+        r (run ws)]
+    (is (empty? (problems r)))
+    (is (= 1 (count (filter #(re-find #"managed-dependencies dropped" %) (warnings r)))))))
 
 (deftest managed-aliases-only-project-are-dropped-with-a-warning
   (let [ws (temp-ws {"deps.edn"

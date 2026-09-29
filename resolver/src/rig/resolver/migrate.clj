@@ -2,9 +2,11 @@
   "Kernel op: migrate a legacy Exoscale workspace (tools.project +
   deps-modules managed-dependencies) to the :rig/* manifest model, in place.
 
-  The transform is mechanical: each manifest is rewritten with the effective
-  dependencies that deps-modules' merge-deps would have produced (managed
-  wins, :local/root canonicalized module-relative), legacy keys are renamed
+  The transform is mechanical: each manifest is rewritten with the
+  effective dependencies the module actually resolved (declared
+  version/source keys win over the managed pool, which fills the
+  gaps; :local/root canonicalized module-relative), legacy keys
+  are renamed
   or dropped, and :slipset.deps-deploy/exec-args is translated to
   :rig/publish + :mvn/repos. Comments are preserved: only the nodes that
   actually change are edited. Files are written only when there are no
@@ -81,29 +83,43 @@
       "."
       (str/join "/" (concat ups rest)))))
 
-(defn- canon-dep
-  [dep module-dir]
-  (cond-> dep
-    (contains? dep :local/root)
-    (assoc :local/root (canonicalize (get dep :local/root) module-dir))))
-
 (defn- inherit-dep
-  "deps-modules semantics: the declared source keys are stripped and the
-  managed entry wins (a vector inherit selects a subset of managed keys).
-  A managed entry's own :exoscale.deps/inherit marker is inert residue and
-  does not propagate."
-  [declared managed inherit]
-  (merge (dissoc declared :mvn/version :git/url :git/sha :git/tag
-                 :local/root :deps/root :exoscale.deps/inherit)
-         (cond-> (dissoc managed :exoscale.deps/inherit)
-           (not= :all inherit) (select-keys (vec inherit)))))
+  "deps-modules semantics: the managed entry fills in the keys the module
+  did not declare (a vector inherit selects a subset of managed keys); a
+  declared version/source key wins over the managed one (a repo whose CI
+  never ran merge-deps resolved the declared version). The managed
+  :local/root is workspace-root-relative and is made module-relative
+  before the merge; a declared :local/root is already module-relative
+  and is kept as-is. Returns [dep drift] (drift is nil or a string
+  listing the declared keys that won over a differing managed value).
+  A managed entry's own :exoscale.deps/inherit marker is inert residue
+  and does not propagate."
+  [declared managed inherit module-dir]
+  (let [managed (cond-> (dissoc managed :exoscale.deps/inherit)
+                  (not= :all inherit) (select-keys (vec inherit)))
+        managed (cond-> managed (contains? managed :local/root)
+                  (update :local/root (fn [v] (canonicalize v module-dir))))
+        declared (dissoc declared :exoscale.deps/inherit)
+        drift (filter (fn [k]
+                        (and (contains? declared k)
+                             (contains? managed k)
+                             (not= (get declared k) (get managed k))))
+                      [:mvn/version :git/url :git/sha :git/tag
+                       :local/root :deps/root])]
+    [(merge managed declared)
+     (when (seq drift)
+       (str/join ", " (map (fn [k]
+                             (str k " " (pr-str (get declared k))
+                                  " (managed " (pr-str (get managed k)) ")"))
+                           drift)))]))
 
 (defn- materialize-deps
   "Materialize :exoscale.deps/inherit entries. Returns
   {:deps m :problems [..] :warnings [..]} (deps is nil when problems are
   reported). A dep with inherit that is missing from managed-dependencies
   keeps its declared keys (marker dropped, warning); a dep that carries
-  only the marker is a problem — nothing left to resolve against."
+  only the marker is a problem — nothing left to resolve against. A declared
+   version/source key wins over the managed one (drift warning)."
   [dm managed module-dir]
   (let [unmanaged (filter (fn [[k v]]
                             (and (map? v)
@@ -111,7 +127,8 @@
                                  (nil? (get managed k))))
                           dm)
         bare (filter (fn [[_ v]] (empty? (dissoc v :exoscale.deps/inherit)))
-                     unmanaged)]
+                     unmanaged)
+        drifts (atom [])]
     (if (seq bare)
       {:deps nil
        :problems (map (fn [[k _]]
@@ -122,16 +139,22 @@
                                (not (and (map? v) (contains? v :exoscale.deps/inherit)))
                                [k v]
                                (get managed k)
-                               [k (canon-dep (inherit-dep v (get managed k)
-                                                       (get v :exoscale.deps/inherit))
-                                             module-dir)]
+                               (let [[dep drift] (inherit-dep v (get managed k)
+                                                              (get v :exoscale.deps/inherit)
+                                                              module-dir)]
+                                 (when drift (swap! drifts conj [k drift]))
+                                 [k dep])
                                :else
                                [k (dissoc v :exoscale.deps/inherit)]))
                            dm))
-        :warnings (map (fn [[k _]]
-                         (str "dep " (str k) " :exoscale.deps/inherit dropped (missing from :exoscale.deps/managed-dependencies; declared keys kept)"))
-                       (remove (fn [[_ v]] (empty? (dissoc v :exoscale.deps/inherit)))
-                               unmanaged))
+        :warnings (concat (map (fn [[k _]]
+                                 (str "dep " (str k) " :exoscale.deps/inherit dropped (missing from :exoscale.deps/managed-dependencies; declared keys kept)"))
+                               (remove (fn [[_ v]] (empty? (dissoc v :exoscale.deps/inherit)))
+                                       unmanaged))
+                           (map (fn [[k drift]]
+                                  (str "dep " (str k) ": " drift
+                                       " (declared kept; merge-deps would have used the managed value)"))
+                                @drifts))
         :problems nil})))
 
 (defn- materialize-alias
@@ -256,13 +279,15 @@
                             acc))
                       (= k :exoscale.deps/managed-dependencies)
                       (if (= module-dir ".")
-                        ;; The entries' own :exoscale.deps/inherit markers
-                        ;; are inert residue: a migrated manifest must carry
-                        ;; no legacy-ns key anywhere.
-                        (assoc acc :rig/deps
-                               (into {} (map (fn [[lib spec]]
-                                               [lib (dissoc spec :exoscale.deps/inherit)])
-                                             v)))
+                        ;; The pool is materialized into the modules'
+                        ;; :deps (inherit-dep); it is not carried as a
+                        ;; :rig/deps shared requirement — legacy merge-deps
+                        ;; only inlined it into declared deps, and as a
+                        ;; shared requirement inert pins became live
+                        ;; stale-lock errors.
+                        (do (swap! warnings conj
+                                   ":exoscale.deps/managed-dependencies dropped (versions materialized into the modules' :deps; not carried as :rig/deps shared requirements)")
+                            acc)
                         (do (swap! problems conj
                                    ":exoscale.deps/managed-dependencies is only supported in the root deps.edn")
                             acc))
@@ -1256,20 +1281,16 @@
                  (rename-key [] :exoscale.project/version-fn :rig/version-fn)
                  (edit-value [] :rig/version-fn (n/keyword-node kw)))
              zt)
-        ;; root: managed-dependencies -> :rig/deps. The entries' own inert
-        ;; :exoscale.deps/inherit markers are dropped (a migrated manifest
-        ;; must carry no legacy-ns key anywhere).
+        ;; root: managed-dependencies is dropped, not renamed — the
+        ;; pool's versions are materialized into the modules' :deps, and
+        ;; a :rig/deps copy would turn inert pins into live shared
+        ;; requirements.
         zt (if (contains? data :exoscale.deps/managed-dependencies)
-             (reduce (fn [zt [lib spec]]
-                       (if (contains? spec :exoscale.deps/inherit)
-                         (drop-key zt [:rig/deps lib] :exoscale.deps/inherit)
-                         zt))
-                     (rename-key zt [] :exoscale.deps/managed-dependencies :rig/deps)
-                     (get data :exoscale.deps/managed-dependencies))
-             zt)
+              (drop-key zt [] :exoscale.deps/managed-dependencies)
+              zt)
         ;; drop the legacy top-level keys that are not renamed in place
-        ;; (exec-args and managed-aliases are dropped; their content is
-        ;; already carried by :rig/publish and :rig/deps)
+        ;; (exec-args content is carried by :rig/publish; managed-aliases
+        ;; has no rig equivalent and is dropped with a warning)
         zt (reduce (fn [zt k] (drop-key zt [] k))
                    zt
                    (filter (fn [k]
@@ -1337,10 +1358,10 @@
   [ws root-file dry-run?]
   (let [root-data (edn/read-string (slurp root-file))
         pairs (vec (remove nil?
-                           (for [m (concat ["."]
-                                            (some->> (or (get root-data :rig/modules)
-                                                          (get root-data :exoscale.project/modules))
-                                                      (map str)))]
+                           (for [m (distinct (concat ["."]
+                                                      (some->> (or (get root-data :rig/modules)
+                                                            (get root-data :exoscale.project/modules))
+                                                          (map str))))]
                              (let [f (if (= m ".")
                                        root-file
                                        (io/file ws m "deps.edn"))]

@@ -75,7 +75,7 @@ Limitations of this setup:
 | `:exoscale.project/javac-opts` | `:rig/javac-opts` |
 | `:exoscale.project/extra-clean-targets` | drop — `rig clean` removes the target directory; use `rig exec` for anything else |
 | `:exoscale.project/modules` | `:rig/modules` |
-| `:exoscale.deps/managed-dependencies` + `:exoscale.deps/inherit` + `merge-deps` | `:rig/deps` (requirements) + `deps.lock` (pins) — no on-disk rewriting |
+| `:exoscale.deps/managed-dependencies` + `:exoscale.deps/inherit` + `merge-deps` | materialized into the modules' `:deps` by `rig migrate` (declared keys win over the pool); the pool is dropped, pins land in `deps.lock` — no ongoing merge step |
 | `:exoscale.deps/managed-aliases` + `merge-aliases` | nothing — aliases are per-module |
 | `:project` alias (every file) | nothing — rig is a native binary |
 | `:exoscale.project/tasks` | nothing — `rig exec` is the escape hatch |
