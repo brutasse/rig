@@ -69,6 +69,39 @@
                         (:message %)))
                (get res :problems)))))
 
+(deftest stale-lock-normalizes-unqualified-dep-name
+  (let [ws (temp-ws
+            "{:rig/modules [\"modules/a\"]}\n"
+            {"modules/a" "{:deps {aleph {:mvn/version \"0.4.6\"}}}\n"})]
+    (is (true? (get (check/check
+                     {:workspace ws
+                      :lock {:artifacts []
+                             :modules {"." {:classpath []}
+                                       "modules/a" {:classpath ["aleph/aleph:0.4.6:jar"]}}}})
+                   :ok)))
+    (is (some #(and (= "stale-lock" (:kind %))
+                    (= "aleph/aleph" (:coord %))
+                    (= "manifest requires \"0.4.6\"; lock has no pin — run rig lock"
+                       (:message %)))
+              (get (check/check
+                    {:workspace ws
+                     :lock {:artifacts []
+                            :modules {"." {:classpath []}
+                                      "modules/a" {:classpath []}}}})
+                   :problems)))))
+
+(deftest stale-lock-unqualified-dep-with-classifier-preserves-classifier
+  (let [ws (temp-ws
+            "{:rig/modules [\"modules/a\"]}\n"
+            {"modules/a" "{:deps {kafka-clients$test {:mvn/version \"4.3.1\"}}}\n"})]
+    (is (true? (get (check/check
+                     {:workspace ws
+                      :lock {:artifacts []
+                             :modules {"." {:classpath []}
+                                       "modules/a" {:classpath
+                                                   ["kafka-clients/kafka-clients:4.3.1:test:jar"]}}}})
+                   :ok)))))
+
 (deftest floating-version-release-is-an-error
   (let [ws (temp-ws
             "{:rig/modules [\"modules/a\"]}\n"

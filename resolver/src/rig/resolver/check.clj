@@ -67,6 +67,15 @@
               :when (and (= "mvn" (get a :kind)) (get a :repository))]
           (get a :repository))))
 
+(defn- qualify-coord
+  "A legacy unqualified dep name `X` resolves to `X/X` (what the lock pins);
+  normalize requirement coords to that form. Qualified coords pass through.
+  A tools.deps `$classifier` suffix, when present, is preserved."
+  [c]
+  (let [c (str c)
+        [base & [cls]] (str/split c #"\$")]
+    (if (str/includes? base "/") c (str base "/" base (when cls (str "$" cls))))))
+
 (defn- reqs-of
   "All [coord version] mvn requirements of data (:deps and alias :extra-deps)."
   [data]
@@ -77,7 +86,7 @@
                                    [c s] (get-in data [:aliases al :extra-deps] {})]
                                [c s]))
               :when (and (map? s) (get s :mvn/version))]
-           [(str c) (str (get s :mvn/version))]))))
+           [(qualify-coord c) (str (get s :mvn/version))]))))
 
 (defn- managed-of
   [data]
@@ -85,7 +94,7 @@
         (for [[c s] (get data :rig/deps)
               :let [v (if (map? s) (get s :mvn/version) (when (string? s) s))]
               :when v]
-          [(str c) (str v)])))
+          [(qualify-coord c) (str v)])))
 
 (defn- satisfied?
   "True when requirement req (exact version, or Maven range like [1.0,2.0))
