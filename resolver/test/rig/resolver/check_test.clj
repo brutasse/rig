@@ -232,3 +232,24 @@
                     (= "workspace requires \"1.0.0\"; lock pins \"2.0.0\" — run rig update"
                        (:message %)))
               (get res :problems)))))
+
+(deftest stale-lock-matches-classifier-dep-key
+  (let [ws (temp-ws
+            "{:rig/modules [\"modules/a\"]}\n"
+            {"modules/a" "{:deps {org.apache.kafka/kafka-clients$test
+                                  {:mvn/version \"4.3.1\"}}}\n"})]
+    (is (true? (get (check/check
+                     {:workspace ws
+                      :lock {:artifacts []
+                             :modules {"." {:classpath []}
+                                       "modules/a" {:classpath
+                                                   ["org.apache.kafka/kafka-clients:4.3.1:test:jar"]}}}})
+                   :ok)))
+    (is (some #(and (= "stale-lock" (:kind %))
+                    (= "org.apache.kafka/kafka-clients$test" (:coord %)))
+              (get (check/check
+                    {:workspace ws
+                     :lock {:artifacts []
+                            :modules {"." {:classpath []}
+                                      "modules/a" {:classpath []}}}})
+                   :problems)))))
