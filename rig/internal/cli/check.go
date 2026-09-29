@@ -102,7 +102,12 @@ func runCheck(ctx context.Context, o *opts) error {
 		}
 		e.java = java
 		e.javaEnv = javaEnv
-		e.kernel = jar
+		// rig.runner jar only, not the kernel jar: the jar bundles the
+		// resolver's own dependencies, which would shadow anything a module
+		// forgot to declare.
+		if e.runner, err = kernel.Current.Runner(ctx, store, o.offline); err != nil {
+			return err
+		}
 		targets, err := targetModules(root, o.path)
 		if err != nil {
 			return err
@@ -177,7 +182,7 @@ func checkModuleLoads(ctx context.Context, e *hotEnv, m string) (*checkProblem, 
 	if err != nil {
 		return nil, err
 	}
-	full := cp + string(filepath.ListSeparator) + e.kernel
+	full := cp + string(filepath.ListSeparator) + e.runner
 	runArgs := append([]string{}, mod.JVMOpts...)
 	runArgs = append(runArgs, "-cp", full, "rig.runner", "load-all")
 	runArgs = append(runArgs, srcDirs...)

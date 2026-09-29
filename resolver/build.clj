@@ -20,6 +20,12 @@
 (def target "target")
 (def class-dir (str target "/classes"))
 (def uber-file (str target "/rig-resolver-" version ".jar"))
+;; The rig.runner jar: rig.runner's class files only. Hot commands launch
+;; the runner on the project's locked classpath, so the jar must hold
+;; nothing else — no bundled dependencies (they would shadow the
+;; project's), no sources. It is an install-time artifact, shipped next
+;; to the kernel jar, never extracted at runtime.
+(def runner-file (str target "/rig-runner-" version ".jar"))
 ;; The kernel floor is Java 8 (Clojure 1.12's own floor; every dependency
 ;; in the jar is Java 8 or lower). On JDK 9+ hosts --release pins the
 ;; compiled classes to the floor: without it Main.class targets the build
@@ -59,6 +65,31 @@
         (.close out)
         (.close in)))))
 
+(defn- runner-jar
+  "Zip rig.runner's class files (rig/runner*.class in class-dir) into a
+  byte-identical jar: fixed entry timestamps and sorted entry names, like
+  normalize-zip. Without the .clj sources there is no AOT timestamp
+  ordering to preserve."
+  []
+  (let [tmp (str runner-file ".tmp")
+        out (ZipOutputStream. (io/output-stream tmp))]
+    (try
+      (doseq [f (sort-by (memfn getName)
+                         (file-seq (io/file class-dir "rig")))]
+        (when (and (.isFile f)
+                   (.startsWith (.getName f) "runner")
+                   (.endsWith (.getName f) ".class"))
+          (let [^ZipEntry e (ZipEntry. (str "rig/" (.getName f)))]
+            (.setTime e 1577836802000)
+            (.putNextEntry out e)
+            (io/copy (io/input-stream f) out)
+            (.closeEntry out))))
+      (finally (.close out)))
+    (java.nio.file.Files/move (.toPath (io/file tmp))
+                             (.toPath (io/file runner-file))
+                             (into-array java.nio.file.CopyOption
+                                        [StandardCopyOption/ATOMIC_MOVE]))))
+
 (defn uber [_]
   (b/delete {:path target})
   (let [basis (b/create-basis {})]
@@ -75,4 +106,5 @@
     (java.nio.file.Files/move (.toPath (io/file (str uber-file ".tmp")))
                               (.toPath (io/file uber-file))
                                (into-array java.nio.file.CopyOption
-                                          [StandardCopyOption/ATOMIC_MOVE]))))
+                                          [StandardCopyOption/ATOMIC_MOVE]))
+    (runner-jar)))

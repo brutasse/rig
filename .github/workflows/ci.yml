@@ -20,13 +20,17 @@
 #      pin (GitHub release URL + git sha + jar sha256)
 #   2. cross-compiles rig for linux/darwin amd64/arm64 with version stamps
 #   3. builds and pushes the multi-arch Docker image (rig binary +
-#      hash-pinned kernel jar) to ghcr.io/brutasse/rig
-#   4. publishes a GitHub release with all binaries + kernel jar + SHA256SUMS
+#      hash-pinned kernel jar and runner jar) to ghcr.io/brutasse/rig
+#   4. publishes a GitHub release with all binaries + kernel jar +
+#      runner jar + SHA256SUMS
 #   5. re-pins the install one-liner's git sha in README.md on main
 #   6. pushes the stamped kernel pin to main
 #
-# The kernel jar is served exclusively from the GitHub release (no Maven
-# repo): rig binaries fetch it by their compiled pin, hash-verified.
+# The kernel jar and runner jar are served exclusively from the GitHub
+# release (no Maven repo): rig binaries fetch them by their compiled pin,
+# hash-verified. The runner jar is the install-time artifact hot commands
+# append to the project's locked classpath; pre-seeded stores (the Docker
+# image) need no writes, rig never extracts it at runtime.
 
 name: CI
 
@@ -170,6 +174,7 @@ jobs:
         run: |
           echo "release_sha=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
           echo "jar_sha=$(sha256sum rig/dist/release/rig-resolver-${{ github.ref_name }}.jar | cut -d' ' -f1)" >> "$GITHUB_ENV"
+          echo "runner_sha=$(sha256sum rig/dist/release/rig-runner-${{ github.ref_name }}.jar | cut -d' ' -f1)" >> "$GITHUB_ENV"
 
       - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
         with:
@@ -196,6 +201,7 @@ jobs:
             V=${{ github.ref_name }}
             KERNEL_GITSHA=${{ env.release_sha }}
             JARSHA=${{ env.jar_sha }}
+            RUNNERSHA=${{ env.runner_sha }}
 
       - name: Image smoke test
         run: docker run --rm ghcr.io/brutasse/rig:${{ github.ref_name }} rig jvm list
@@ -206,10 +212,11 @@ jobs:
         run: |
           v="${{ github.ref_name }}"
           jarsha=$(sha256sum "resolver/target/rig-resolver-$v.jar" | cut -d' ' -f1)
+          runnersha=$(sha256sum "resolver/target/rig-runner-$v.jar" | cut -d' ' -f1)
           (cd rig/dist/release && sha256sum -c SHA256SUMS)
           gh release create "$v" \
             --title "$v" \
-            --notes "rig $v — binaries (linux/darwin, amd64/arm64) + resolver kernel jar (sha256 $jarsha). Install: see README (curl one-liner, pinned at the release git sha). Self-update: rig self-update." \
+            --notes "rig $v — binaries (linux/darwin, amd64/arm64) + resolver kernel jar (sha256 $jarsha) + runner jar (sha256 $runnersha). Install: see README (curl one-liner, pinned at the release git sha). Self-update: rig self-update." \
             rig/dist/release/*
 
       - name: Save stamped kernel pin
@@ -241,7 +248,7 @@ jobs:
           # A pin commit must not backport branch changes: kernel.go may
           # differ from main only in the pinned fields (a re-run may find
           # main already stamped for this release).
-          norm() { sed -E 's/^([[:space:]]*)(Version|GitSHA|URL|JARSHA)[[:space:]]*:.*/\1\2: <pin>/'; }
+          norm() { sed -E 's/^([[:space:]]*)(Version|GitSHA|URL|JARSHA|RunnerURL|RunnerSHA)[[:space:]]*:.*/\1\2: <pin>/'; }
           if ! diff -q <(git show "origin/main:rig/internal/kernel/kernel.go" | norm) \
                        <(git show "${GITHUB_REF_NAME}:rig/internal/kernel/kernel.go" | norm) >/dev/null; then
             echo "kernel.go diverged between ${GITHUB_REF_NAME} and main; merge the branch first" >&2

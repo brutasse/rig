@@ -91,8 +91,9 @@ make image  # build the Docker image locally (no push)
 make release V=v0.2.0  # package a release in rig/dist/release/ (dry run)
 ```
 
-`make dev` is the whole loop: `resolver/target/rig-resolver-<V>.jar` is
-built (tools.build) and `rig/dist/rig` is built. `V` is the release tag
+`make dev` is the whole loop: `resolver/target/rig-resolver-<V>.jar` and
+`resolver/target/rig-runner-<V>.jar` are built (tools.build) and
+`rig/dist/rig` is built. `V` is the release tag
 form (vX.Y.Z) in both local and release builds, defaulting to `v0.1.0`
 locally. The kernel's identity (version, git sha) is baked into the jar
 at build time, so a lockfile's `resolver` block records the exact kernel
@@ -102,20 +103,26 @@ release-time artifact — `make pin` stamps it (version, git sha, GitHub
 release URL, jar sha256) and the release workflow pushes it to main, so
 feature branches do not commit pin changes.
 
-How the kernel jar reaches the rig binary:
+How the kernel jar and runner jar reach the rig binary:
 
-- Local: `RIG_KERNEL_JAR=<absolute jar path>` — trusted local override,
-  used in place of the downloaded kernel (no hash check).
-- Published: without `RIG_KERNEL_JAR`, rig fetches the pinned kernel from
-  the GitHub release assets into its cache and hash-verifies it against
-  the `JARSHA` pin. The pin is stamped per release by the release
-  workflow, which pushes it to main.
-- `make run` sets `RIG_KERNEL_JAR` for you; other invocations of
-  `rig/dist/rig` need it exported.
-- The Go E2E tests find the kernel jar via `RIG_TEST_KERNEL_JAR` (set by
-  `make test`) or `resolver/target/rig-resolver-v0.1.0.jar` and **skip**
-  (not fail) when it is missing — build it first (`make kernel`) or they
-  silently don't run.
+- Local: `RIG_KERNEL_JAR=<absolute jar path>` and
+  `RIG_RUNNER_JAR=<absolute runner jar path>` — trusted local overrides,
+  used in place of the downloaded artifacts (no hash check). The two
+  travel together: a local kernel without a local runner is an error.
+- Published: without the overrides, rig fetches the pinned kernel and
+  runner from the GitHub release assets into its cache and hash-verifies
+  them against the `JARSHA`/`RunnerSHA` pins. The pin is stamped per
+  release by the release workflow, which pushes it to main. The runner
+  jar is an install-time artifact: the Docker image ships it pre-seeded
+  (the store stays read-only), and rig never extracts it at runtime.
+- `make run` sets both for you; other invocations of `rig/dist/rig` need
+  them exported.
+- The Go E2E tests find the jars via `RIG_TEST_KERNEL_JAR` /
+  `RIG_TEST_RUNNER_JAR` (set by `make test`) or
+  `resolver/target/rig-resolver-v0.1.0.jar` /
+  `resolver/target/rig-runner-v0.1.0.jar` and **skip** (not fail) when
+  they are missing — build them first (`make kernel`) or they silently
+  don't run.
 
 ## License
 

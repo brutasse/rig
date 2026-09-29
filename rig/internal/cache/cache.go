@@ -51,6 +51,12 @@ func (s *Store) KernelJar(sha string) string {
 	return filepath.Join(s.KernelDir(sha), "rig-resolver.jar")
 }
 
+// RunnerJar is the rig.runner jar of the kernel identified by sha,
+// placed there at install time (image build, or first-use fetch).
+func (s *Store) RunnerJar(sha string) string {
+	return filepath.Join(s.Root, "runner", sha, "rig-runner.jar")
+}
+
 func checkSHA(sha string) error {
 	if !shaRe.MatchString(sha) {
 		return fmt.Errorf("cache: bad sha %q", sha)

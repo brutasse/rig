@@ -326,9 +326,11 @@ func TestBuildPrepEndToEnd(t *testing.T) {
 	oldSHA := kernel.Current.JARSHA
 	kernel.Current.JARSHA = sha
 	os.Setenv("RIG_KERNEL_JAR", jar)
+	os.Setenv("RIG_RUNNER_JAR", runnerJarPath(t))
 	t.Cleanup(func() {
 		kernel.Current.JARSHA = oldSHA
 		os.Unsetenv("RIG_KERNEL_JAR")
+		os.Unsetenv("RIG_RUNNER_JAR")
 	})
 
 	dir := t.TempDir()
