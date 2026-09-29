@@ -117,7 +117,11 @@ hard error. The lock records the kernel that produced it in its
 
 The kernel jar is built reproducibly — identical sources produce a
 byte-identical jar (zip entry timestamps are normalized) — which is what
-makes a stable jar sha256 pin possible.
+makes a stable jar sha256 pin possible. The runner jar (rig.runner's class
+files only) is pinned the same way and is an install-time artifact: the
+Docker image pre-seeds it into the store, local runs point at it with
+`RIG_RUNNER_JAR`, and rig never extracts or writes it at runtime — hot
+commands run on stores that may be read-only.
 
 ## Code map
 
@@ -126,7 +130,7 @@ makes a stable jar sha256 pin possible.
 | Package | Job |
 |---|---|
 | `cli` | command implementations and hot/cold orchestration |
-| `kernel` | the kernel pin; one-shot invocation |
+| `kernel` | the kernel and runner pins; one-shot invocation; fetch + verify into the store |
 | `lockfile` | the lock JSON model, validation, staleness detection |
 | `fetch` | artifact retrieval: cache → m2 → download, hash-verified |
 | `cache` | the content-addressed store (`artifacts/<sha256>`) |
@@ -158,7 +162,7 @@ makes a stable jar sha256 pin possible.
 | `rig.resolver.publish` | POM + deploy target (plan-only) |
 | `rig.resolver.migrate` | legacy workspace → `:rig/*`, in place |
 | `rig.resolver.git-sync` | thread-safe wrapper around the `tools.gitlibs` cache |
-| `rig.runner` | hot-path test launcher, run on the project's locked classpath |
+| `rig.runner` | hot-path test/check launcher; its jar (an install-time artifact, shipped next to the kernel jar) is appended to the project's locked classpath, never the kernel jar itself |
 | `rig.fmt` | the cljfmt entry point bundled in the kernel jar |
 
 ## Where the guarantees live

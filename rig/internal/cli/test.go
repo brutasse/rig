@@ -11,6 +11,7 @@ import (
 
 	"github.com/brutasse/rig/internal/ednlit"
 	"github.com/brutasse/rig/internal/jvm"
+	"github.com/brutasse/rig/internal/kernel"
 )
 
 func newTestCmd(o *opts) *cobra.Command {
@@ -31,6 +32,10 @@ order. EDN arguments are forwarded to the exec-fn as key/value opts:
 func runTest(ctx context.Context, o *opts, args []string) error {
 	e, err := o.hot(ctx, true)
 	if err != nil {
+		return err
+	}
+	// rig.runner jar only, not the kernel jar (same reason as check).
+	if e.runner, err = kernel.Current.Runner(ctx, e.store, e.offline); err != nil {
 		return err
 	}
 	optsText, err := testOpts(args)
@@ -54,9 +59,11 @@ func runTest(ctx context.Context, o *opts, args []string) error {
 		if err != nil {
 			return err
 		}
-		// Project classpath first, kernel jar last (rig.runner lives in it;
-		// the project's own Clojure wins on conflicts).
-		full := cp + string(filepath.ListSeparator) + e.kernel
+		// Project classpath first, runner jar last (rig.runner lives in
+		// it; the project's own Clojure wins on conflicts). The runner is
+		// its own artifact so the kernel's bundled dependencies stay off
+		// the project's classpath.
+		full := cp + string(filepath.ListSeparator) + e.runner
 		optsFile, err := os.CreateTemp("", "rig-test-opts-*.edn")
 		if err != nil {
 			return err

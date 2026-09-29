@@ -14,9 +14,36 @@ import (
 	"github.com/brutasse/rig/internal/lockfile"
 )
 
-// fixtureSetup pins the kernel jar and its JARSHA, copies the named
-// testdata fixture workspace into a fresh dir, and chdirs into it. It
-// skips when java or the kernel jar is unavailable.
+// runnerJarPath returns the locally built runner jar: RIG_TEST_RUNNER_JAR,
+// else the jar make kernel builds next to the kernel jar. It skips when
+// unavailable.
+func runnerJarPath(t *testing.T) string {
+	t.Helper()
+	var p string
+	if v := os.Getenv("RIG_TEST_RUNNER_JAR"); v != "" && statOK(v) {
+		p = v
+	}
+	if p == "" {
+		if cand := filepath.Join("..", "..", "..", "resolver", "target", "rig-runner-v0.1.0.jar"); statOK(cand) {
+			p = cand
+		}
+	}
+	if p == "" {
+		t.Skip("runner jar not found; build it with: make kernel (or set RIG_TEST_RUNNER_JAR)")
+		return ""
+	}
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return abs
+}
+
+// fixtureSetup pins the kernel jar and its JARSHA, overrides the runner
+// with the locally built runner jar (the two local overrides always
+// travel together), copies the named testdata fixture workspace into a
+// fresh dir, and chdirs into it. It skips when java or the jars are
+// unavailable.
 func fixtureSetup(t *testing.T, fixture string) {
 	t.Helper()
 	jar := kernelJarPath(t)
@@ -30,9 +57,11 @@ func fixtureSetup(t *testing.T, fixture string) {
 	oldSHA := kernel.Current.JARSHA
 	kernel.Current.JARSHA = sha
 	os.Setenv("RIG_KERNEL_JAR", jar)
+	os.Setenv("RIG_RUNNER_JAR", runnerJarPath(t))
 	t.Cleanup(func() {
 		kernel.Current.JARSHA = oldSHA
 		os.Unsetenv("RIG_KERNEL_JAR")
+		os.Unsetenv("RIG_RUNNER_JAR")
 	})
 	dst := t.TempDir()
 	if err := copyTree(fixture, dst); err != nil {
@@ -274,4 +303,102 @@ func TestHotTestOffline(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("offline test exit = %d, want 0; out: %s", code, out)
 	}
+}
+
+// TestHotReadOnlyStore models the install-time story: kernel.Current is
+// pinned to the locally built jars, pre-seeded into the store at the
+// pinned paths the way the Docker image ships them, and the store is made
+// read-only after one warm-up run (which fetches the locked artifacts).
+// check and test must then do their work without writing to the store:
+// the runner is an install-time artifact, never extracted at runtime.
+func TestHotReadOnlyStore(t *testing.T) {
+	jar := kernelJarPath(t)
+	runner := runnerJarPath(t)
+	if _, err := jvm.Find(); err != nil {
+		t.Skipf("no java available: %v", err)
+	}
+	jsha, err := digest.File(jar)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rsha, err := digest.File(runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := kernel.Current
+	kernel.Current.JARSHA = jsha
+	kernel.Current.RunnerSHA = rsha
+	t.Cleanup(func() { kernel.Current = old })
+
+	dst := t.TempDir()
+	if err := copyTree("testdata/hot", dst); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dst)
+	// Bring the manifest in line with the lock: rig check never re-locks
+	// (it reports), so the stale fixture would be reported regardless of
+	// the store's writability. The warm-up run below does re-lock (hot
+	// policy) while the store is still writable.
+	cleanFixture(t)
+
+	store := t.TempDir()
+	kdir := filepath.Join(store, "kernel", kernel.Current.GitSHA)
+	rdir := filepath.Join(store, "runner", kernel.Current.GitSHA)
+	for _, d := range []string{kdir, rdir} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, pair := range [][2]string{
+		{jar, filepath.Join(kdir, "rig-resolver.jar")},
+		{runner, filepath.Join(rdir, "rig-runner.jar")},
+	} {
+		b, err := os.ReadFile(pair[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(pair[1], b, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Warm-up run (writable store): relocks the stale fixture, fetching
+	// the locked artifacts into the store; the fixture's failing
+	// integration test gives exit 1.
+	if code, out := runCLI(t, "test", "--cache-dir", store); code != 1 {
+		t.Fatalf("warm-up test exit = %d, want 1; out: %s", code, out)
+	}
+	// Read-only from here on; restore before the temp dir is removed.
+	if err := chmodTree(store, 0o555, 0o444); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = chmodTree(store, 0o755, 0o644) })
+
+	code, out := runCLI(t, "check", "--cache-dir", store)
+	if code != 0 {
+		t.Fatalf("check exit = %d, want 0; out: %s", code, out)
+	}
+	if !strings.Contains(out, "check: ok") {
+		t.Errorf("check out = %q", out)
+	}
+	code, out = runCLI(t, "test", "--cache-dir", store)
+	if code != 1 {
+		t.Fatalf("test exit = %d, want 1; out: %s", code, out)
+	}
+	if !strings.Contains(out, "tests failed in: modules/app") {
+		t.Errorf("test out missing the failing module: %q", out)
+	}
+}
+
+// chmodTree sets dir and everything under it to dirMode/fileMode.
+func chmodTree(dir string, dirMode, fileMode os.FileMode) error {
+	return filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		m := fileMode
+		if d.IsDir() {
+			m = dirMode
+		}
+		return os.Chmod(p, m)
+	})
 }

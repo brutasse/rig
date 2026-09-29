@@ -66,13 +66,15 @@ type hotEnv struct {
 	java    string
 	javaEnv []string
 	kernel  string // empty until needed (hot(ctx, false) callers)
+	runner  string // rig.runner jar, appended last on the project's locked classpath
 	offline bool
 	oidc    func(repo string) (string, bool) // bearer for :auth :oidc repos
 }
 
 // hot applies the stale-lock policy and prepares the launch environment.
-// needKernel fetches the kernel jar (the rig.runner/fmt entry points live
-// in it).
+// needKernel fetches the kernel jar (the rig.fmt entry point lives in it;
+// the rig.runner entry point lives in the pin's runner jar, resolved by
+// Pin.Runner where needed).
 func (o *opts) hot(ctx context.Context, needKernel bool) (*hotEnv, error) {
 	root, lock, err := o.hotLock(ctx)
 	if err != nil {

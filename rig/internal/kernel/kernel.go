@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"time"
 
 	"github.com/brutasse/rig/internal/cache"
@@ -28,19 +29,30 @@ type Pin struct {
 	GitSHA  string
 	URL     string
 	JARSHA  string
+	// RunnerURL/RunnerSHA pin the rig.runner jar — an install-time
+	// artifact hot commands append to the project's locked classpath
+	// (the kernel jar itself must not sit on it: its bundled
+	// dependencies would load in place of anything a module forgot to
+	// declare, a false green check). Stamped by the first release that
+	// ships rig-runner (v0.1.0 predates it); make pin fills both.
+	RunnerURL string
+	RunnerSHA string
 }
 
 // Current is the last released kernel. The release workflow stamps this
-// block (version, git sha, URL, jar sha256) per release via 'make pin' and
-// pushes it to main; feature branches must not commit pin changes. Local
-// development overrides the kernel with RIG_KERNEL_JAR (trusted, not
-// hash-checked).
+// block (version, git sha, URL, jar sha256, runner URL, runner jar
+// sha256) per release via 'make pin' and pushes it to main; feature
+// branches must not commit pin changes. Local development overrides the
+// kernel with RIG_KERNEL_JAR and the runner with RIG_RUNNER_JAR
+// (trusted, not hash-checked).
 var Current = Pin{
-	Lib:     "io.github.brutasse/rig-resolver",
-	Version: "v0.1.0",
-	GitSHA:  "29b0bb60817c7ce2db5d3a2775a3b64859f214f5",
-	URL:     "https://github.com/brutasse/rig/releases/download/v0.1.0/rig-resolver-v0.1.0.jar",
-	JARSHA:  "823c7b174dfe01874cb2ae74790d51f0f293ecf9f592acb76223ed3424208934",
+	Lib:       "io.github.brutasse/rig-resolver",
+	Version:   "v0.1.0",
+	GitSHA:    "29b0bb60817c7ce2db5d3a2775a3b64859f214f5",
+	URL:       "https://github.com/brutasse/rig/releases/download/v0.1.0/rig-resolver-v0.1.0.jar",
+	JARSHA:    "823c7b174dfe01874cb2ae74790d51f0f293ecf9f592acb76223ed3424208934",
+	RunnerURL: "",
+	RunnerSHA: "",
 }
 
 type Request struct {
@@ -51,34 +63,77 @@ type Request struct {
 	Args      map[string]any `json:"args"`
 }
 
+// localOverride returns the artifact the developer pointed at via env,
+// used as-is. The sha gates cover what rig fetches and caches, not an
+// explicit local choice.
+func localOverride(env string) (string, error) {
+	local := os.Getenv(env)
+	if local == "" {
+		return "", nil
+	}
+	if st, err := os.Stat(local); err != nil || st.IsDir() {
+		return "", fmt.Errorf("kernel: %s: %s: not a file", env, local)
+	}
+	return local, nil
+}
+
 func (p Pin) Ensure(ctx context.Context, store *cache.Store, offline bool) (string, error) {
-	// Local override: the jar the developer pointed at is used as-is. The
-	// JARSHA gate covers what rig fetches and caches, not an explicit local
-	// choice.
-	if local := os.Getenv("RIG_KERNEL_JAR"); local != "" {
-		if st, err := os.Stat(local); err != nil || st.IsDir() {
-			return "", fmt.Errorf("kernel: RIG_KERNEL_JAR: %s: not a file", local)
-		}
+	if local, err := localOverride("RIG_KERNEL_JAR"); err != nil {
+		return "", err
+	} else if local != "" {
 		return local, nil
 	}
-	jar := store.KernelJar(p.GitSHA)
-	if st, err := os.Stat(jar); err == nil && !st.IsDir() {
-		got, err := digest.File(jar)
+	return ensureCached(ctx, offline,
+		fmt.Errorf("offline: kernel jar %s not in cache (run 'rig lock' online once)", p.Lib),
+		p.URL, p.JARSHA, store.KernelJar(p.GitSHA))
+}
+
+// Runner returns the on-disk path of the pin's rig.runner jar. The runner
+// is an install-time artifact: pre-seeded stores (the Docker image, a
+// shared read-only cache) need no writes, and rig never extracts it at
+// runtime. Hot commands append the jar to the project's locked classpath
+// (never the kernel jar: its bundled dependencies would load in place of
+// anything a module forgot to declare, a false green check).
+func (p Pin) Runner(ctx context.Context, store *cache.Store, offline bool) (string, error) {
+	if local, err := localOverride("RIG_RUNNER_JAR"); err != nil {
+		return "", err
+	} else if local != "" {
+		return local, nil
+	}
+	if os.Getenv("RIG_KERNEL_JAR") != "" {
+		return "", fmt.Errorf("kernel: RIG_KERNEL_JAR overrides the kernel; set RIG_RUNNER_JAR to a matching runner jar (make kernel builds both)")
+	}
+	if p.RunnerSHA == "" {
+		return "", fmt.Errorf("kernel: %s pins no runner artifact; set RIG_RUNNER_JAR or upgrade rig", p.Version)
+	}
+	return ensureCached(ctx, offline,
+		fmt.Errorf("offline: runner jar not in cache (run 'rig check' online once)"),
+		p.RunnerURL, p.RunnerSHA, store.RunnerJar(p.GitSHA))
+}
+
+// ensureCached returns storePath holding the artifact served at url: the
+// cached copy, sha256-verified, when present, else a fresh download,
+// verified before it lands (a per-path temp, so a crashed run never
+// leaves a partial artifact). offlineErr is returned when the artifact
+// is missing and the network is refused.
+func ensureCached(ctx context.Context, offline bool, offlineErr error, url, sha, storePath string) (string, error) {
+	if st, err := os.Stat(storePath); err == nil && !st.IsDir() {
+		got, err := digest.File(storePath)
 		if err != nil {
 			return "", err
 		}
-		if got != p.JARSHA {
-			return "", fmt.Errorf("kernel: cached jar %s corrupted (sha256 mismatch)", jar)
+		if got != sha {
+			return "", fmt.Errorf("kernel: cached %s corrupted (sha256 mismatch)", filepath.Base(storePath))
 		}
-		return jar, nil
+		return storePath, nil
 	}
 	if offline {
-		return "", fmt.Errorf("offline: kernel jar %s not in cache (run 'rig lock' online once)", p.Lib)
+		return "", offlineErr
 	}
-	if err := os.MkdirAll(store.KernelDir(p.GitSHA), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(storePath), 0o755); err != nil {
 		return "", err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.URL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return "", err
 	}
@@ -89,9 +144,9 @@ func (p Pin) Ensure(ctx context.Context, store *cache.Store, offline bool) (stri
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("kernel: %s: status %d", p.URL, resp.StatusCode)
+		return "", fmt.Errorf("kernel: %s: status %d", url, resp.StatusCode)
 	}
-	tmp := jar + ".tmp"
+	tmp := storePath + ".tmp"
 	f, err := os.Create(tmp)
 	if err != nil {
 		return "", err
@@ -110,15 +165,15 @@ func (p Pin) Ensure(ctx context.Context, store *cache.Store, offline bool) (stri
 		os.Remove(tmp)
 		return "", err
 	}
-	if got != p.JARSHA {
+	if got != sha {
 		os.Remove(tmp)
-		return "", fmt.Errorf("kernel: %s: sha256 mismatch (got %s)", p.URL, got)
+		return "", fmt.Errorf("kernel: %s: sha256 mismatch (got %s)", url, got)
 	}
-	if err := os.Rename(tmp, jar); err != nil {
+	if err := os.Rename(tmp, storePath); err != nil {
 		os.Remove(tmp)
 		return "", err
 	}
-	return jar, nil
+	return storePath, nil
 }
 
 type OpError struct {

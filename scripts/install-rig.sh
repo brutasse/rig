@@ -9,8 +9,9 @@
 #
 # The script fetches the rig binary for the current platform from the GitHub
 # release, verifies it against the release's SHA256SUMS, and installs it to
-# $INSTALL_DIR (default: ~/.local/bin). The resolver kernel jar is not
-# installed here — the rig binary fetches it on first use, hash-verified.
+# $INSTALL_DIR (default: ~/.local/bin). The resolver kernel jar and runner
+# jar are not installed here — the rig binary fetches them on first use,
+# hash-verified (the Docker image ships both pre-seeded).
 #
 # Env:
 #   INSTALL_DIR  installation directory (default: $HOME/.local/bin)
@@ -74,4 +75,4 @@ echo "installed $INSTALL_DIR/rig ($VERSION)"
 if command -v rig >/dev/null 2>&1 && [ "$(command -v rig)" != "$INSTALL_DIR/rig" ]; then
   echo "note: '$(command -v rig)' is first on PATH; add $INSTALL_DIR to PATH or remove the old binary"
 fi
-echo "the resolver kernel jar is fetched by rig on first use (hash-verified)"
+echo "the resolver kernel and runner jars are fetched by rig on first use (hash-verified)"
