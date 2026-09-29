@@ -127,6 +127,24 @@ func TestCheckKernelLeak(t *testing.T) {
 	}
 }
 
+func TestCheckDataReadersSkipped(t *testing.T) {
+	hotSetup(t)
+	cleanFixture(t)
+	// A data-readables file (a top-level map, not an ns form) at the source
+	// root is a clojure.main classpath convention, not a namespace: stage 2
+	// must not load it (requiring it fails to compile). The module's real
+	// namespace still loads, so the check stays green.
+	writeFile(t, "modules/app/src/data_readers.clj",
+		"{foo/bar clojure.core/identity}\n")
+	code, out := runCLI(t, "check", "--cache-dir", t.TempDir())
+	if code != 0 {
+		t.Fatalf("check exit = %d, want 0; out: %s", code, out)
+	}
+	if !strings.Contains(out, "check: ok") {
+		t.Errorf("check out = %q", out)
+	}
+}
+
 func TestCheckCljcLoadFail(t *testing.T) {
 	hotSetup(t)
 	cleanFixture(t)

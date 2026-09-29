@@ -77,7 +77,15 @@
                              :when (and (.isFile f)
                                         (or (str/ends-with? (.getName f) ".clj")
                                             (str/ends-with? (.getName f) ".cljc"))
-                                        (not (str/ends-with? (.getName f) "_init.clj")))]
+                                        (not (str/ends-with? (.getName f) "_init.clj"))
+                                        ;; A data-readables file (a top-level
+                                        ;; map, not an ns form) is a classpath
+                                        ;; convention, not a namespace:
+                                        ;; requiring it fails to compile. Exact
+                                        ;; basename match, so a real ns named
+                                        ;; e.g. mydata_readers is unaffected.
+                                        (not (#{"data_readers.clj" "data_readers.cljc"}
+                                              (.getName f))))]
                         (str/join "."
                                  (map #(str/replace % #"\.cljc?$" "")
                                       (str/split (str (.relativize (.toPath (io/file d))
