@@ -163,7 +163,7 @@ commands run on stores that may be read-only.
 | `rig.resolver.publish` | POM + deploy target (plan-only) |
 | `rig.resolver.migrate` | legacy workspace → `:rig/*`, in place |
 | `rig.resolver.git-sync` | thread-safe wrapper around the `tools.gitlibs` cache |
-| `rig.runner` | hot-path test/check launcher; its jar (an install-time artifact, shipped next to the kernel jar) is appended to the project's locked classpath, never the kernel jar itself |
+| `rig.runner` | hot-path test/check launcher; its jar (an install-time artifact, shipped next to the kernel jar) is appended to the project's locked classpath, never the kernel jar itself. Requires Clojure ≥ 1.8.0 on the module's locked classpath: the gen-class wrapper's static initializer calls `clojure.lang.Util/loadWithClass(String, Class)` and modern-compiled namespace bodies reference `clojure.lang.Tuple`, both absent from Clojure 1.7.x — check/test report `clojure-floor` below it |
 | `rig.fmt` | the cljfmt entry point bundled in the kernel jar |
 
 ## Where the guarantees live

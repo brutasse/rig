@@ -173,7 +173,15 @@ Two stages, one exit code:
    `rig update <coord>`), `no-lib` (publish/build without `:rig/lib`),
    `unknown-repo` (lock pins via a repo no manifest declares).
 2. **Namespace load**: load every namespace of each target module on its
-   locked base classpath; a failing load is a `load-fail` error.
+   locked base classpath; a failing load is a `load-fail` error. A module
+   pinning `org.clojure/clojure` below the 1.8.0 floor is reported as
+   `clojure-floor` before any JVM is launched (the runner entry point
+   cannot load on Clojure 1.7.x). Stage 2 launches on the locked classpath
+   as-is: on Clojure ≥ 1.9 the runtime itself requires
+   `org.clojure/spec.alpha` to be present (it loads `clojure.core.server`
+   at init), so a module declaring no spec (directly or transitively)
+   fails with a `spec/alpha` class-not-found — a missing project
+   dependency, not a rig failure.
 
 ```
 check: error [stale-lock] modules/app org.clojure/clojure: manifest requires "1.11.0"; lock pins "1.12.5" — run rig update
@@ -227,7 +235,9 @@ dependency order. Arguments are EDN literals forwarded to the runner:
 rig test :kaocha.filter/focus '[:unit]'
 ```
 
-The runner's exit code is rig's.
+The runner's exit code is rig's. A module pinning `org.clojure/clojure`
+below the 1.8.0 floor fails before anything runs (the same `clojure-floor`
+gate as check).
 
 ### `rig run`
 

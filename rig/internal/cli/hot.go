@@ -71,6 +71,66 @@ type hotEnv struct {
 	oidc    func(repo string) (string, bool) // bearer for :auth :oidc repos
 }
 
+// runnerClojureFloor is the lowest org.clojure/clojure the rig.runner
+// entry point loads on: the gen-class wrapper's static initializer calls
+// clojure.lang.Util/loadWithClass(String, Class) and modern-compiled
+// namespace bodies reference clojure.lang.Tuple, both absent from
+// Clojure 1.7.x.
+const runnerClojureFloor = "1.8.0"
+
+// clojureBelowFloor returns module m's locked org.clojure/clojure version
+// when it is below runnerClojureFloor, "" otherwise. Modules pinning no
+// Clojure return "" too: the load stage only runs on modules with
+// Clojure sources, and their classpath cannot host the runner anyway.
+func (e *hotEnv) clojureBelowFloor(m string) string {
+	mod, ok := e.lock.Modules[m]
+	if !ok {
+		return ""
+	}
+	byID := make(map[string]lockfile.Artifact, len(e.lock.Artifacts))
+	for _, a := range e.lock.Artifacts {
+		byID[a.ID] = a
+	}
+	for _, ent := range mod.Classpath {
+		if ent.Ref == nil {
+			continue
+		}
+		a, ok := byID[*ent.Ref]
+		if !ok || a.Group != "org.clojure" || a.Name != "clojure" {
+			continue
+		}
+		if versionBelow(a.Version, runnerClojureFloor) {
+			return a.Version
+		}
+	}
+	return ""
+}
+
+// versionBelow reports whether numeric dot-separated version v is strictly
+// below floor ("1.7.0" < "1.8.0" < "1.10.0"). Trailing suffixes
+// ("-alpha4") are ignored.
+func versionBelow(v, floor string) bool {
+	pick := func(s string) [2]int {
+		var out [2]int
+		for i, comp := range strings.Split(s, ".") {
+			if i >= 2 {
+				break
+			}
+			n := 0
+			for _, c := range comp {
+				if c < '0' || c > '9' {
+					break
+				}
+				n = n*10 + int(c-'0')
+			}
+			out[i] = n
+		}
+		return out
+	}
+	vp, fp := pick(v), pick(floor)
+	return vp[0] < fp[0] || (vp[0] == fp[0] && vp[1] < fp[1])
+}
+
 // hot applies the stale-lock policy and prepares the launch environment.
 // needKernel fetches the kernel jar (the rig.fmt entry point lives in it;
 // the rig.runner entry point lives in the pin's runner jar, resolved by
