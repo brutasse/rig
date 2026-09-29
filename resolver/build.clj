@@ -1,5 +1,6 @@
 (ns build
   (:require [clojure.java.io :as io]
+            [clojure.string :as str]
             [clojure.tools.build.api :as b])
   (:import (java.nio.file StandardCopyOption)
            (java.util.zip ZipEntry ZipFile ZipOutputStream)))
@@ -36,6 +37,67 @@
   (if (.startsWith (System/getProperty "java.specification.version") "1.")
     []
     ["--release" "8"]))
+
+;; The jar floor is Java 8: class file major version 52. A workspace may
+;; pin any JVM at or above Clojure 1.12's floor, below the build host, so
+;; no class in either jar may exceed the floor. The --release pin above
+;; covers the javac shim; the gate below covers the rest of the jar —
+;; v0.1.0 shipped a v65 Main.class (javac without --release on a JDK 21
+;; host) and failed to load on every pin below 21. Both jars are scanned
+;; after assembly; a violation fails the build. MRJ entries under
+;; META-INF/versions/ are skipped: the JVM only loads them on that
+;; version or newer, so none of them can load on the floor.
+(def floor-major 52)
+
+(defn class-file-major
+  "The class-file major version of a .class entry (the big-endian
+  unsigned short at byte offset 6)."
+  [^bytes b]
+  (+ (* (bit-and 0xff (nth b 6)) 256)
+     (bit-and 0xff (nth b 7))))
+
+(defn- entry-bytes
+  "All bytes of a zip entry stream."
+  [^java.io.InputStream is]
+  (let [baos (java.io.ByteArrayOutputStream.)]
+    (io/copy is baos)
+    (.toByteArray baos)))
+
+(defn floor-report
+  "Scan every .class entry of the jar at path. Returns {:classes n
+  :violations [[entry major] ...]} — entries above floor-major."
+  [jar]
+  (let [zf (ZipFile. jar)]
+    (try
+      (reduce (fn [acc ^ZipEntry e]
+                (if (or (.isDirectory e)
+                        (not (.endsWith (.getName e) ".class"))
+                        (.startsWith (.getName e) "META-INF/versions/"))
+                  acc
+                  (let [major (with-open [is (.getInputStream zf e)]
+                              (class-file-major (entry-bytes is)))]
+                    (-> acc (update :classes inc)
+                        (update :violations
+                                (fn [v] (if (> major floor-major)
+                                          (conj v [(.getName e) major])
+                                          v)))))))
+                {:classes 0 :violations []}
+                (iterator-seq (.entries zf)))
+      (finally (.close zf)))))
+
+(defn- assert-floor
+  "Fail the build when the jar at path carries a class above the floor."
+  [jar]
+  (let [{:keys [classes violations]} (floor-report jar)]
+    (if (empty? violations)
+      (println (str "floor: " (.getName (io/file jar)) " — " classes
+                    " classes ≤ v" floor-major " (Java 8)"))
+      (do (println (str "FLOOR VIOLATION: " (.getName (io/file jar)) " — "
+                        (count violations) " class(es) above v" floor-major
+                        " (Java 8): "
+                        (str/join ", " (map (fn [[n m]] (str n " (v" m ")"))
+                                            violations))))
+          (System/exit 1)))))
 
 (defn- normalize-zip
   "Re-zip src to dst with fixed entry timestamps so the jar is
@@ -88,7 +150,8 @@
     (java.nio.file.Files/move (.toPath (io/file tmp))
                              (.toPath (io/file runner-file))
                              (into-array java.nio.file.CopyOption
-                                        [StandardCopyOption/ATOMIC_MOVE]))))
+                                        [StandardCopyOption/ATOMIC_MOVE]))
+    (assert-floor runner-file)))
 
 (defn uber [_]
   (b/delete {:path target})
@@ -107,4 +170,5 @@
                               (.toPath (io/file uber-file))
                                (into-array java.nio.file.CopyOption
                                           [StandardCopyOption/ATOMIC_MOVE]))
+    (assert-floor uber-file)
     (runner-jar)))
