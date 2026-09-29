@@ -12,9 +12,10 @@ import (
 
 // loggingJava installs a wrapper for the system java that appends every
 // launch's argv to logPath (one line per launch, args space-separated)
-// before exec'ing the real java, and points RIG_JAVA at it. It lets a test
-// assert which flags reached which JVM without rig-side instrumentation.
-func loggingJava(t *testing.T, logPath string) {
+// before exec'ing the real java, and points RIG_JAVA at it. It returns
+// the wrapper path. It lets a test assert which flags reached which JVM
+// without rig-side instrumentation.
+func loggingJava(t *testing.T, logPath string) string {
 	t.Helper()
 	real, err := jvm.Find()
 	if err != nil {
@@ -36,6 +37,7 @@ func loggingJava(t *testing.T, logPath string) {
 		t.Fatal(err)
 	}
 	t.Setenv("RIG_JAVA", wrap)
+	return wrap
 }
 
 func launchLogLines(t *testing.T, logPath string) []string {
@@ -58,8 +60,9 @@ func logLinesWith(lines []string, marker string) []string {
 }
 
 // TestHotCompileJVMOpts checks :rig/compile-jvm-opts threading: the build's
-// kernel (AOT) JVM and the check ns-load JVM get the flags; the check
-// stage-1 kernel (metadata only) and the dev-execution run JVM do not.
+// kernel JVM, the build's AOT fork, and the check ns-load JVM get the
+// flags; the check stage-1 kernel (metadata only) and the dev-execution
+// run JVM do not.
 func TestHotCompileJVMOpts(t *testing.T) {
 	hotSetup(t)
 	if err := os.WriteFile("deps.edn",
@@ -68,7 +71,11 @@ func TestHotCompileJVMOpts(t *testing.T) {
 	}
 	const flag = "-Drig.compile.opt=1"
 	logPath := filepath.Join(t.TempDir(), "java.log")
-	loggingJava(t, logPath)
+	// The AOT fork resolves its java via $JAVA_CMD (tools.build's
+	// java-executable): point it at the same wrapper so the fork's launch
+	// line lands in the log.
+	wrap := loggingJava(t, logPath)
+	t.Setenv("JAVA_CMD", wrap)
 	cacheDir := t.TempDir()
 
 	if code, out := runCLI(t, "build", "-p", "modules/app", "--cache-dir", cacheDir); code != 0 {
@@ -103,9 +110,24 @@ func TestHotCompileJVMOpts(t *testing.T) {
 	if got := logLinesWith(lines, "rig.runner"); len(got) != 1 || !strings.Contains(got[0], flag) {
 		t.Errorf("ns-load JVMs = %v, want exactly one, carrying the compile flag", got)
 	}
-	// The dev-execution run JVM does not.
-	if got := logLinesWith(lines, "clojure.main"); len(got) != 1 || strings.Contains(got[0], flag) {
-		t.Errorf("run JVMs = %v, want exactly one, without the compile flag", got)
+	// The build's AOT fork (clojure.main on the spitted compile.clj)
+	// carries the flag; the dev-execution run JVM does not.
+	forks := logLinesWith(lines, "compile.clj")
+	if len(forks) != 1 || !strings.Contains(forks[0], flag) {
+		t.Errorf("AOT fork JVMs = %v, want exactly one, carrying the compile flag", forks)
+	}
+	runs := logLinesWith(lines, "clojure.main")
+	if len(runs) != 2 {
+		t.Fatalf("clojure.main JVMs = %v, want two (the AOT fork and the dev run)", runs)
+	}
+	var run string
+	for _, l := range runs {
+		if !strings.Contains(l, "compile.clj") {
+			run = l
+		}
+	}
+	if strings.Contains(run, flag) {
+		t.Errorf("dev-execution run JVM must not get the compile flag:\n%s", run)
 	}
 }
 

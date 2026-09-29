@@ -1,5 +1,6 @@
 (ns rig.resolver.main
   (:require [cheshire.core :as json]
+            [rig.resolver.aot :as aot]
             [rig.resolver.build :as build]
             [rig.resolver.check :as check]
             [rig.resolver.edit :as edit]
@@ -76,6 +77,8 @@
            (run-op #(edit/edit-dep request))
            :check
            (run-op #(check/check request))
+           :aot-plan
+           (run-op #(aot/aot-plan request))
            :migrate
            (run-op #(migrate/migrate request))
            :tree

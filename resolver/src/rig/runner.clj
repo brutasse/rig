@@ -14,7 +14,13 @@
     load-all <src-dir> ...
          Scan the src dirs for .clj files, derive each namespace from its
          path (src/a/b.clj -> a.b), and require each with :reload.
-         Exit 1 when any fails."
+         Exit 1 when any fails.
+
+    aot <class-dir> <preload> ... -- <ns> ...
+         Under *compile-files* with *compile-path* = class-dir, require
+         each preload namespace, then AOT-compile each namespace after
+         the \"--\" (skipping one a preload already loaded). Exit 1 when
+         any fails."
   (:gen-class)
   (:require [clojure.edn :as edn]
             [clojure.java.io :as io]
@@ -104,6 +110,30 @@
                        ns-strs)]
       (flush)
       (System/exit (if (nil? failed) 0 1)))
+
+    "aot"
+    (let [[class-dir & args] rest
+          [preloads & rest2] (split-with (complement #{"--"}) args)
+          compiles (next rest2)
+          fail (fn [op ns-str]
+                 (try (op ns-str) nil
+                      (catch Exception e
+                        (println (str "rig: failed to load " ns-str ": "
+                                      (failure-message e)))
+                        ns-str)))
+          failed (binding [*compile-files* true
+                           *compile-path* class-dir]
+                   (let [preload-fail
+                         (some (fn [ns-str] (fail #(require (symbol %)) ns-str))
+                               preloads)]
+                     (or preload-fail
+                         (some (fn [ns-str]
+                                 (fail #(when-not (find-ns (symbol %))
+                                          (compile %))
+                                       ns-str))
+                               compiles))))]
+       (flush)
+       (System/exit (if (nil? failed) 0 1)))
 
     (do
       (binding [*out* *err*]

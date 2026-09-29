@@ -18,7 +18,7 @@ Set in the root `deps.edn` of a workspace (a `deps.edn` containing
 | `:rig/cooldown` | `"48h"` | Minimum age of a version before it may be selected. `"0s"` disables. See [cooldowns](../concepts/security.md#cooldowns-the-adoption-window). |
 | `:rig/cooldown-repos` | — | Per-repository cooldown overrides, keyed by `:mvn/repos` id: `{"corp" "72h"}`. |
 | `:rig/jvm` | — | The JVM the project runs on, e.g. `"21"` or `"21.0.10+7"` (Temurin). Recorded in the lock as an exact version; `rig` installs it into its state dir when missing (see [JVMs](#jvms-rigjvm)). Minimum supported value: `8` — the kernel jar is built for Java 8, so older JVMs cannot load it. |
-| `:rig/compile-jvm-opts` | `[]` | JVM flags for the build/validate JVMs: the kernel AOT build and the check namespace load (see [JVM flags](#jvm-flags)). Version-sensitive flags like `--enable-preview` require a `:rig/jvm` pin. |
+| `:rig/compile-jvm-opts` | `[]` | JVM flags for the build/validate JVMs: the AOT build — the kernel JVM and the compile fork it launches — and the check namespace load/AOT-compile (see [JVM flags](#jvm-flags)). Version-sensitive flags like `--enable-preview` require a `:rig/jvm` pin. |
 | `:rig/version-file` | `"VERSION"` | Root version file recorded in the lock for the root module. |
 
 The root `deps.edn` may also carry its own `:deps`/`:aliases`/`:paths` —
@@ -211,7 +211,7 @@ key that matches how the JVM is used:
 
 | Key | Declared in | Applies to |
 |---|---|---|
-| `:rig/compile-jvm-opts` | workspace (root manifest) | The kernel AOT build (`rig build`) and the check namespace load (`rig check`, stage 2). |
+| `:rig/compile-jvm-opts` | workspace (root manifest) | The AOT build — kernel JVM and the compile fork it launches (`rig build`) — and the check namespace load/AOT-compile (`rig check`, stage 2). |
 | `:jvm-opts` | module (standard tools.deps key) | Dev execution: `rig run`, `rig repl`, `rig exec`, `rig test`, `rig prep`. |
 | `:rig/launch-opts` | module | `rig launch` only. Baked into the artifact's launch descriptor at build time, so it travels with the jar. |
 
