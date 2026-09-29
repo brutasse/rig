@@ -25,12 +25,18 @@
 
 (defn- classpath-pins
   "coord -> [version …] from a module plan's classpaths (base plus aliases);
-  entries look like \"group/name:version[:classifier]:extension\"."
+  entries look like \"group/name:version[:classifier]:extension\". A
+  classifier is folded into the coord as \"group/name$classifier\" to match
+  the tools.deps dep key the manifest uses."
   [plan]
   (reduce (fn [pins e]
             (if (string? e)
-              (let [[coord version & _] (str/split e #":")]
-                (if version (update pins coord conj version) pins))
+              (let [[coord version & rest] (str/split e #":")]
+                (if version
+                  (let [cls (when (>= (count rest) 2) (first rest))
+                        key (if cls (str coord "$" cls) coord)]
+                    (update pins key conj version))
+                  pins))
               pins))
            {}
            (concat (get plan :classpath [])
