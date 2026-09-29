@@ -167,9 +167,14 @@ func checkModuleLoads(ctx context.Context, e *hotEnv, m string) (*checkProblem, 
 		abs := filepath.Join(e.modDir(m), p)
 		srcDirs = append(srcDirs, abs)
 		filepath.WalkDir(abs, func(path string, d fs.DirEntry, err error) error {
+			// A data-readables file is a classpath convention, not a
+			// namespace (exact basename match, mirroring the runner's
+			// load-all skip set).
+			base := filepath.Base(path)
 			if err == nil && !d.IsDir() &&
 				(strings.HasSuffix(path, ".clj") || strings.HasSuffix(path, ".cljc")) &&
-				!strings.HasSuffix(path, "_init.clj") {
+				!strings.HasSuffix(path, "_init.clj") &&
+				base != "data_readers.clj" && base != "data_readers.cljc" {
 				hasSrc = true
 			}
 			return nil
