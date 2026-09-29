@@ -1102,3 +1102,62 @@
     (is (= ["modules/m/project.clj: nested :sub is not supported (flatten the module hierarchy)"]
            (problems r)))
     (is (false? (.exists (io/file ws "deps.edn"))))))
+
+(deftest leiningen-provided-profile-merges-into-base
+  ;; lein keeps :provided active by default, so its deps belong to the base
+  ;; manifest, not to an alias.
+  (let [ws (temp-ws {"project.clj"
+                     "(defproject foo/bar \"1.0\"
+  :dependencies [[org.clojure/tools.logging \"1.3.0\"]]
+  :profiles {:provided {:dependencies [[org.mariadb.jdbc/mariadb-java-client \"2.7.3\"]
+                                      [io.netty/netty-handler \"4.1.65.Final\"]]}})\n"})
+        r (run ws)]
+    (is (empty? (problems r)))
+    (is (some #(re-find #"profile :provided merged into the base manifest" %) (warnings r)))
+    (let [d (file-edn ws "deps.edn")]
+      (is (= "2.7.3" (get-in d [:deps 'org.mariadb.jdbc/mariadb-java-client :mvn/version])))
+      (is (= "4.1.65.Final" (get-in d [:deps 'io.netty/netty-handler :mvn/version])))
+      (is (= "1.3.0" (get-in d [:deps 'org.clojure/tools.logging :mvn/version])))
+      (is (nil? (get d :profiles))))))
+
+(deftest leiningen-provided-dep-conflict-loses-to-base
+  ;; The base deps are declared first in lein's effective dependency
+  ;; vector, so they win the version conflict.
+  (let [ws (temp-ws {"project.clj"
+                     "(defproject foo/bar \"1.0\"
+  :dependencies [[org.clojure/tools.logging \"1.3.0\"]]
+  :profiles {:provided {:dependencies [[org.clojure/tools.logging \"1.2.99\"]
+                                     [a/b \"0.1\"]]}})\n"})
+        r (run ws)]
+    (is (empty? (problems r)))
+    (let [d (file-edn ws "deps.edn")]
+      (is (= "1.3.0" (get-in d [:deps 'org.clojure/tools.logging :mvn/version])))
+      (is (= "0.1" (get-in d [:deps 'a/b :mvn/version]))))))
+
+(deftest leiningen-provided-paths-and-jvm-opts-merge-into-base
+  (let [ws (temp-ws {"project.clj"
+                     "(defproject foo/bar \"1.0\"
+  :jvm-opts [\"-Db=2\"]
+  :profiles {:provided {:source-paths [\"src/provided\"]
+                        :resource-paths [\"provided-res\"]
+                        :jvm-opts [\"-Dp=1\"]}})\n"})
+        r (run ws)]
+    (is (empty? (problems r)))
+    (let [d (file-edn ws "deps.edn")]
+      (is (= ["src" "src/provided" "resources" "provided-res"] (get d :paths)))
+      (is (= ["src" "src/provided" "resources" "provided-res"] (get d :rig/artifact-dirs)))
+      (is (= ["-Db=2" "-Dp=1"] (get d :jvm-opts))))))
+
+(deftest leiningen-provided-unexpressed-keys-warn
+  (let [ws (temp-ws {"project.clj"
+                     "(defproject foo/bar \"1.0\"
+  :profiles {:provided {:dependencies [[a/b \"1.0\"]]
+                        :plugins [[some/plugin \"2.0\"]]
+                        :main foo.bar}})\n"})
+        r (run ws)]
+    (is (empty? (problems r)))
+    (is (some #(re-find #"profile :provided merged into the base manifest" %) (warnings r)))
+    (is (some #(re-find #"profile :provided dropped :plugins" %) (warnings r)))
+    (is (some #(re-find #"profile :provided dropped :main" %) (warnings r)))
+    (is (not (some #(re-find #"profile :provided dropped \(only" %) (warnings r))))
+    (is (nil? (get (file-edn ws "deps.edn") :profiles)))))

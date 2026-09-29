@@ -315,9 +315,10 @@
 ;; generates a new root deps.edn in the :rig/* model, plus one deps.edn
 ;; per :sub module; the project.clj files are left untouched (the user
 ;; deletes them in the cleanup step). The transform is
-;; mechanical: what cannot be expressed (profiles other than :test/:dev,
-;; plugins, lein task aliases, native-image builds, ...) is dropped with a
-;; warning; what cannot be guessed is a problem that blocks the write.
+;; mechanical: what cannot be expressed (profiles other than
+;; :test/:dev/:provided, plugins, lein task aliases, native-image
+;; builds, ...) is dropped with a warning; what cannot be guessed is a
+;; problem that blocks the write.
 
 (def lein-handled-keys
   #{:main :dependencies :repositories :deploy-repositories :profiles
@@ -908,14 +909,29 @@
         vvars (merge (get parent :vars {}) (version-vars forms mdir))
         mp (managed-pool (get pairs :managed-dependencies))
         pool (merge (get parent :pool) (get mp :pool))
-        deps-res (dep-entries (get pairs :dependencies) pool vversion vvars siblings)
+        profiles (or (get pairs :profiles) {})
+        ;; Leiningen keeps :provided active by default (:leiningen/default
+        ;; is [:base :system :user :provided :dev]), so its :dependencies,
+        ;; path lists and :jvm-opts belong to the base build: merge them
+        ;; in rather than dropping the profile.
+        provided (get profiles :provided)
+        provided-res (when (some? provided)
+                       (dep-entries (get provided :dependencies) pool vversion vvars siblings))
+        deps-res (let [base (dep-entries (get pairs :dependencies) pool vversion vvars siblings)]
+                   ;; base wins on conflicts (it is declared first in
+                   ;; lein's effective dependency vector)
+                   (if (some? (get provided-res :deps))
+                     (update base :deps (fn [d] (merge (get provided-res :deps) d)))
+                     base))
         repos-res (repos-of (get pairs :repositories))
         pub (when root? (lein-publish (get pairs :deploy-repositories) (get repos-res :repos)))
-        source-paths (effective-paths ["src"] (get pairs :source-paths))
-        resource-paths (effective-paths ["resources"] (get pairs :resource-paths))
+        source-paths (vec (concat (effective-paths ["src"] (get pairs :source-paths))
+                                  (get provided :source-paths)))
+        resource-paths (vec (concat (effective-paths ["resources"] (get pairs :resource-paths))
+                                    (get provided :resource-paths)))
         main-paths (vec (concat source-paths resource-paths))
         test-defaults (effective-paths ["test"] (get pairs :test-paths))
-        profiles (or (get pairs :profiles) {})
+        jvm-opts (vec (concat (get pairs :jvm-opts) (get provided :jvm-opts)))
         merged-test (merged-test-profile (get profiles :dev) (get profiles :test))
         ;; Effective kaocha pin for the test classpath: the merged
         ;; :test profile's (later declarations win), else the base.
@@ -964,8 +980,7 @@
                                (when (seq (get pairs :javac-options)) (vec (get pairs :javac-options)))]
                               [:deps (when (seq (get deps-res :deps)) (get deps-res :deps))]
                               [:aliases aliases]
-                              [:jvm-opts
-                               (when (seq (get pairs :jvm-opts)) (vec (get pairs :jvm-opts)))]]))
+                              [:jvm-opts (when (seq jvm-opts) jvm-opts)]]))
         ;; When the parent lookup failed, the pool is known to be
         ;; incomplete: the per-dep "no :managed-dependencies entry"
         ;; problems are derivative of that single failure, so they
@@ -977,6 +992,7 @@
         problems (concat (get parent :problems)
                          (get mp :problems)
                          (strip-miss (get deps-res :problems))
+                         (strip-miss (get provided-res :problems))
                          (when rig-deps (get rig-deps :problems))
                          (get pub :problems)
                          (strip-miss test-p)
@@ -1011,8 +1027,21 @@
                          (map (fn [k]
                                 (str "profile :" (str (name k))
                                      " dropped (only :test and :dev migrate to :aliases)"))
-                               (filter (fn [k] (not (contains? #{:test :dev :uberjar} k)))
+                               (filter (fn [k] (not (contains? #{:test :dev :uberjar :provided} k)))
                                        (keys profiles)))
+                          (when (and (some? provided)
+                                      (some some? [(get provided :dependencies)
+                                                   (get provided :source-paths)
+                                                   (get provided :resource-paths)
+                                                   (get provided :jvm-opts)]))
+                            ["profile :provided merged into the base manifest (lein has it active by default)"])
+                          (map (fn [k]
+                                 (str "profile :provided dropped " (str k)
+                                      " (no rig equivalent)"))
+                                (filter (fn [k]
+                                          (not (contains? #{:dependencies :source-paths
+                                                           :resource-paths :jvm-opts} k)))
+                                        (keys (or provided {}))))
                          (when (some? (get profiles :uberjar))
                            ["profile :uberjar dropped (:rig/uberjar? true emitted for `rig build --uber`)"]))]
     {:target target :problems (vec problems) :warnings (vec warnings)}))
