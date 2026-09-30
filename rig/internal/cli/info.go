@@ -32,9 +32,13 @@ func newInfoCmd(o *opts) *cobra.Command {
 				fmt.Printf("lock:\tmissing (run 'rig lock')\n")
 			} else {
 				l := root.Lock
-				fmt.Printf("lock:\t%s by %s %s (%s), %d artifacts\n",
+				jarSHA := ""
+				if l.Resolver.SHA256 != "" {
+					jarSHA = ", " + shortSHA(l.Resolver.SHA256)
+				}
+				fmt.Printf("lock:\t%s by %s %s (%s%s), %d artifacts\n",
 					l.LockedAt.UTC().Format("2006-01-02T15:04:05Z"),
-					l.Resolver.Lib, l.Resolver.Version, shortSHA(l.Resolver.GitSHA),
+					l.Resolver.Lib, l.Resolver.Version, shortSHA(l.Resolver.GitSHA), jarSHA,
 					len(l.Artifacts))
 				if stale, err := l.Stale(root.Dir); err == nil && len(stale) > 0 {
 					fmt.Printf("stale:\t%s\n", strings.Join(stale, ", "))

@@ -114,7 +114,9 @@ stamped into the Go binary at release time (`make pin`). Before any use,
 Go verifies the jar's sha256, whether it is freshly downloaded or already
 in the cache (`~/.local/share/rig/kernel/<git-sha>/`); a mismatch is a
 hard error. The lock records the kernel that produced it in its
-`resolver` block, so a lock always says who resolved it.
+`resolver` block — the pin plus the sha256 of the jar that actually ran,
+stamped by Go at lock time, not by the kernel — so a lock always says who
+resolved it.
 
 The kernel jar is built reproducibly — identical sources produce a
 byte-identical jar (zip entry timestamps are normalized) — which is what

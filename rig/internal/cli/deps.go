@@ -243,7 +243,7 @@ func (o *opts) editDep(ctx context.Context, root *workspace.Root, module, coord,
 	if len(parsed.Refused) > 0 {
 		return nil, nil, refusedErr(parsed.Refused)
 	}
-	if err := completeLock(ctx, o.fetchClient(ctx, root), store, o.m2Root(), parsed.Lock); err != nil {
+	if err := completeLock(ctx, o.fetchClient(ctx, root), store, o.m2Root(), jar, parsed.Lock); err != nil {
 		return nil, nil, err
 	}
 	if err := parsed.Lock.Save(root.LockPath()); err != nil {
