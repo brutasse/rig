@@ -325,3 +325,69 @@
               (is (re-find #"hi" (:out p)))))
           (finally
             (delete-tree ws-dir)))))))
+
+(deftest prep-ensure-content-survives-the-clean
+  "A build must not destroy the module's prep output: when the prep :ensure
+  covers the class-dir, its content (the build's input) survives the clean
+  and lands in the jar. (blockstorage/proto: the prep javacs the module's
+  java sources into target/classes, which is also the class-dir, and the
+  build declares no java-src-dirs of its own.)"
+  (let [ws-dir (temp-dir)
+        ws (str ws-dir)
+        src-root (io/file ws-dir "src")
+        res-root (io/file ws-dir "resources")
+        class-dir (io/file ws "target/classes")
+        prep-class (io/file class-dir "com" "example" "PrepGenerated.class")
+        jar-file (str ws "/target/fixture.jar")]
+    (io/make-parents (io/file src-root "com" "example" "Thing.java"))
+    (spit (io/file src-root "com" "example" "Thing.java")
+          "package com.example;\n\npublic class Thing {}\n")
+    (io/make-parents prep-class)
+    (spit prep-class "prep-output")
+    (spit (io/file class-dir "stale.txt") "prep-note")
+    (try
+      (let [cfg (-> (cfg ws src-root res-root false)
+                    (dissoc :main)
+                    (assoc :java-src-dirs []
+                           :prep-ensure [(str class-dir)]))]
+        (build/build {:args {:builds {"." cfg}}})
+        (is (.exists prep-class) "prep output must survive the build's clean")
+        (is (.exists (io/file class-dir "stale.txt")) "prep output must survive the build's clean")
+        (let [names (zip-names jar-file)]
+          (is (contains? names "com/example/PrepGenerated.class") names)
+          (is (contains? names "stale.txt") names)
+          (is (contains? names "com/example/Thing.java") names)))
+      (finally
+        (delete-tree ws-dir)))))
+
+(deftest clean-wipes-non-prep-content
+  "The clean still wipes the build's own stale output: class-dir content
+  that is not under a prep :ensure path is deleted, while ensure content
+  survives."
+  (let [ws-dir (temp-dir)
+        ws (str ws-dir)
+        src-root (io/file ws-dir "src")
+        src-file (io/file src-root "example" "core.clj")
+        res-root (io/file ws-dir "resources")
+        class-dir (io/file ws "target/classes")
+        gen-file (io/file class-dir "generated" "gen.bin")
+        stale-class (io/file class-dir "example" "gone__init.class")
+        jar-file (str ws "/target/fixture.jar")]
+    (io/make-parents src-file)
+    (spit src-file "(ns example.core)\n(defn add [a b] (+ a b))\n")
+    (io/make-parents gen-file)
+    (spit gen-file "generated")
+    (io/make-parents stale-class)
+    (spit stale-class "stale")
+    (try
+      (let [cfg (-> (cfg ws src-root res-root false)
+                    (assoc :prep-ensure [(str (io/file class-dir "generated"))]))]
+        (build/build {:args {:builds {"." cfg}}})
+        (is (.exists gen-file) "ensure content must survive the clean")
+        (is (not (.exists stale-class)) "stale non-prep content must be wiped")
+        (let [names (zip-names jar-file)]
+          (is (contains? names "generated/gen.bin") names)
+          (is (not (contains? names "example/gone__init.class")) names)
+          (is (contains? names "example/core__init.class") names)))
+      (finally
+        (delete-tree ws-dir)))))

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"archive/zip"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -18,6 +19,23 @@ import (
 func prepEnv(t *testing.T, dir string, doc *lockfile.Document) *hotEnv {
 	t.Helper()
 	return &hotEnv{root: &workspace.Root{Dir: dir}, lock: doc}
+}
+
+// zipNames returns the file entry names of the jar at path.
+func zipNames(t *testing.T, path string) map[string]bool {
+	t.Helper()
+	zf, err := zip.OpenReader(path)
+	if err != nil {
+		t.Fatalf("open %s: %v", path, err)
+	}
+	defer zf.Close()
+	names := map[string]bool{}
+	for _, f := range zf.File {
+		if !f.FileInfo().IsDir() {
+			names[f.Name] = true
+		}
+	}
+	return names
 }
 
 func TestPrepOrder(t *testing.T) {
@@ -441,7 +459,25 @@ func TestBuildPrepEndToEnd(t *testing.T) {
 		t.Fatalf("prep re-ran on rebuild: %q", log)
 	}
 
-	// 3. touching a's source re-preps a and (transitively) b, in order —
+	// 3. building a prep module must not destroy its own prep output: the
+	// :ensure content is the build's input, so it survives the clean and
+	// lands in the jar.
+	code, out = runCLI(t, "build", "-p", "a", "--cache-dir", cacheDir)
+	if code != 0 {
+		t.Fatalf("build -p a exit = %d, want 0; out: %s", code, out)
+	}
+	if !statOK("a/target/classes/marker.txt") {
+		t.Fatalf("build -p a destroyed the prep output; out: %s", out)
+	}
+	names := zipNames(t, "a/target/a-0.0.1.jar")
+	if !names["marker.txt"] {
+		t.Fatalf("a jar missing marker.txt (prep output); out: %s", out)
+	}
+	if !names["a__init.class"] {
+		t.Fatalf("a jar missing its own AOT class; out: %s", out)
+	}
+
+	// 4. touching a's source re-preps a and (transitively) b, in order —
 	// not c or d, which do not depend on a.
 	writeFile(t, "a/src/a.clj", "(ns a)\n;; touched\n")
 	code, out = runCLI(t, "build", "-p", ".", "--cache-dir", cacheDir)
@@ -453,7 +489,7 @@ func TestBuildPrepEndToEnd(t *testing.T) {
 		t.Fatalf("prep-log after touch = %q, want a b d a b", log)
 	}
 
-	// 4. run and test see the preps as up to date.
+	// 5. run and test see the preps as up to date.
 	code, out = runCLI(t, "run", "-p", ".", "--cache-dir", cacheDir)
 	if code != 0 {
 		t.Fatalf("run exit = %d, want 0; out: %s", code, out)
@@ -475,7 +511,7 @@ func TestBuildPrepEndToEnd(t *testing.T) {
 		t.Fatalf("test re-ran prep: %s", out)
 	}
 
-	// 5. touching c's java re-javacs c and (transitively) re-preps d —
+	// 6. touching c's java re-javacs c and (transitively) re-preps d —
 	// javac and fn — while a and b stay up to date.
 	writeFile(t, "c/java/c/Thing.java", "package c;\n\npublic class Thing {\n  public static String hi() {\n    return \"c-java-2\";\n  }\n}\n")
 	code, out = runCLI(t, "build", "-p", ".", "--cache-dir", cacheDir)
@@ -495,7 +531,7 @@ func TestBuildPrepEndToEnd(t *testing.T) {
 		t.Fatalf("prep-log after touch-c = %q, want a b d a b d", log)
 	}
 
-	// 6. a failing prep fn fails the build.
+	// 7. a failing prep fn fails the build.
 	writeFile(t, "b/build/build.clj", "(ns build)\n(defn prep [_] (throw (Exception. \"prep boom\")))\n")
 	code, out = runCLI(t, "build", "-p", ".", "--cache-dir", cacheDir)
 	if code == 0 {

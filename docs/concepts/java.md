@@ -94,9 +94,10 @@ classpath, no separate function whose calling convention you have to
 know.
 
 A module that declares **both** `:rig/java-src-dirs` and a prep function
-gets the javac first and then its prep function: the javac clears the
-class dir, so it must run first, and the function's classpath leads with
-the freshly compiled classes. Each keeps its own staleness stamp.
+gets the javac first and then its prep function: the function's classpath
+leads with the freshly compiled classes. The javac does not clear the
+prep's `:ensure` output — a clean wipes only the build's own previous
+output. Each keeps its own staleness stamp.
 
 ## When to keep `:deps/prep-lib`
 
@@ -108,3 +109,8 @@ declared `:ensure` output, and tracks staleness exactly as for the native
 javac. The function is called with a single `nil` argument — the way
 tools.deps' `exec-prep!` invokes it when the alias declares no
 `:exec-args` — so declare it `[f]` or `[& _]`, not `[]`.
+
+Building the prep module itself does not destroy the prep's output: the
+build's clean step wipes only the build's own previous output, so the
+declared `:ensure` content — including a class dir the prep owns —
+survives and lands in the jar.
