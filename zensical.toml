@@ -1,7 +1,7 @@
 [project]
 site_url = "https://brutasse.github.io/rig/"
-site_name = "rig"
-site_description = "Cargo for Clojure — build and run Clojure projects, the obvious way"
+site_name = "Rig"
+site_description = "Build and run Clojure projects, the obvious way"
 site_author = "Bruno Renié"
 copyright = "&copy; 2026 Bruno Renié"
 

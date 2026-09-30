@@ -22,7 +22,7 @@ rig test :kaocha.filter/focus '[:unit]'
 
 Keywords, strings, numbers, booleans, vectors, and maps are supported —
 so any option your runner accepts works, exactly as it would with
-`clj -X:test`. The child process's exit code is rig's exit code: a failing
+`clj -X:test`. The child process's exit code is Rig's exit code: a failing
 test suite fails your shell.
 
 A module participates when its `:test` alias declares an `:exec-fn`;
@@ -36,7 +36,7 @@ rig run -p modules/orchestrator -- --env dev
 
 `rig run` launches the module's `:rig/main` on its locked classpath.
 Program arguments are plain strings; to keep a program's flags from being
-read as rig flags, separate them with `--`:
+read as Rig flags, separate them with `--`:
 
 ```sh
 rig run -p modules/orchestrator                    # no program args
@@ -55,7 +55,7 @@ rig repl --alias dev -p modules/orchestrator
 
 ## The escape hatch: `rig exec`
 
-For anything rig does not have a verb for — a script, a linter, a database
+For anything Rig does not have a verb for — a script, a linter, a database
 client — `rig exec` runs a command with the project's locked classpath
 exported:
 
@@ -70,7 +70,7 @@ The command inherits:
 - `JAVA_OPTS` — the module/alias JVM options, if any;
 - the module directory as working directory.
 
-Your command's exit code is rig's exit code.
+Your command's exit code is Rig's exit code.
 
 ## Code hygiene
 
@@ -84,7 +84,7 @@ rig clean -p modules/app
 ```
 
 `lint` needs `clj-kondo` on your PATH and works without a lock — it lints
-source. `fmt` uses the cljfmt pinned inside rig's kernel jar, so everyone
+source. `fmt` uses the cljfmt pinned inside Rig's kernel jar, so everyone
 formats with the same version; it also works without a lock.
 
 ## What every hot command does first
@@ -93,7 +93,7 @@ formats with the same version; it also works without a lock.
 discipline before launching anything:
 
 1. no lock → `no lock at deps.lock (run 'rig lock')`, exit 3;
-2. manifest changed → in development rig re-locks silently and prints
+2. manifest changed → in development Rig re-locks silently and prints
    `relocked (stale: <modules>)`; with `--frozen` it fails with exit 3
    instead;
 3. every classpath artifact is hash-checked against the lock (secured from

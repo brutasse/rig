@@ -1,9 +1,21 @@
-# Rig - Opinionated Clojure build tool
+# Rig
+
+Build and run Clojure projects, the obvious way: one binary, one manifest,
+one lockfile, one way to do each thing.
+
+Builds are boring and standardized — the last place you want to spend
+innovation tokens. tools.build asks you to write your build as a program
+in Clojure and maintain it for the life of the project; Rig takes the
+opposite bet. Instead of build code you write and defend, you get one
+native binary with one implementation of each operation: an authoritative
+`deps.lock` that sha256-pins the entire resolved dependency tree, every
+artifact hash-verified before it enters a classpath, and drift that fails
+loudly instead of living silently in hand-maintained files.
 
 ## Documentation
 
 User guide, workflows, configuration, and migration guides:
-[rig documentation](https://brutasse.github.io/rig/).
+[Rig documentation](https://brutasse.github.io/rig/).
 
 ## Install
 
@@ -17,7 +29,7 @@ curl -fsSL https://raw.githubusercontent.com/brutasse/rig/29b0bb60817c7ce2db5d3a
 
 Installs to `~/.local/bin` (override: `INSTALL_DIR=…`), verifies the binary
 against the release's `SHA256SUMS`. The resolver kernel jar is not
-installed: the rig binary fetches its pinned kernel from the matching GitHub
+installed: the Rig binary fetches its pinned kernel from the matching GitHub
 release on first use, hash-verified. Pass a version to install something
 other than the latest release: `sh -s -- v0.2.0`.
 
@@ -29,24 +41,24 @@ rig self-update --check            # report only
 rig self-update --version v0.2.0   # update to a specific release
 ```
 
-rig also checks for new releases at most once per 24h (TTL in the state dir;
+Rig also checks for new releases at most once per 24h (TTL in the state dir;
 skipped under `--offline` and on local/dev builds) and prints one line on
 stderr when a newer release exists.
 
-Releasing rig: tag `vX.Y.Z` and push it. The CI workflow
+Releasing Rig: tag `vX.Y.Z` and push it. The CI workflow
 (`.github/workflows/ci.yml`) runs the test suite, and once it is green the
-release job builds the kernel jar and cross-compiled rig binaries, stamps
+release job builds the kernel jar and cross-compiled Rig binaries, stamps
 the kernel pin, publishes the binaries + kernel jar + `SHA256SUMS` as
 GitHub release assets, and re-pins the install one-liner sha in this file.
 
 ## JVMs
 
 A project can pin its JVM with `:rig/jvm` in the root `deps.edn`
-(e.g. `{:rig/jvm "21"}`). rig then manages the JDK: `rig jvm
+(e.g. `{:rig/jvm "21"}`). Rig then manages the JDK: `rig jvm
 install 21`, the lock records the exact Temurin release, and missing JDKs
-are auto-installed into the rig state dir (hash-verified via the Adoptium
+are auto-installed into the Rig state dir (hash-verified via the Adoptium
 API). `rig new` scaffolds projects with the current LTS pin. Without the
-pin, rig uses `JAVA_HOME`/`PATH`; when no JVM is found, it suggests the
+pin, Rig uses `JAVA_HOME`/`PATH`; when no JVM is found, it suggests the
 current LTS to install (it never installs on its own).
 
 Native-image builds (`rig build --native`) work off the same pin: the
@@ -61,8 +73,8 @@ compiler and a few GB of RAM, and takes minutes.
 ## Docker
 
 The CI workflow also publishes `ghcr.io/brutasse/rig`
-(`vX.Y.Z` + `latest`, amd64/arm64): the rig binary plus its hash-pinned
-kernel jar, pre-baked into the rig state dir (no first-run GitHub fetch),
+(`vX.Y.Z` + `latest`, amd64/arm64): the Rig binary plus its hash-pinned
+kernel jar, pre-baked into the Rig state dir (no first-run GitHub fetch),
 on a Temurin 21 base.
 
 ```dockerfile
@@ -75,8 +87,8 @@ COPY --from=ghcr.io/brutasse/rig:latest /root/.local/share/rig /root/.local/shar
 
 See [Docker in the docs](https://brutasse.github.io/rig/workflows/docker.html)
 (pinned JVMs, non-root users, offline builds). For a production
-entrypoint, `rig launch` runs the built artifact with rig's JVM flag set —
-the rig image is both build base and runtime, or the jar alone + a JRE in
+entrypoint, `rig launch` runs the built artifact with Rig's JVM flag set —
+the Rig image is both build base and runtime, or the jar alone + a JRE in
 a slim image.
 
 ## Local development
@@ -103,18 +115,18 @@ release-time artifact — `make pin` stamps it (version, git sha, GitHub
 release URL, jar sha256) and the release workflow pushes it to main, so
 feature branches do not commit pin changes.
 
-How the kernel jar and runner jar reach the rig binary:
+How the kernel jar and runner jar reach the Rig binary:
 
 - Local: `RIG_KERNEL_JAR=<absolute jar path>` and
   `RIG_RUNNER_JAR=<absolute runner jar path>` — trusted local overrides,
   used in place of the downloaded artifacts (no hash check). The two
   travel together: a local kernel without a local runner is an error.
-- Published: without the overrides, rig fetches the pinned kernel and
+- Published: without the overrides, Rig fetches the pinned kernel and
   runner from the GitHub release assets into its cache and hash-verifies
   them against the `JARSHA`/`RunnerSHA` pins. The pin is stamped per
   release by the release workflow, which pushes it to main. The runner
   jar is an install-time artifact: the Docker image ships it pre-seeded
-  (the store stays read-only), and rig never extracts it at runtime.
+  (the store stays read-only), and Rig never extracts it at runtime.
 - `make run` sets both for you; other invocations of `rig/dist/rig` need
   them exported.
 - The Go E2E tests find the jars via `RIG_TEST_KERNEL_JAR` /

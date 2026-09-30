@@ -16,8 +16,8 @@ installing it. Install a specific release instead of the latest:
 curl -fsSL …/scripts/install-rig.sh | sh -s -- v0.2.0
 ```
 
-The resolver kernel — a pinned Clojure jar that rig uses for the "cold"
-commands — is not installed with the binary. On first use, rig fetches it
+The resolver kernel — a pinned Clojure jar that Rig uses for the "cold"
+commands — is not installed with the binary. On first use, Rig fetches it
 from the matching GitHub release and hash-verifies it into its state
 directory. Cold commands are the ones that resolve, build, publish, or edit
 manifests (`lock`, `update`, `build`, `check`, …); the day-to-day commands
@@ -32,21 +32,21 @@ rig self-update --version v0.2.0   # update to a specific release
 ```
 
 The binary must live in a writable directory for `self-update` to work
-(`~/.local/bin` from the installer is). rig also checks for new releases at
+(`~/.local/bin` from the installer is). Rig also checks for new releases at
 most once per 24 hours and prints one line on stderr when a newer release
 exists; the check is skipped under `--offline` and on local/dev builds.
 
 ## Prerequisites
 
-- **A JDK on `PATH` or in `JAVA_HOME`** — or let rig install one: a
+- **A JDK on `PATH` or in `JAVA_HOME`** — or let Rig install one: a
   `:rig/jvm` pin (or `rig jvm install <version>`) fetches a hash-verified
-  Temurin into the rig state dir. When no JVM is found at all, the error
+  Temurin into the Rig state dir. When no JVM is found at all, the error
   tells you which version to install (the current LTS).
 - **`clj-kondo` on `PATH`**, only for `rig lint`.
 - **`~/.m2/settings.xml`** with credentials for your private Maven
   repositories, if you use them (same file Maven and tools.deps use today).
 
-That is the whole list. No Clojure CLI required — rig does not shell out to
+That is the whole list. No Clojure CLI required — Rig does not shell out to
 `clj`.
 
 ## Your first project
@@ -64,7 +64,7 @@ next: cd demo && rig lock && rig test
 
 The root manifest pins the current LTS JVM (`:rig/jvm "25"` — omitted under
 `--offline`, or when the Adoptium lookup fails); `rig lock` installs it into
-the rig state dir on first use, so the JDK prerequisite above is optional
+the Rig state dir on first use, so the JDK prerequisite above is optional
 for new projects.
 
 The layout:

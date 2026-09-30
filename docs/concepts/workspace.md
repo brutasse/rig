@@ -1,6 +1,6 @@
 # Workspaces and modules
 
-A rig project is either a **single module** or a **workspace** of modules.
+A Rig project is either a **single module** or a **workspace** of modules.
 The difference is one key in the root `deps.edn`.
 
 ## Single module

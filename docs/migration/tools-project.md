@@ -57,7 +57,7 @@ Limitations of this setup:
 
 ## The key mapping
 
-| Legacy | rig |
+| Legacy | Rig |
 |---|---|
 | `:exoscale.project/lib` | `:rig/lib` |
 | `:exoscale.project/version` | `:rig/version` |
@@ -77,14 +77,14 @@ Limitations of this setup:
 | `:exoscale.project/modules` | `:rig/modules` |
 | `:exoscale.deps/managed-dependencies` + `:exoscale.deps/inherit` + `merge-deps` | materialized into the modules' `:deps` by `rig migrate` (declared keys win over the pool); the pool is dropped, pins land in `deps.lock` — no ongoing merge step |
 | `:exoscale.deps/managed-aliases` + `merge-aliases` | nothing — aliases are per-module |
-| `:project` alias (every file) | nothing — rig is a native binary |
+| `:project` alias (every file) | nothing — Rig is a native binary |
 | `:exoscale.project/tasks` | nothing — `rig exec` is the escape hatch |
 
 Full key reference: [configuration](../reference/config.md).
 
 ## The command mapping
 
-| Legacy (Makefile / `-T:project`) | rig |
+| Legacy (Makefile / `-T:project`) | Rig |
 |---|---|
 | `init` | `rig new` |
 | `add-module` | `rig new-module` |
@@ -104,16 +104,16 @@ Full key reference: [configuration](../reference/config.md).
 | `test` | `rig test` |
 | `version` / `info` | `rig version` / `rig info` |
 
-Modules that declared `:deps/prep-lib` keep working — rig runs the prep
+Modules that declared `:deps/prep-lib` keep working — Rig runs the prep
 function automatically, staleness-checked. If the function is just "javac
-my own sources into my class dir", rig does that natively now: declare
+my own sources into my class dir", Rig does that natively now: declare
 `:rig/java-src-dirs` and drop the prep library. See
 [Java sources](../concepts/java.md).
 
 ## Step 1 — add the lock (do this first, ship it)
 
 Your manifests are already fully self-contained (that was the invariant
-tools.project enforced), so rig can lock them untouched:
+tools.project enforced), so Rig can lock them untouched:
 
 ```sh
 rig lock
@@ -160,7 +160,7 @@ release: ## Release jar modules & tag versions
 	$(CLJ) -T:project release
 ```
 
-After: the rig verbs, directly.
+After: the Rig verbs, directly.
 
 ```sh
 rig check
@@ -170,11 +170,11 @@ rig build --uber
 rig release
 ```
 
-rig is a native binary with the verbs — the Makefile wrapper that existed
+Rig is a native binary with the verbs — the Makefile wrapper that existed
 to feed `clojure -T:project` is no longer needed. If the Makefile only
 wrapped the old tooling, delete it here or in step 5. If it carries
 anything else (docker-compose conveniences, local overrides), keep it,
-and the surviving targets become one-liners around the rig verbs.
+and the surviving targets become one-liners around the Rig verbs.
 
 `merge-deps` disappears with the step; the `git config safe.directory`
 workaround is no longer needed either. Run the test suite and the
@@ -279,7 +279,7 @@ A real multi-module project (eight modules, hundreds of locked artifacts)
 went through exactly these steps:
 
 1. `rig lock` on the untouched legacy repo → `deps.lock` committed;
-2. Makefile and both GitHub workflows swapped to the rig verbs; locked
+2. Makefile and both GitHub workflows swapped to the Rig verbs; locked
    classpath verified **byte-identical** to `clojure -Spath` on all
    module/alias combinations;
 3. `rig migrate` rewrote all 8 manifests `:exoscale.*` → `:rig/*` (comments

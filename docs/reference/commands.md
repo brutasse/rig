@@ -15,7 +15,7 @@ documentation of record; this page is the map.
 | `check` | cold+hot | Lock-vs-manifest consistency + namespace load and AOT-compile per module. Never re-locks. |
 | `test [opt value…]` | hot | Run the modules' test exec-fns on locked classpaths. |
 | `run [args…]` | hot | Run the module's `:rig/main` on the (alias) classpath. |
-| `launch [jar] [args…]` | hot | Launch the built artifact with rig's production JVM flags (G1 + AlwaysPreTouch, exit-on-OOM, loopback JMX on 10101), overridable via `:rig/launch-opts`. The jar's baked launch plan, or the lock, supplies the main. Never re-locks, never uses the network. |
+| `launch [jar] [args…]` | hot | Launch the built artifact with Rig's production JVM flags (G1 + AlwaysPreTouch, exit-on-OOM, loopback JMX on 10101), overridable via `:rig/launch-opts`. The jar's baked launch plan, or the lock, supplies the main. Never re-locks, never uses the network. |
 | `repl` | hot | `clojure.main` REPL on the (alias) classpath. |
 | `exec <cmd> [args…]` | hot | Run a command with the locked classpath as `CLASSPATH`. |
 | `build [--uber \| --native]` | cold | Jar / uberjar / native-image binary via the locked classpath. |
@@ -30,15 +30,15 @@ documentation of record; this page is the map.
 | `new <group/name>` | — | Scaffold a new project. |
 | `new-module <name>` | cold | Scaffold a module in the workspace, add it, re-lock. |
 | `migrate [--dry-run]` | cold | Convert a legacy (`:exoscale.*` / `:slipset.*`) workspace to `:rig/*` in place. |
-| `jvm install <version>` | — | Install a Temurin JDK into the rig state dir. |
+| `jvm install <version>` | — | Install a Temurin JDK into the Rig state dir. |
 | `jvm list` | — | Installed JDKs + the system `java`. |
 | `jvm uninstall <version>` | — | Remove an installed JDK. |
 | `jvm update` | — | Bump the locked JVM to the newest release satisfying `:rig/jvm`. |
-| `graalvm install <version>` | — | Install a GraalVM community JDK into the rig state dir. |
+| `graalvm install <version>` | — | Install a GraalVM community JDK into the Rig state dir. |
 | `graalvm list` | — | Installed GraalVMs. |
 | `graalvm uninstall <version>` | — | Remove an installed GraalVM. |
 | `graalvm update` | — | Bump the locked GraalVM to the newest build satisfying `:rig/jvm`. |
-| `self-update [--check]` | — | Update the rig binary from the GitHub releases. |
+| `self-update [--check]` | — | Update the Rig binary from the GitHub releases. |
 | `auth get [gate\|url]` | — | Print the bearer token of an OIDC gate (env, cache, or negotiated). |
 | `version` | hot | Print the project version. |
 | `info` | hot | Project and tool summary. |
@@ -134,10 +134,10 @@ What it does, mechanically:
   a declared version/source key wins over the managed one — each such win
   is a per-dep warning, not a silent rewrite.
 - Drops `:exoscale.deps/managed-aliases` (only the `:project` alias exists;
-  rig has no alias inheritance) and the `:project` aliases themselves.
+  Rig has no alias inheritance) and the `:project` aliases themselves.
 - Rewrites `:slipset.deps-deploy/exec-args` into `:rig/publish?` +
   `:rig/publish` (`:repo`, `:sign-releases?`); a deploy repo with an
-  `s3p://` URL is a blocking problem (rig publishes to http/https
+  `s3p://` URL is a blocking problem (Rig publishes to http/https
   repositories only).
 
 `--dry-run` runs the same analysis and reports per-file changes without
@@ -183,7 +183,7 @@ Two stages, one exit code:
    `org.clojure/spec.alpha` to be present (it loads `clojure.core.server`
    at init), so a module declaring no spec (directly or transitively)
    fails with a `spec/alpha` class-not-found — a missing project
-   dependency, not a rig failure.
+   dependency, not a Rig failure.
 
 ```
 check: error [stale-lock] modules/app org.clojure/clojure: manifest requires "1.11.0"; lock pins "1.12.5" — run rig update
@@ -217,7 +217,7 @@ includes the alias's extra-deps.
 ### `rig info` / `rig version`
 
 `info` prints the workspace summary: modules, lock state (and staleness),
-JVM, cache dir, rig and kernel versions. `version` prints the project
+JVM, cache dir, Rig and kernel versions. `version` prints the project
 version from the `VERSION` file (module dir, then root) or the locked
 module version.
 
@@ -237,7 +237,7 @@ dependency order. Arguments are EDN literals forwarded to the runner:
 rig test :kaocha.filter/focus '[:unit]'
 ```
 
-The runner's exit code is rig's. A module pinning `org.clojure/clojure`
+The runner's exit code is Rig's. A module pinning `org.clojure/clojure`
 below the 1.8.0 floor fails before anything runs (the same `clojure-floor`
 gate as check).
 
@@ -257,10 +257,10 @@ after `--` pass through: `rig run -p modules/app -- --env dev`.
 rig launch [jar] [args…]
 ```
 
-Launch the built artifact with rig's production JVM flags — the entrypoint
+Launch the built artifact with Rig's production JVM flags — the entrypoint
 for a deployed app. Flags, in order:
 
-1. **rig's production defaults**: G1 garbage collection
+1. **Rig's production defaults**: G1 garbage collection
    (`-XX:+UseG1GC`, with `-XX:+AlwaysPreTouch`), exit on out-of-memory
    (`-XX:+ExitOnOutOfMemoryError`, plus
    `-XX:+HeapDumpOnOutOfMemoryError`), and loopback-only JMX on port
@@ -271,7 +271,7 @@ for a deployed app. Flags, in order:
 2. **the module's `:rig/launch-opts`** — later flags override the defaults
    (last JVM flag wins). A garbage collector in `:rig/launch-opts` (e.g.
    `-XX:+UseZGC`) *replaces* the G1 default: the JVM refuses to start with
-   two collectors selected, so rig drops its own rather than pass both.
+   two collectors selected, so Rig drops its own rather than pass both.
 3. `-jar <uberjar>`, or `-cp <locked classpath> <main>` for the plain jar.
 
 The first positional is the jar, when it names an existing file; otherwise
@@ -288,7 +288,7 @@ data for it (a stale lock is ignored, `--frozen` is a no-op), JDKs are
 never auto-installed, and classpath artifacts must already be cached. The
 launch JVM's major version must exactly match the build JVM's (a different
 major fails in both directions) — exit 2, as is a missing artifact. The
-child's exit code is rig's.
+child's exit code is Rig's.
 
 ### `rig repl`
 
@@ -306,8 +306,8 @@ rig exec <command> [args…]
 
 Run any command with the locked classpath exported as `CLASSPATH` (and
 `JAVA_OPTS` from the module/alias JVM options), in the module directory.
-The command's exit code is rig's. The escape hatch for scripts and tools
-rig has no verb for.
+The command's exit code is Rig's. The escape hatch for scripts and tools
+Rig has no verb for.
 
 ## Authentication
 
@@ -396,7 +396,7 @@ re-locks.
 
 ### `rig self-update`
 
-Update the rig binary from the GitHub releases (hash-verified against the
+Update the Rig binary from the GitHub releases (hash-verified against the
 release `SHA256SUMS`, atomic replace). `--check` reports only;
 `--version vX.Y.Z` targets an exact release. Release builds only.
 

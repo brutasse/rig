@@ -1,12 +1,12 @@
-# How rig works
+# How Rig works
 
-The other pages of this site describe *what* rig does. This section
+The other pages of this site describe *what* Rig does. This section
 describes *how*: the two components, the boundary between them, and where
 each guarantee lives in the code.
 
 ## Two components, one rule
 
-rig is a Go binary driving a pinned Clojure kernel:
+Rig is a Go binary driving a pinned Clojure kernel:
 
 ```
 ┌─────────────────────────────┐         ┌──────────────────────────────┐
@@ -70,7 +70,7 @@ Go also sets a small environment for the kernel JVM:
   `http://` (local dev servers, tests);
 - `RIG_REPO_TOKENS` — an EDN `{repo-id bearer}` map for `:auth :oidc`
   repositories, used by the kernel's own metadata probes;
-- `RIG_PROXY_REPOS` — for the same repositories, the base URL of rig's
+- `RIG_PROXY_REPOS` — for the same repositories, the base URL of Rig's
   local loopback auth proxy. `tools.deps` cannot be given a bearer token
   of its own, so resolution traffic for those repos is rewritten to the
   proxy, which forwards to the real URL with the bearer attached. Repo
@@ -123,7 +123,7 @@ byte-identical jar (zip entry timestamps are normalized) — which is what
 makes a stable jar sha256 pin possible. The runner jar (rig.runner's class
 files only) is pinned the same way and is an install-time artifact: the
 Docker image pre-seeds it into the store, local runs point at it with
-`RIG_RUNNER_JAR`, and rig never extracts or writes it at runtime — hot
+`RIG_RUNNER_JAR`, and Rig never extracts or writes it at runtime — hot
 commands run on stores that may be read-only.
 
 ## Code map

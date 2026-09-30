@@ -1,6 +1,6 @@
 # Java sources
 
-rig compiles Java in two situations: when you build a module that declares
+Rig compiles Java in two situations: when you build a module that declares
 `:rig/java-src-dirs`, and automatically, when a module you build depends on
 another local module that declares them.
 
@@ -16,7 +16,7 @@ A module with Java sources declares the directories:
 compiling its Clojure, so Clojure code that references the module's own
 Java classes compiles. The classes land in the jar, the uberjar and the
 native image like anything else compiled into the class dir. Options go in
-`:rig/javac-opts`; when the workspace pins `:rig/jvm`, rig prepends
+`:rig/javac-opts`; when the workspace pins `:rig/jvm`, Rig prepends
 `--release <n>` unless your opts already set the source level.
 
 ## Local dependency modules
@@ -35,7 +35,7 @@ Two declarations make it work, both in `a`:
  :rig/java-src-dirs ["src"]}                             ;; (2)
 ```
 
-1. `:paths` must include the class dir. rig flows a local dependency's
+1. `:paths` must include the class dir. Rig flows a local dependency's
    `:paths` into every dependent's classpath — that is how `b` sees
    `a/target/classes`. Without this entry the consumer compiles against an
    empty (or absent) directory.
@@ -45,14 +45,14 @@ With that, `rig build` / `test` / `run` of `b` (or of anything downstream
 of `a`) javacs `a` automatically — on `a`'s **locked** base classpath,
 into `a`'s class dir — before `b` compiles. The javac is the same one a
 full build of `a` runs, and it carries the same staleness tracking as
-everything else in rig: a stamp under `a/target/` records the manifest
+everything else in Rig: a stamp under `a/target/` records the manifest
 hash, a content digest of the sources and a digest of the locked
 dependencies; any of them changing (or a dependency of `a` being
 re-prepped) re-runs the javac. `rig clean` removes the output and the
 stamp.
 
 No re-resolution happens: the classpath the javac uses is the locked one
-rig already fetched and hashed. There is no in-JVM Maven step, so a
+Rig already fetched and hashed. There is no in-JVM Maven step, so a
 dependency's repository credentials are never needed at prep time.
 
 ## Migrating away from `:deps/prep-lib`
@@ -77,7 +77,7 @@ else builds" is a tools.deps prep library:
 ```
 
 If the prep function is just "javac my own sources into my class dir",
-rig already does that natively. The migration:
+Rig already does that natively. The migration:
 
 1. add `:rig/java-src-dirs` to the proto module (point it at the Java
    sources);
@@ -88,8 +88,8 @@ rig already does that natively. The migration:
    `:prep` alias).
 
 Consumers change nothing — they still depend on the proto module by
-`:local/root`, and rig prepares it for them. The manifest is
-self-contained afterwards: no build file rig never reads, no second
+`:local/root`, and Rig prepares it for them. The manifest is
+self-contained afterwards: no build file Rig never reads, no second
 classpath, no separate function whose calling convention you have to
 know.
 
@@ -104,7 +104,7 @@ output. Each keeps its own staleness stamp.
 Keep the prep library when the preparation is not plain javac: AOT
 compiling the module's own Clojure for its dependents, code generation
 that must run inside the module's own classpath, anything else custom.
-rig runs the function on the locked `:prep` alias classpath, verifies the
+Rig runs the function on the locked `:prep` alias classpath, verifies the
 declared `:ensure` output, and tracks staleness exactly as for the native
 javac. The function is called with a single `nil` argument — the way
 tools.deps' `exec-prep!` invokes it when the alias declares no

@@ -1,13 +1,13 @@
 # Docker
 
-rig ships a Docker image, `ghcr.io/brutasse/rig`, built by the release job
+Rig ships a Docker image, `ghcr.io/brutasse/rig`, built by the release job
 for every release — tags `vX.Y.Z` and `latest`, multi-arch
 (`linux/amd64`, `linux/arm64`).
 
 The image contains:
 
 - the `rig` binary at `/usr/local/bin/rig`;
-- the resolver kernel jar, **pre-baked** into the rig state dir at the exact
+- the resolver kernel jar, **pre-baked** into the Rig state dir at the exact
   path the binary's pin expects
   (`/root/.local/share/rig/kernel/<git-sha>/rig-resolver.jar`). The release
   jar, hash-verified — no GitHub fetch on first use;
@@ -29,12 +29,12 @@ RUN rig verify --frozen && rig test --frozen
 ## As an app entrypoint
 
 `rig launch` is the production entrypoint: it runs the built artifact with
-rig's JVM flag set (G1, exit-on-OOM, loopback-only JMX on a single port,
+Rig's JVM flag set (G1, exit-on-OOM, loopback-only JMX on a single port,
 10101), overridable per module via `:rig/launch-opts`. Two patterns:
 
 ### The workspace image
 
-The rig image is both the build base and the runtime:
+The Rig image is both the build base and the runtime:
 
 ```dockerfile
 FROM ghcr.io/brutasse/rig:latest
@@ -52,7 +52,7 @@ runs what was built, offline, with no state dir needed at runtime.
 ### The slim image
 
 The artifact is self-describing (the launch plan is baked into the jar), so
-the runtime needs only a JRE and the rig binary:
+the runtime needs only a JRE and the Rig binary:
 
 ```dockerfile
 FROM eclipse-temurin:21-jre-jammy
@@ -69,7 +69,7 @@ its classpath lives in the lock.)
 
 ## Multi-stage
 
-When your app image has its own base, copy the rig pieces out of the image:
+When your app image has its own base, copy the Rig pieces out of the image:
 
 ```dockerfile
 FROM eclipse-temurin:21-jdk-jammy

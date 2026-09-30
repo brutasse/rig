@@ -71,7 +71,7 @@ jobs:
 
 Notes:
 
-- **setup-rig** installs the rig binary (SHA256-verified against the
+- **setup-rig** installs the Rig binary (SHA256-verified against the
   release `SHA256SUMS`) and restores the artifact cache keyed on
   `deps.lock`; the `setup-rig/save` step (last) persists what the run
   populated. Pin the action ref to a tag or git sha, and `version` to a
@@ -97,10 +97,10 @@ rig verify --frozen --offline && rig check --frozen --offline && rig test --froz
 ```
 
 `--offline` refuses the network, so every artifact (and the kernel and runner jars)
-must already be in the rig cache (`~/.local/share/rig`) or a
+must already be in the Rig cache (`~/.local/share/rig`) or a
 checksum-checked Maven repo (`~/.m2/repository`). On a cold cache it fails
 (exit 1) — that is the point: a green offline run is the hermeticity
-proof. Cache the rig cache alongside `~/.m2/repository`/`~/.gitlibs`, or
+proof. Cache the Rig cache alongside `~/.m2/repository`/`~/.gitlibs`, or
 run where they are pre-populated.
 
 ## Managed JVMs
