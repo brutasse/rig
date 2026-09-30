@@ -14,7 +14,9 @@
             [rig.resolver.aot :as aot]
             [rig.resolver.floor :as floor])
   (:import (java.nio.file Files)
-           (java.nio.file.attribute FileAttribute)))
+           (java.nio.file StandardCopyOption)
+           (java.nio.file.attribute FileAttribute)
+           (java.util.zip ZipEntry ZipFile ZipOutputStream)))
 
 (defn- basis
   "Fabricate a tools.build basis from [{:id ... :paths [...]} ...] (lock
@@ -87,6 +89,101 @@
                                   (str/ends-with? (str f) ".cljc")))]
                (file/delete f))))))
 
+(defn- strip-redundant-sources
+  "Re-zips the jar, dropping every .clj/.cljc that sits next to its AOT
+  __init.class. RT.load loads the source instead of the class whenever the
+  source is not strictly older, and the sources b/uber pulls in from
+  exploded dependency jars carry no such ordering — equal timestamps would
+  make the runtime recompile the namespace from the bundled source (two
+  class identities). A source with no base __init is the namespace's only
+  payload and is kept; an __init that exists only under
+  META-INF/versions/ is not a base class, so the source it alone pairs
+  with stays as the floor's fallback. Every other entry is copied
+  verbatim — order, bytes, timestamps."
+  [jar]
+  (let [tmp (str jar ".strip-tmp")
+        in (ZipFile. jar)]
+    (try
+      (do
+        (let [entries (java.util.Collections/list (.entries in))
+              inits (into #{}
+                          (for [^ZipEntry e entries
+                                :let [n (.getName e)]
+                                :when (str/ends-with? n "__init.class")
+                                :when (not (str/starts-with? n "META-INF/versions/"))]
+                            n))]
+          (with-open [out (ZipOutputStream. (io/output-stream tmp))]
+            (doseq [^ZipEntry e entries]
+              (let [n (.getName e)
+                    ext (cond (str/ends-with? n ".cljc") 5
+                              (str/ends-with? n ".clj") 4
+                              :else 0)]
+                (when (not (and (pos? ext)
+                                (contains? inits
+                                          (str (subs n 0 (- (count n) ext))
+                                               "__init.class"))))
+                  (let [e2 (ZipEntry. n)]
+                    (.setTime e2 (.getTime e))
+                    (.putNextEntry out e2)
+                    (io/copy (.getInputStream in e) out)
+                    (.closeEntry out)))))))
+        (Files/move (.toPath (io/file tmp))
+                    (.toPath (io/file jar))
+                    (into-array java.nio.file.CopyOption
+                               [StandardCopyOption/ATOMIC_MOVE])))
+      (finally
+        (.close in)
+        (when (.exists (io/file tmp)) (io/delete-file tmp))))
+    jar))
+
+(defn- assert-no-stale-aot
+  "Fail the build when a classpath jar ships a .clj/.cljc strictly newer
+  than its AOT __init.class: in that jar the source is what the runtime
+  loads, so the bundled class is stale, and the jar-level strip would
+  drop the source and silently run the class. A jar like that is
+  self-inconsistent — refuse to guess which is the payload. Equal
+  timestamps pass: the class is same-build, and class-wins is the fix,
+  not the hazard. Jar paths only — directory entries are working
+  copies, not shipped artifacts."
+  [classpath]
+  (let [stale (for [p (mapcat :paths classpath)
+                    :when (str/ends-with? p ".jar")
+                    :let [zf (ZipFile. p)
+                          times (try
+                                  (reduce
+                                   (fn [m ^ZipEntry e]
+                                     (assoc m (.getName e) (.getTime e)))
+                                   {}
+                                   (java.util.Collections/list
+                                    (.entries zf)))
+                                  (finally (.close zf)))
+                          bad (for [n (sort (keys times))
+                                    :let [ext (cond (str/ends-with? n ".cljc") 5
+                                                    (str/ends-with? n ".clj") 4
+                                                    :else 0)
+                                          init (when (pos? ext)
+                                                 (str (subs n 0
+                                                            (- (count n) ext))
+                                                      "__init.class"))]
+                                    :when (and init
+                                               (not (str/starts-with? n
+                                                                      "META-INF/versions/"))
+                                               (some? (get times init))
+                                               (> (get times n)
+                                                  (get times init)))]
+                                  n)]
+                    :when (seq bad)]
+                  (str p " ships " (str/join ", " bad)
+                       " strictly newer than its AOT class"))]
+    (when (seq stale)
+      (throw (ex-info
+              (str "STALE AOT — refusing to build. A dependency ships source\n"
+                   "strictly newer than its AOT class; the runtime would load\n"
+                   "the source, and the jar-level strip would run the stale\n"
+                   "class instead:\n"
+                   (str/join "\n" (map (partial str "  ") stale)))
+              {:stale stale})))))
+
 (defn- script-text
   "The two-phase compile script: the preloads run under the AOT bindings,
   so a dependency that requires the module's code AOTs it on load (parity
@@ -152,6 +249,11 @@
         copy-dirs (filter #(and % (.isDirectory (io/file %))) artifact-dirs)
         extra (get cfg :ns-compile)
         ensure (get cfg :prep-ensure)]
+    ;; A stale-AOT dep jar would ship a source the jar-level strip drops,
+    ;; running the stale class: refuse before the compile spends minutes.
+    ;; Uber only — a plain jar never carries dependency sources.
+    (when (get cfg :uber?)
+      (assert-no-stale-aot (get cfg :classpath)))
     ;; Wipe the build's own previous output, not the prep's (see
     ;; clean-class-dir).
     (clean-class-dir class-dir (or ensure []))
@@ -182,7 +284,7 @@
                                          :class-dir class-dir
                                          :jar-file (get cfg :jar-file)
                                          :main (get cfg :main)})
-                                 (get cfg :jar-file)))
+                                 (strip-redundant-sources (get cfg :jar-file))))
                    (get cfg :uber?)
                    (assoc :uber (do
                                   (b/uber {:basis basis
@@ -190,7 +292,7 @@
                                            :uber-file (get cfg :uber-file)
                                            :main (get cfg :main)
                                            :exclude (get cfg :exclude)})
-                                  (get cfg :uber-file))))]
+                                  (strip-redundant-sources (get cfg :uber-file)))))]
       ;; The workspace's pinned JVM is the bytecode floor of every jar
       ;; this build produces: a class above it would fail to load there.
       ;; No floor in the config (the workspace pins no JVM) means no scan.
