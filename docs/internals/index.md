@@ -118,9 +118,10 @@ hard error. The lock records the kernel that produced it in its
 stamped by Go at lock time, not by the kernel — so a lock always says who
 resolved it.
 
-The kernel jar is built reproducibly — identical sources produce a
-byte-identical jar (zip entry timestamps are normalized) — which is what
-makes a stable jar sha256 pin possible. The runner jar (rig.runner's class
+The jar is not byte-reproducible, and nothing in the flow needs it to
+be: the pin's sha256 is stamped from the artifact as built (`make pin`),
+and every other hash in the system — the lock's, `SHA256SUMS`, the
+Docker build args — the same way. The runner jar (rig.runner's class
 files only) is pinned the same way and is an install-time artifact: the
 Docker image pre-seeds it into the store, local runs point at it with
 `RIG_RUNNER_JAR`, and rig never extracts or writes it at runtime — hot
@@ -178,3 +179,15 @@ commands run on stores that may be read-only.
 - **A build closed to the lockfile** — no EDN on the hot path, a
   validated lock, Go-computed hashes, gated sources:
   [the closed build](closed-build.md).
+- **No source next to its class** — every jar the build produces drops
+  the bundled `.clj`/`.cljc` that sit next to their AOT
+  `__init.class`: `RT.load` loads the source instead of the class
+  whenever the source is not strictly older, and sources exploded from
+  dependency jars carry no such ordering (equal timestamps would make
+  the runtime recompile the namespace from the bundled source — two
+  class identities). A source with no base `__init` is the namespace's
+  only payload and is kept, as is a source whose only `__init` lives
+  under `META-INF/versions/` (the floor's fallback). A dependency that
+  ships a source *strictly newer* than its class is refused at build
+  time: in that jar the source is what the runtime loads, and the
+  build refuses to guess which of the two is the payload.

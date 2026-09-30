@@ -57,6 +57,15 @@
                 (java.util.Collections/list (.entries zf))))
       (finally (.close zf)))))
 
+(defn- entry-string
+  "The content of the named entry of the jar at path, as a string."
+  [path name]
+  (let [zf (java.util.zip.ZipFile. (io/file path))]
+    (try
+      (with-open [is (.getInputStream zf (.getEntry zf name))]
+        (slurp is))
+      (finally (.close zf)))))
+
 (defn- manifest-attrs
   "The main manifest attributes of the jar at path, as a string-keyed map."
   [path]
@@ -178,6 +187,109 @@
           (is (contains? names "prepped/prepped.clj") names)
           (is (not (contains? names "example/core.clj")) names)
           (is (not (contains? names "example/other.cljc")) names)))
+      (finally
+        (delete-tree ws-dir)))))
+
+(deftest jars-drop-sources-paired-with-their-aot-class
+  "A .clj/.cljc next to its AOT __init.class is redundant and an RT.load
+  recompile hazard (RT.load loads the source unless the class is strictly
+  newer, and sources exploded from dependency jars carry no such
+  ordering): the build drops it. A source with no base __init is the
+  namespace's only payload and is kept, verbatim, as are .cljs; an __init
+  that exists only under META-INF/versions/ is not a base class, so the
+  source it alone pairs with stays as the floor's fallback."
+  (let [ws-dir (temp-dir)
+        ws (str ws-dir)
+        src-root (io/file ws-dir "src")
+        src-file (io/file src-root "example" "core.clj")
+        res-root (io/file ws-dir "resources")
+        dep-jar (str ws-dir "/dep.jar")
+        class-bytes (byte-array [0xCA 0xFE 0xBA 0xBE 0 0 0 52 0 0 0 0])]
+    (io/make-parents src-file)
+    (spit src-file
+          "(ns example.core\n  (:gen-class))\n(defn -main [& args]\n  (println (str \"hello \" (apply str args))))\n")
+    (io/make-parents res-root)
+    (with-open [zos (java.util.zip.ZipOutputStream. (io/output-stream dep-jar))]
+      (let [write-entry (fn [n bs]
+                          (let [^java.util.zip.ZipEntry e (java.util.zip.ZipEntry. n)]
+                            (.setTime e 1577836800000)
+                            (.putNextEntry zos e)
+                            (when bs (.write zos bs))
+                            (.closeEntry zos)))]
+        (write-entry "dep/" nil)
+        (write-entry "dep/paired.clj" (.getBytes "paired-source"))
+        (write-entry "dep/paired__init.class" class-bytes)
+        (write-entry "dep/dual.cljc" (.getBytes "dual-source"))
+        (write-entry "dep/dual__init.class" class-bytes)
+        (write-entry "dep/alone.clj" (.getBytes "alone-source"))
+        (write-entry "dep/async.cljs" (.getBytes "cljs-source"))
+        (write-entry "dep/data_readers.clj" (.getBytes ":readers {}"))
+        (write-entry "dep/mrj.clj" (.getBytes "mrj-source"))
+        (write-entry "META-INF/versions/11/dep/mrj__init.class" class-bytes)))
+    (try
+      (let [cfg (-> (cfg ws src-root res-root true)
+                    (update :classpath conj {:id dep-jar :paths [dep-jar]}))
+            res (build/build {:args {:builds {"." cfg}}})
+            uber-file (str ws "/target/fixture-uber.jar")]
+        (is (= uber-file (get-in res [:results 0 :uber])))
+        (let [names (zip-names uber-file)]
+          (is (contains? names "dep/paired__init.class") names)
+          (is (not (contains? names "dep/paired.clj")) "paired .clj is dropped")
+          (is (contains? names "dep/dual__init.class") names)
+          (is (not (contains? names "dep/dual.cljc")) "paired .cljc is dropped")
+          (is (contains? names "dep/alone.clj") "unpaired source is the only payload")
+          (is (contains? names "dep/async.cljs") names)
+          (is (contains? names "dep/data_readers.clj") names)
+          (is (contains? names "dep/mrj.clj")
+              "a versioned-only __init is not a base class")
+          (is (contains? names "META-INF/versions/11/dep/mrj__init.class") names)
+          (is (contains? names "example/core__init.class") names)
+          (is (contains? names "dep/") "directory entries survive"))
+        (is (= "alone-source" (entry-string uber-file "dep/alone.clj"))
+            "kept entries are copied verbatim")
+        (let [p (run-cmd (java) "-jar" uber-file "there")]
+          (is (zero? (:exit p)) (str "uber run failed: " (:out p) (:err p)))
+          (is (re-find #"hello there" (:out p)))))
+      (finally
+        (delete-tree ws-dir)))))
+
+(deftest build-refuses-a-dep-that-ships-source-newer-than-its-class
+  "A dep jar whose .clj is strictly newer than its AOT __init.class is
+  self-inconsistent (the runtime loads the source, and the jar-level
+  strip would silently run the stale class): the uber build fails
+  before compiling. Equal timestamps pass — the class is same-build,
+  and class-wins is the fix, not the hazard (the
+  jars-drop-sources-paired-with-their-aot-class fixture shares one
+  timestamp across all entries and builds fine)."
+  (let [ws-dir (temp-dir)
+        ws (str ws-dir)
+        src-root (io/file ws-dir "src")
+        src-file (io/file src-root "example" "core.clj")
+        res-root (io/file ws-dir "resources")
+        dep-jar (str ws-dir "/dep.jar")
+        class-bytes (byte-array [0xCA 0xFE 0xBA 0xBE 0 0 0 52 0 0 0 0])]
+    (io/make-parents src-file)
+    (spit src-file "(ns example.core)\n")
+    (io/make-parents res-root)
+    (with-open [zos (java.util.zip.ZipOutputStream. (io/output-stream dep-jar))]
+      (let [write-entry (fn [n bs ts]
+                          (let [^java.util.zip.ZipEntry e (java.util.zip.ZipEntry. n)]
+                            (.setTime e ts)
+                            (.putNextEntry zos e)
+                            (when bs (.write zos bs))
+                            (.closeEntry zos)))]
+        (write-entry "dep/stale.clj" (.getBytes "stale-source") 1600000002000)
+        (write-entry "dep/stale__init.class" class-bytes 1600000000000)))
+    (try
+      (is (thrown-with-msg? Exception
+                            #"(?s)STALE AOT.*dep/stale\.clj"
+                            (build/build
+                             {:args {:builds {"."
+                                               (-> (cfg ws src-root res-root true)
+                                                   (update :classpath
+                                                           conj {:id dep-jar
+                                                                :paths [dep-jar]}))}}}))
+          "the build must fail before compiling")
       (finally
         (delete-tree ws-dir)))))
 
