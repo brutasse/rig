@@ -95,6 +95,9 @@ func (e *hotEnv) buildOne(ctx context.Context, m string, uber, native bool) (str
 		return "", err
 	}
 	dir := e.modDir(m)
+	// The build host's version, probed once: the javac --release floor
+	// guard and the launch descriptor both need it.
+	hostV, _ := jvm.Version(e.java)
 
 	// tools.build's uber only explodes libs that are directories or end in
 	// ".jar"; the cache stores artifacts content-addressably (no extension),
@@ -138,7 +141,7 @@ func (e *hotEnv) buildOne(ctx context.Context, m string, uber, native bool) (str
 	if len(mod.Build.NsCompile) > 0 {
 		cfg["ns-compile"] = mod.Build.NsCompile
 	}
-	if opts := javacOptsOf(e.lock.JVM, mod.Build.JavacOpts); len(opts) > 0 {
+	if opts := javacOptsOf(hostV, e.lock.JVM, mod.Build.JavacOpts); len(opts) > 0 {
 		cfg["javac-opts"] = opts
 	}
 	// The AOT fork (not the kernel JVM) is where compilation happens: the
@@ -168,8 +171,8 @@ func (e *hotEnv) buildOne(ctx context.Context, m string, uber, native bool) (str
 			"jvm-opts": mod.LaunchOpts,
 			"uber":     buildUber,
 		}
-		if v, err := jvm.Version(e.java); err == nil {
-			launch["java"] = jdk.FeatureVersion(v)
+		if v := jdk.FeatureVersion(hostV); v > 0 {
+			launch["java"] = v
 		}
 		cfg["launch"] = launch
 	}
@@ -661,8 +664,15 @@ func jarFileName(mod lockfile.Module) string {
 // javacOptsOf composes the effective javac opts for a module: the manifest's
 // :rig/javac-opts, with "--release <N>" prepended when the workspace pins a
 // JVM (:rig/jvm) and the opts do not already control the source level.
-func javacOptsOf(jvm *lockfile.JVM, opts []string) []string {
+// --release is a JDK 9+ flag: on a Java 8 host (hostV from `java -version`)
+// javac already targets the host, so no flag is passed. An unparseable
+// hostV keeps the pin — a missed host version must not ship a
+// build-host-targeted class silently.
+func javacOptsOf(hostV string, jvm *lockfile.JVM, opts []string) []string {
 	if jvm == nil || controlsSourceLevel(opts) {
+		return opts
+	}
+	if h := jdk.FeatureVersion(hostV); h > 0 && h < 9 {
 		return opts
 	}
 	if n := jdk.FeatureVersion(jvm.Requested); n > 0 {

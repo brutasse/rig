@@ -449,7 +449,8 @@ func (e *hotEnv) runJavaPrep(ctx context.Context, m string, mod lockfile.Module)
 	if len(mod.PrepEnsure) > 0 {
 		cfg["prep-ensure"] = absJoin(dir, mod.PrepEnsure)
 	}
-	if opts := javacOptsOf(e.lock.JVM, mod.Build.JavacOpts); len(opts) > 0 {
+	hostV, _ := jvm.Version(e.java)
+	if opts := javacOptsOf(hostV, e.lock.JVM, mod.Build.JavacOpts); len(opts) > 0 {
 		cfg["javac-opts"] = opts
 	}
 	_, err = kernel.Call(ctx, k, e.java, kernel.Request{

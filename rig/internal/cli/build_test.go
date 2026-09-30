@@ -18,25 +18,29 @@ func TestJavacOptsOf(t *testing.T) {
 	}
 	tests := []struct {
 		name string
+		host string
 		jvm  *lockfile.JVM
 		opts []string
 		want []string
 	}{
-		{"no pin, opts pass through", nil, []string{"-encoding", "UTF-8"}, []string{"-encoding", "UTF-8"}},
-		{"no pin, no opts", nil, nil, nil},
-		{"pin, no opts", pin("17"), nil, []string{"--release", "17"}},
-		{"pin with full version request", pin("17.0.13+9"), nil, []string{"--release", "17"}},
-		{"pin with legacy 1.x request", pin("1.8"), nil, []string{"--release", "8"}},
-		{"pin, module opts kept after injection", pin("11"), []string{"-Dfoo=bar", "-encoding", "UTF-8"}, []string{"--release", "11", "-Dfoo=bar", "-encoding", "UTF-8"}},
-		{"pin, user --release wins", pin("11"), []string{"--release", "17"}, []string{"--release", "17"}},
-		{"pin, user --release= wins", pin("11"), []string{"--release=17"}, []string{"--release=17"}},
-		{"pin, user -source wins", pin("11"), []string{"-source", "11", "-target", "11"}, []string{"-source", "11", "-target", "11"}},
-		{"pin, user -source= wins", pin("11"), []string{"-source=11"}, []string{"-source=11"}},
-		{"pin, user -target wins", pin("11"), []string{"-target", "11"}, []string{"-target", "11"}},
+		{"no pin, opts pass through", "", nil, []string{"-encoding", "UTF-8"}, []string{"-encoding", "UTF-8"}},
+		{"no pin, no opts", "", nil, nil, nil},
+		{"pin, no opts", "21.0.5", pin("17"), nil, []string{"--release", "17"}},
+		{"pin with full version request", "21.0.5", pin("17.0.13+9"), nil, []string{"--release", "17"}},
+		{"pin with legacy 1.x request", "21.0.5", pin("1.8"), nil, []string{"--release", "8"}},
+		{"pin, module opts kept after injection", "21.0.5", pin("11"), []string{"-Dfoo=bar", "-encoding", "UTF-8"}, []string{"--release", "11", "-Dfoo=bar", "-encoding", "UTF-8"}},
+		{"pin, user --release wins", "21.0.5", pin("11"), []string{"--release", "17"}, []string{"--release", "17"}},
+		{"pin, user --release= wins", "21.0.5", pin("11"), []string{"--release=17"}, []string{"--release=17"}},
+		{"pin, user -source wins", "21.0.5", pin("11"), []string{"-source", "11", "-target", "11"}, []string{"-source", "11", "-target", "11"}},
+		{"pin, user -source= wins", "21.0.5", pin("11"), []string{"-source=11"}, []string{"-source=11"}},
+		{"pin, user -target wins", "21.0.5", pin("11"), []string{"-target", "11"}, []string{"-target", "11"}},
+		{"java 8 host, no --release flag", "1.8.0_422", pin("8"), nil, nil},
+		{"java 8 host, pin above host, no --release flag", "1.8.0_422", pin("11"), nil, nil},
+		{"unknown host, pin, --release kept", "", pin("11"), nil, []string{"--release", "11"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := javacOptsOf(tt.jvm, tt.opts); !reflect.DeepEqual(got, tt.want) {
+			if got := javacOptsOf(tt.host, tt.jvm, tt.opts); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("javacOptsOf = %v, want %v", got, tt.want)
 			}
 		})
