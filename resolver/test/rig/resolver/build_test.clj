@@ -134,6 +134,53 @@
          (finally
            (delete-tree ws-dir)))))
 
+(deftest built-jars-carry-no-module-sources
+  "The jar and the uber carry the module's classes and resources but no
+  .clj/.cljc of the module's own: a source next to its AOT __init.class
+  in the jar is an RT.load recompile hazard. Prep output under an
+  :ensure path survives the drop, as in the clean."
+  (let [ws-dir (temp-dir)
+        ws (str ws-dir)
+        src-root (io/file ws-dir "src")
+        src-file (io/file src-root "example" "core.clj")
+        cljc-file (io/file src-root "example" "other.cljc")
+        res-root (io/file ws-dir "resources")
+        res-file (io/file res-root "msg.txt")
+        class-dir (io/file ws "target/classes")
+        prep-source (io/file class-dir "prepped" "prepped.clj")
+        jar-file (str ws "/target/fixture.jar")
+        uber-file (str ws "/target/fixture-uber.jar")]
+    (io/make-parents src-file)
+    (spit src-file "(ns example.core)\n(def x 1)\n")
+    (io/make-parents cljc-file)
+    (spit cljc-file "(ns example.other)\n(def y 2)\n")
+    (io/make-parents res-file)
+    (spit res-file "from-resources")
+    (io/make-parents prep-source)
+    (spit prep-source "(ns example.prepped)\n(def z 3)\n")
+    (try
+      (let [ensure [(str (io/file class-dir "prepped"))]
+            base (assoc (cfg ws src-root res-root false) :prep-ensure ensure)]
+        (build/build {:args {:builds {"." base}}})
+        (let [names (zip-names jar-file)]
+          (is (contains? names "example/core__init.class") names)
+          (is (contains? names "example/other__init.class") names)
+          (is (contains? names "msg.txt") names)
+          (is (contains? names "prepped/prepped.clj")
+              "prep output under :ensure survives the drop")
+          (is (not (contains? names "example/core.clj")) names)
+          (is (not (contains? names "example/other.cljc")) names))
+        (build/build {:args {:builds {"."
+                                      (assoc (cfg ws src-root res-root true)
+                                            :prep-ensure ensure)}}})
+        (let [names (zip-names uber-file)]
+          (is (contains? names "example/core__init.class") names)
+          (is (contains? names "prepped/prepped.clj") names)
+          (is (not (contains? names "example/core.clj")) names)
+          (is (not (contains? names "example/other.cljc")) names)))
+      (finally
+        (delete-tree ws-dir)))))
+
 (deftest no-main-leaves-no-main-class-attribute
   (let [ws-dir (temp-dir)
         ws (str ws-dir)

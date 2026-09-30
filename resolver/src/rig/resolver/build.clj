@@ -70,6 +70,23 @@
                                (not (under-ensure? (str f) ensures)))]
                (file/delete f))))))
 
+(defn- drop-sources
+  "Deletes the .clj/.cljc the copy step brought into the class-dir (see
+  build-module): a source next to its AOT __init.class in the jar is an
+  RT.load recompile hazard. Prep output under an :ensure path is the
+  build's input, not its output, and survives — the same carve-out as
+  clean-class-dir."
+  [class-dir ensures]
+  (let [root (io/file class-dir)]
+    (when (.exists root)
+      (dorun (for [f (file-seq root)
+                   :when (and (not (identical? f root))
+                              (.isFile f)
+                              (not (under-ensure? (str f) ensures))
+                              (or (str/ends-with? (str f) ".clj")
+                                  (str/ends-with? (str f) ".cljc")))]
+               (file/delete f))))))
+
 (defn- script-text
   "The two-phase compile script: the preloads run under the AOT bindings,
   so a dependency that requires the module's code AOTs it on load (parity
@@ -138,10 +155,13 @@
     ;; Wipe the build's own previous output, not the prep's (see
     ;; clean-class-dir).
     (clean-class-dir class-dir (or ensure []))
-    ;; Copy src/resource dirs into the class-dir so resources (and sources)
-    ;; land in the jar/uber. compile-clj only compiles .clj; it never copies.
+    ;; Copy src/resource dirs into the class-dir so resources land in the
+    ;; jar/uber. compile-clj only compiles .clj; it never copies.
     (when (seq copy-dirs)
       (b/copy-dir {:src-dirs copy-dirs :target-dir class-dir}))
+    ;; The copy drags the module's Clojure sources along; drop them again
+    ;; (see drop-sources).
+    (drop-sources class-dir (or ensure []))
     ;; javac before the AOT compile: the module's own Java classes must
     ;; already sit in the class-dir (second on the compile classpath,
     ;; after the working class dir) so that Clojure code referencing
