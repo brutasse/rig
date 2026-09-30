@@ -94,8 +94,8 @@ make release V=v0.2.0  # package a release in rig/dist/release/ (dry run)
 `make dev` is the whole loop: `resolver/target/rig-resolver-<V>.jar` and
 `resolver/target/rig-runner-<V>.jar` are built (tools.build) and
 `rig/dist/rig` is built. `V` is the release tag
-form (vX.Y.Z) in both local and release builds, defaulting to `v0.1.0`
-locally. The kernel's identity (version, git sha) is baked into the jar
+form (vX.Y.Z) in both local and release builds, defaulting to the
+contents of `resolver/VERSION` locally. The kernel's identity (version, git sha) is baked into the jar
 at build time, so a lockfile's `resolver` block records the exact kernel
 that produced it. The kernel pin in
 `rig/internal/kernel/kernel.go` is a

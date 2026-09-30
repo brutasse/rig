@@ -3,10 +3,10 @@
 # 'pin' target). See README.md, "Local development".
 #
 # V: version for the kernel jar and release artifacts, in release tag form
-# (vX.Y.Z). Local dev defaults to v0.1.0 (what the local tests look for);
-# the release workflow passes the tag.
+# (vX.Y.Z). Local dev defaults to the contents of resolver/VERSION (what
+# the local tests look for); the release workflow passes the tag.
 
-V       ?= v0.1.0
+V       ?= $(shell cat resolver/VERSION 2>/dev/null || echo v0.1.0)
 REPO    := brutasse/rig
 JAR     := resolver/target/rig-resolver-$(V).jar
 RUNNER  := resolver/target/rig-runner-$(V).jar

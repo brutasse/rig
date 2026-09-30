@@ -431,12 +431,16 @@
         (is (= "9.9.1" v) (str "got " v))))))
 
 (deftest version-fn-epoch-is-a-second-count
-  (let [data {:rig/version-fn :epoch}
-        v (manifest/read-version data "." ".")]
-    (is (string? v))
-    (is (re-matches #"\d+" v))
-    (let [now (long (.getEpochSecond (java.time.Instant/now)))]
-      (is (<= (Math/abs (- now (Long/parseLong v))) 60) (str "got " v)))))
+  (let [ws (doto (java.io.File.
+                  (str (java.nio.file.Files/createTempDirectory "rig-version-fn"
+                                                                (into-array java.nio.file.attribute.FileAttribute []))))
+                 (.deleteOnExit))]
+    (let [data {:rig/version-fn :epoch}
+          v (manifest/read-version data ws ws)]
+      (is (string? v))
+      (is (re-matches #"\d+" v))
+      (let [now (long (.getEpochSecond (java.time.Instant/now)))]
+        (is (<= (Math/abs (- now (Long/parseLong v))) 60) (str "got " v))))))
 
 (deftest version-fn-loses-to-explicit-version-and-file
   (let [ws (doto (java.io.File.
@@ -450,8 +454,12 @@
       (finally (.deleteOnExit ws)))))
 
 (deftest version-fn-rejects-unknown-values
-  (is (thrown? Exception
-               (manifest/read-version {:rig/version-fn :nonsense} "." "."))))
+  (let [ws (doto (java.io.File.
+                  (str (java.nio.file.Files/createTempDirectory "rig-version-fn"
+                                                                (into-array java.nio.file.attribute.FileAttribute []))))
+                 (.deleteOnExit))]
+    (is (thrown? Exception
+                 (manifest/read-version {:rig/version-fn :nonsense} ws ws)))))
 
 (deftest read-manifest-rejects-legacy-keys
   (with-git-ws [["VERSION_TEMPLATE" "2.0.GENERATED_VERSION"]
