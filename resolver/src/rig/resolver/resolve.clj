@@ -141,6 +141,7 @@
                         "opts" (or (manifest/uber-opts data) {})})}
       (seq ns-compile) (assoc :ns-compile ns-compile)
       (seq (manifest/javac-opts data)) (assoc :javac-opts (manifest/javac-opts data))
+      (manifest/timestamp-string data) (assoc :timestamp-string (manifest/timestamp-string data))
       (manifest/native? data)
       (assoc :native {"file" (or (manifest/native-file data)
                                  (str target "/" artifact))

@@ -89,7 +89,28 @@
                                   (str/ends-with? (str f) ".cljc")))]
                (file/delete f))))))
 
-(defn- strip-redundant-sources
+(defn- pinned-time-ms
+  "The build's :rig/timestamp-string as epoch millis, or nil when the
+  build declares no pin: the entry timestamps of every jar it builds,
+  and the switch for byte-identical output (see finalize-jar). An
+  ISO-8601 instant string; zip timestamps have a 2-second resolution
+  and cannot represent times before 1980-01-01 — the writer would
+  clamp silently, so both are refused here."
+  [s]
+  (when s
+    (let [t (try
+              (java.time.Instant/parse s)
+              (catch java.time.format.DateTimeParseException _
+                (throw (ex-info (str "bad :rig/timestamp-string " (pr-str s)
+                                     " (want an ISO-8601 instant, e.g. \"2026-01-01T00:00:00Z\")")
+                                {}))))]
+      (when (< (.toEpochMilli t) 315532800000)
+        (throw (ex-info (str ":rig/timestamp-string " s
+                             " is before 1980-01-01: zip timestamps cannot represent it")
+                        {})))
+      (.toEpochMilli t))))
+
+(defn- finalize-jar
   "Re-zips the jar, dropping every .clj/.cljc that sits next to its AOT
   __init.class. RT.load loads the source instead of the class whenever the
   source is not strictly older, and the sources b/uber pulls in from
@@ -98,9 +119,12 @@
   class identities). A source with no base __init is the namespace's only
   payload and is kept; an __init that exists only under
   META-INF/versions/ is not a base class, so the source it alone pairs
-  with stays as the floor's fallback. Every other entry is copied
-  verbatim — order, bytes, timestamps."
-  [jar]
+  with stays as the floor's fallback. Without a pinned time (epoch
+  millis, the build's :rig/timestamp-string), every other entry is
+  copied verbatim — order, bytes, timestamps. With one, the entries are
+  emitted in name-sorted order, all stamped with it: same sources, lock
+  and build JVM then yield a byte-identical jar."
+  [jar ts]
   (let [tmp (str jar ".strip-tmp")
         in (ZipFile. jar)]
     (try
@@ -113,7 +137,7 @@
                                 :when (not (str/starts-with? n "META-INF/versions/"))]
                             n))]
           (with-open [out (ZipOutputStream. (io/output-stream tmp))]
-            (doseq [^ZipEntry e entries]
+            (doseq [^ZipEntry e (if ts (sort-by #(.getName %) entries) entries)]
               (let [n (.getName e)
                     ext (cond (str/ends-with? n ".cljc") 5
                               (str/ends-with? n ".clj") 4
@@ -123,7 +147,7 @@
                                           (str (subs n 0 (- (count n) ext))
                                                "__init.class"))))
                   (let [e2 (ZipEntry. n)]
-                    (.setTime e2 (.getTime e))
+                    (.setTime e2 (or ts (.getTime e)))
                     (.putNextEntry out e2)
                     (io/copy (.getInputStream in e) out)
                     (.closeEntry out)))))))
@@ -242,7 +266,8 @@
                           {:exit exit})))))))
 
 (defn- build-module [cfg]
-  (let [basis (basis (get cfg :classpath))
+  (let [ts (pinned-time-ms (get cfg :timestamp-string))
+        basis (basis (get cfg :classpath))
         class-dir (get cfg :class-dir)
         artifact-dirs (get cfg :artifact-dirs)
         java-src-dirs (get cfg :java-src-dirs)
@@ -284,7 +309,7 @@
                                          :class-dir class-dir
                                          :jar-file (get cfg :jar-file)
                                          :main (get cfg :main)})
-                                 (strip-redundant-sources (get cfg :jar-file))))
+                                 (finalize-jar (get cfg :jar-file) ts)))
                    (get cfg :uber?)
                    (assoc :uber (do
                                   (b/uber {:basis basis
@@ -292,7 +317,7 @@
                                            :uber-file (get cfg :uber-file)
                                            :main (get cfg :main)
                                            :exclude (get cfg :exclude)})
-                                  (strip-redundant-sources (get cfg :uber-file)))))]
+                                  (finalize-jar (get cfg :uber-file) ts))))]
       ;; The workspace's pinned JVM is the bytecode floor of every jar
       ;; this build produces: a class above it would fail to load there.
       ;; No floor in the config (the workspace pins no JVM) means no scan.

@@ -118,14 +118,21 @@ hard error. The lock records the kernel that produced it in its
 stamped by Go at lock time, not by the kernel — so a lock always says who
 resolved it.
 
-The jar is not byte-reproducible, and nothing in the flow needs it to
-be: the pin's sha256 is stamped from the artifact as built (`make pin`),
-and every other hash in the system — the lock's, `SHA256SUMS`, the
-Docker build args — the same way. The runner jar (rig.runner's class
-files only) is pinned the same way and is an install-time artifact: the
-Docker image pre-seeds it into the store, local runs point at it with
-`RIG_RUNNER_JAR`, and Rig never extracts or writes it at runtime — hot
-commands run on stores that may be read-only.
+The jar is not byte-reproducible by default, and nothing in the flow
+needs it to be: the pin's sha256 is stamped from the artifact as built
+(`make pin`), and every other hash in the system — the lock's,
+`SHA256SUMS`, the Docker build args — the same way. A workspace that
+wants byte-reproducible builds opts in with `:rig/timestamp-string`;
+with it set, every entry of the built jar and uberjar carries the
+pinned timestamp and is written in name-sorted order, so the same
+sources, lock and build JVM (`:rig/jvm`) produce a byte-identical jar,
+and the pin's sha256 becomes a stable fingerprint of sources, lock and
+build config (zip timestamps have a 2-second resolution — the format's
+limit). The runner jar (rig.runner's class files only) is pinned the
+same way and is an install-time artifact: the Docker image pre-seeds it
+into the store, local runs point at it with `RIG_RUNNER_JAR`, and Rig
+never extracts or writes it at runtime — hot commands run on stores that
+may be read-only.
 
 ## Code map
 

@@ -141,6 +141,12 @@ func (e *hotEnv) buildOne(ctx context.Context, m string, uber, native bool) (str
 	if len(mod.Build.NsCompile) > 0 {
 		cfg["ns-compile"] = mod.Build.NsCompile
 	}
+	// The module's declared entry timestamp: every entry of the jars the
+	// kernel builds is stamped with it and emitted in name-sorted order,
+	// so same sources, lock and build JVM yield a byte-identical jar.
+	if mod.Build.TimestampString != "" {
+		cfg["timestamp-string"] = mod.Build.TimestampString
+	}
 	if opts := javacOptsOf(hostV, e.lock.JVM, mod.Build.JavacOpts); len(opts) > 0 {
 		cfg["javac-opts"] = opts
 	}
