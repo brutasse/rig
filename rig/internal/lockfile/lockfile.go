@@ -47,6 +47,10 @@ type Resolver struct {
 	Lib     string `json:"lib"`
 	Version string `json:"version"`
 	GitSHA  string `json:"git/sha"`
+	// SHA256 of the kernel jar that produced the lock: the pin's JARSHA for
+	// a fetched kernel, the file hash for a RIG_KERNEL_JAR override. Stamped
+	// by Go, never by the kernel.
+	SHA256 string `json:"sha256,omitempty"`
 }
 
 type Workspace struct {

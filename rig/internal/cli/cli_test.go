@@ -17,6 +17,7 @@ import (
 
 	"github.com/brutasse/rig/internal/cache"
 	"github.com/brutasse/rig/internal/fetch"
+	"github.com/brutasse/rig/internal/kernel"
 	"github.com/brutasse/rig/internal/lockfile"
 )
 
@@ -58,6 +59,15 @@ func writeFile(t *testing.T, path, content string) {
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// testKernelJar writes a fake kernel jar and returns its path; the resolver
+// block stamped by completeLock carries its sha256.
+func testKernelJar(t *testing.T) string {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), "kernel.jar")
+	writeFile(t, p, "kernel-jar-bytes")
+	return p
 }
 
 func artifactServer(t *testing.T, body string) *httptest.Server {
@@ -189,12 +199,21 @@ func TestLockFromResponse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lock, err := lockFromResponse(context.Background(), fetch.New(false), store, t.TempDir(), resp)
+	lock, err := lockFromResponse(context.Background(), fetch.New(false), store, t.TempDir(), testKernelJar(t), resp)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if lock.Artifacts[0].SHA256 != shaOf(body) {
 		t.Errorf("sha = %s, want %s", lock.Artifacts[0].SHA256, shaOf(body))
+	}
+	if lock.Resolver.Lib != kernel.Current.Lib ||
+		lock.Resolver.Version != kernel.Current.Version ||
+		lock.Resolver.GitSHA != kernel.Current.GitSHA {
+		t.Errorf("resolver identity = %+v, want pin %+v", lock.Resolver, kernel.Current)
+	}
+	if lock.Resolver.SHA256 != shaOf("kernel-jar-bytes") {
+		t.Errorf("resolver sha256 = %s, want %s (the launched jar)",
+			lock.Resolver.SHA256, shaOf("kernel-jar-bytes"))
 	}
 	if lock.Tool.Name != "rig" || lock.Tool.Version != Version {
 		t.Errorf("tool = %+v", lock.Tool)
@@ -236,7 +255,7 @@ func TestLockFromResponseUsesM2(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lock, err := lockFromResponse(context.Background(), fetch.New(true), store, m2, resp)
+	lock, err := lockFromResponse(context.Background(), fetch.New(true), store, m2, testKernelJar(t), resp)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -259,7 +278,7 @@ func TestLockFromResponseOffline(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = lockFromResponse(context.Background(), fetch.New(true), cache.NewAt(t.TempDir()), t.TempDir(), resp)
+	_, err = lockFromResponse(context.Background(), fetch.New(true), cache.NewAt(t.TempDir()), t.TempDir(), testKernelJar(t), resp)
 	var ee *exitError
 	if !errors.As(err, &ee) || ee.code != 1 {
 		t.Errorf("err = %v, want exit 1 (offline)", err)
@@ -271,7 +290,7 @@ func TestLockFromResponseRefused(t *testing.T) {
 		"lock":    lockfile.ForTest("."),
 		"refused": []map[string]any{{"coord": "a/b", "reason": "cooldown"}},
 	})
-	_, err := lockFromResponse(context.Background(), fetch.New(false), cache.NewAt(t.TempDir()), t.TempDir(), resp)
+	_, err := lockFromResponse(context.Background(), fetch.New(false), cache.NewAt(t.TempDir()), t.TempDir(), testKernelJar(t), resp)
 	var ee *exitError
 	if !errors.As(err, &ee) || ee.code != 5 {
 		t.Errorf("err = %v, want exit 5 (refused)", err)

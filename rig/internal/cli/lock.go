@@ -12,6 +12,7 @@ import (
 
 	"github.com/brutasse/rig/internal/cache"
 	"github.com/brutasse/rig/internal/classpath"
+	"github.com/brutasse/rig/internal/digest"
 	"github.com/brutasse/rig/internal/fetch"
 	"github.com/brutasse/rig/internal/graal"
 	"github.com/brutasse/rig/internal/jdk"
@@ -94,7 +95,7 @@ func (o *opts) relockArgs(ctx context.Context, root *workspace.Root, extra map[s
 		}
 		return nil, err
 	}
-	lock, err := lockFromResponse(ctx, o.fetchClient(ctx, root), store, o.m2Root(), out)
+	lock, err := lockFromResponse(ctx, o.fetchClient(ctx, root), store, o.m2Root(), jar, out)
 	if err != nil {
 		return nil, err
 	}
@@ -106,7 +107,7 @@ func (o *opts) relockArgs(ctx context.Context, root *workspace.Root, extra map[s
 
 // lockFromResponse parses a kernel resolve response, refuses cooldown-blocked
 // requirements (exit 5), and returns the completed document.
-func lockFromResponse(ctx context.Context, client *fetch.Client, store *cache.Store, m2root string, resp []byte) (*lockfile.Document, error) {
+func lockFromResponse(ctx context.Context, client *fetch.Client, store *cache.Store, m2root, kernelJar string, resp []byte) (*lockfile.Document, error) {
 	var parsed struct {
 		Lock    *lockfile.Document `json:"lock"`
 		Refused []map[string]any   `json:"refused"`
@@ -121,14 +122,26 @@ func lockFromResponse(ctx context.Context, client *fetch.Client, store *cache.St
 	if len(parsed.Refused) > 0 {
 		return nil, refusedErr(parsed.Refused)
 	}
-	return lock, completeLock(ctx, client, store, m2root, lock)
+	return lock, completeLock(ctx, client, store, m2root, kernelJar, lock)
 }
 
-// completeLock fills tool/locked_at, the exact jvm version, and every mvn
-// artifact's sha256 (fetching each), then validates.
-func completeLock(ctx context.Context, client *fetch.Client, store *cache.Store, m2root string, lock *lockfile.Document) error {
+// completeLock fills tool/locked_at, the resolver identity (the pin, plus
+// the sha256 of the kernel jar that ran), the exact jvm version, and every
+// mvn artifact's sha256 (fetching each), then validates.
+func completeLock(ctx context.Context, client *fetch.Client, store *cache.Store, m2root, kernelJar string, lock *lockfile.Document) error {
 	lock.Tool = lockfile.Tool{Name: "rig", Version: Version}
 	lock.LockedAt = time.Now().UTC().Truncate(time.Second)
+
+	sha, err := digest.File(kernelJar)
+	if err != nil {
+		return fmt.Errorf("lock: kernel jar: %w", err)
+	}
+	lock.Resolver = lockfile.Resolver{
+		Lib:     kernel.Current.Lib,
+		Version: kernel.Current.Version,
+		GitSHA:  kernel.Current.GitSHA,
+		SHA256:  sha,
+	}
 
 	if j := lock.JVM; j != nil {
 		if j.Vendor == "" {

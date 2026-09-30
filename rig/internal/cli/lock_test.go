@@ -75,6 +75,21 @@ func TestLockVerifyEndToEnd(t *testing.T) {
 		t.Fatalf("lock did not write deps.lock; out: %s", out)
 	}
 
+	// The resolver block is Go's stamp: the pin, plus the sha256 of the
+	// kernel jar that actually ran (here the RIG_KERNEL_JAR override).
+	doc, err := lockfile.Load("deps.lock")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if doc.Resolver.Lib != kernel.Current.Lib ||
+		doc.Resolver.Version != kernel.Current.Version ||
+		doc.Resolver.GitSHA != kernel.Current.GitSHA {
+		t.Errorf("resolver identity = %+v, want pin %+v", doc.Resolver, kernel.Current)
+	}
+	if doc.Resolver.SHA256 != sha {
+		t.Errorf("resolver sha256 = %s, want %s (the launched jar)", doc.Resolver.SHA256, sha)
+	}
+
 	code, out = runCLI(t, "verify", "--cache-dir", cacheDir)
 	if code != 0 {
 		t.Fatalf("verify exit = %d, want 0; out: %s", code, out)

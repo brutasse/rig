@@ -15,10 +15,14 @@ A real lock (trimmed) from a multi-module workspace:
 {
   "version": 2,                          // schema version
   "tool":    { "name": "rig", "version": "0.1.0" },
-  "resolver": {                          // who produced this lock
+  "resolver": {                          // who produced this lock: the pin,
+                                         // plus the sha256 of the kernel jar
+                                         // that ran — stamped by rig, not by
+                                         // the kernel
     "lib": "io.github.brutasse/rig-resolver",
     "version": "v0.1.0",
-    "git/sha": "546d868c4d1c…"
+    "git/sha": "546d868c4d1c…",
+    "sha256": "9b0e1f2c…"
   },
   "locked_at": "2026-09-18T10:00:00Z",
   "workspace": {
