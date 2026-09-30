@@ -329,9 +329,9 @@
 (deftest prep-ensure-content-survives-the-clean
   "A build must not destroy the module's prep output: when the prep :ensure
   covers the class-dir, its content (the build's input) survives the clean
-  and lands in the jar. (blockstorage/proto: the prep javacs the module's
-  java sources into target/classes, which is also the class-dir, and the
-  build declares no java-src-dirs of its own.)"
+  and lands in the jar. (Here the prep javacs the module's java sources
+  into target/classes, which is also the class-dir, and the build
+  declares no java-src-dirs of its own.)"
   (let [ws-dir (temp-dir)
         ws (str ws-dir)
         src-root (io/file ws-dir "src")
