@@ -112,7 +112,8 @@ func TestCheckKernelLeak(t *testing.T) {
 	cleanFixture(t)
 	// A namespace that exists only inside the kernel jar (tools.deps is the
 	// kernel's own dependency, not the module's): the kernel jar must not be
-	// on the load classpath, so this must fail.
+	// on the load classpath, so the preload of the leaking namespace must
+	// fail.
 	writeFile(t, "modules/app/src/app/leak.clj",
 		"(ns app.leak\n  (:require [clojure.tools.deps.util.dir :as d]))\n")
 	code, out := runCLI(t, "check", "--cache-dir", t.TempDir())
@@ -122,7 +123,7 @@ func TestCheckKernelLeak(t *testing.T) {
 	if !strings.Contains(out, "load-fail") {
 		t.Errorf("check out missing load-fail: %q", out)
 	}
-	if !strings.Contains(out, "failed to load app.leak") {
+	if !strings.Contains(out, "failed to load clojure.tools.deps.util.dir") {
 		t.Errorf("check out missing the load error: %q", out)
 	}
 }

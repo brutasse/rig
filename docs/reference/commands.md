@@ -12,7 +12,7 @@ documentation of record; this page is the map.
 | `add <coord> [version]` | cold | Add a requirement (shared by default). |
 | `remove <coord>` | cold | Remove a requirement (shared, from all modules). |
 | `verify` | hot | Check every lock artifact against the cache. The CI security gate. |
-| `check` | cold+hot | Lock-vs-manifest consistency + namespace load per module. Never re-locks. |
+| `check` | cold+hot | Lock-vs-manifest consistency + namespace load and AOT-compile per module. Never re-locks. |
 | `test [opt value…]` | hot | Run the modules' test exec-fns on locked classpaths. |
 | `run [args…]` | hot | Run the module's `:rig/main` on the (alias) classpath. |
 | `launch [jar] [args…]` | hot | Launch the built artifact with rig's production JVM flags (G1 + AlwaysPreTouch, exit-on-OOM, loopback JMX on 10101), overridable via `:rig/launch-opts`. The jar's baked launch plan, or the lock, supplies the main. Never re-locks, never uses the network. |
@@ -172,8 +172,10 @@ Two stages, one exit code:
    `floating-version` (`RELEASE`/`LATEST` in a manifest — error; fix with
    `rig update <coord>`), `no-lib` (publish/build without `:rig/lib`),
    `unknown-repo` (lock pins via a repo no manifest declares).
-2. **Namespace load**: load every namespace of each target module on its
-   locked base classpath; a failing load is a `load-fail` error. A module
+2. **Namespace load and AOT-compile**: on each target module's locked
+   base classpath, its non-project requires are preloaded, then its
+   namespaces AOT-compile in dependency order; a failing load or compile
+   is a `load-fail` error. A module
    pinning `org.clojure/clojure` below the 1.8.0 floor is reported as
    `clojure-floor` before any JVM is launched (the runner entry point
    cannot load on Clojure 1.7.x). Stage 2 launches on the locked classpath

@@ -86,7 +86,7 @@ the cache is warm:
 | `run`, `repl`, `exec`, `verify` | nothing — pure Go |
 | `clean`, `lint` | nothing — no lock needed at all |
 | `test` | its jar, as the *last* classpath entry: it carries `rig.runner`, the exec-fn launcher that runs the module's test alias. The project's own Clojure comes first and wins on conflicts |
-| `check` (stage 2) | its jar, as the *last* classpath entry: module namespaces load on the locked base classpath via the runner's load-all. Stage 1 (lock vs manifests) is the cold kernel op |
+| `check` (stage 2) | the kernel computes the AOT plan (`aot-plan` op), then its jar as the *last* classpath entry: the runner's aot mode preloads the plan's requires and AOT-compiles the module's namespaces into a fresh class dir that leads the locked base classpath. Stage 1 (lock vs manifests) is the cold kernel op |
 | `fmt` | its jar, run directly: a pinned `cljfmt` bundled inside it |
 
 **Cold commands run a kernel process**:
@@ -95,7 +95,7 @@ the cache is warm:
 |---|---|
 | `lock` (and the automatic re-lock) | `resolve` |
 | `add` / `remove` / `update` | `edit-dep`, then `resolve` |
-| `check` | `check` — read-only consistency report |
+| `check` | `check` — read-only consistency report (stage 1); stage 2 also takes the `aot-plan` op |
 | `tree` | `tree` |
 | `outdated` | `outdated` |
 | `build` | `build` — `tools.build` inside the kernel JVM, on the locked classpath |
@@ -159,7 +159,8 @@ commands run on stores that may be read-only.
 | `rig.resolver.edit` | format-preserving manifest edits (`rewrite-clj` + cljfmt) |
 | `rig.resolver.tree` | dependency tree display |
 | `rig.resolver.outdated` | what's newer upstream |
-| `rig.resolver.build` | jar/uberjar via `tools.build` from the locked classpath |
+| `rig.resolver.aot` | the AOT plan: the non-project require closure (preloads) and the module's namespaces in dependency order — drives the two-phase AOT compile of `build` and `check` (stage 2) |
+| `rig.resolver.build` | jar/uberjar via `tools.build` from the locked classpath, with the two-phase AOT compile |
 | `rig.resolver.publish` | POM + deploy target (plan-only) |
 | `rig.resolver.migrate` | legacy workspace → `:rig/*`, in place |
 | `rig.resolver.git-sync` | thread-safe wrapper around the `tools.gitlibs` cache |

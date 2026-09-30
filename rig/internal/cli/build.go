@@ -136,6 +136,11 @@ func (e *hotEnv) buildOne(ctx context.Context, m string, uber, native bool) (str
 	if opts := javacOptsOf(e.lock.JVM, mod.Build.JavacOpts); len(opts) > 0 {
 		cfg["javac-opts"] = opts
 	}
+	// The AOT fork (not the kernel JVM) is where compilation happens: the
+	// workspace's :rig/compile-jvm-opts must reach it as JVM flags.
+	if len(e.lock.CompileJVMOpts) > 0 {
+		cfg["compile-jvm-opts"] = e.lock.CompileJVMOpts
+	}
 	if buildUber {
 		cfg["uber-file"] = filepath.Join(dir, mod.Build.Uberjar.File)
 		if mod.Build.Uberjar.Main != "" {

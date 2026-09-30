@@ -2,6 +2,9 @@
   :deps {org.clojure/clojure {:mvn/version "1.12.5"}
          org.clojure/tools.deps {:mvn/version "0.31.1642"}
          io.github.clojure/tools.build {:mvn/version "0.10.5"}
+         ;; Direct dependency of rig.resolver.aot (also pulled in by
+         ;; tools.build; declared here at the same version).
+         org.clojure/tools.namespace {:mvn/version "1.5.0"}
          ;; tigris is a dead dep of cheshire (no cheshire class references
          ;; it) and ships one v55 class — the floor gate rejects it.
          cheshire/cheshire {:mvn/version "5.10.2" :exclusions [tigris/tigris]}

@@ -271,6 +271,29 @@
           (finally
             (delete-tree ws-dir)))))))
 
+(deftest aot-receives-compile-jvm-opts
+  "The AOT fork receives :compile-jvm-opts from the build config as JVM
+  flags: a valid flag compiles, an unknown one fails the build (proving
+  the flags reach the fork's java line)."
+  (let [ws-dir (temp-dir)
+        ws (str ws-dir)
+        src-root (io/file ws-dir "src")
+        src-file (io/file src-root "example" "core.clj")]
+    (io/make-parents src-file)
+    (spit src-file "(ns example.core)\n(def x 1)\n")
+    (try
+      (let [cfg (assoc (cfg ws src-root (io/file ws-dir "resources") false)
+                       :compile-jvm-opts ["-Drig.aot.opt=1"])]
+        (build/build {:args {:builds {"." cfg}}})
+        (is (.exists (io/file ws "target/classes/example/core__init.class")))
+        (is (thrown? Exception
+                     (build/build {:args {:builds {"."
+                                                   (assoc cfg :compile-jvm-opts
+                                                          ["--definitely-not-a-jvm-flag"])}}}))
+            "bogus jvm opt must reach the fork and fail the build"))
+      (finally
+        (delete-tree ws-dir)))))
+
 (deftest clojure-compiles-against-own-java-classes
   "A namespace referencing the module's own Java class must compile: javac
   output lands in the class-dir, which leads the compile classpath, so the

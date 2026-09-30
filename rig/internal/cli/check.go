@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -33,8 +34,9 @@ func newCheckCmd(o *opts) *cobra.Command {
 
 Stage 1 verifies the lock against every manifest: stale pins, version
 conflicts, drift, floating RELEASE/LATEST, publish without a lib, unknown
-repos. Stage 2 loads each target module's namespaces on its locked base
-classpath, catching code that does not load. -p restricts stage 2 only;
+repos. Stage 2 loads and AOT-compiles each target module's namespaces on
+its locked base classpath (requires preloaded, dependency order),
+catching code that does not load or compile. -p restricts stage 2 only;
 stage 1 is always workspace-wide.
 
 rig check never re-locks; it reports. It exits 1 when any error-severity
@@ -93,9 +95,10 @@ func runCheck(ctx context.Context, o *opts) error {
 	}
 	problems = append(problems, stage1.Problems...)
 
-	// Stage 2: ns-load each target module on its locked base classpath.
+	// Stage 2: load and AOT-compile each target module on its locked base
+	// classpath.
 	if root.Lock != nil {
-		e := &hotEnv{root: root, lock: root.Lock, store: store, m2root: o.m2Root(), oidc: o.bearerFor(ctx, root)}
+		e := &hotEnv{root: root, lock: root.Lock, store: store, m2root: o.m2Root(), oidc: o.bearerFor(ctx, root), kernel: jar}
 		e.client = o.fetchClient(ctx, root)
 		if e.gitlibs, err = classpath.GitlibsRoot(); err != nil {
 			return err
@@ -153,9 +156,12 @@ func runCheck(ctx context.Context, o *opts) error {
 	return nil
 }
 
-// checkModuleLoads loads module m's namespaces on its locked base classpath
-// via the runner's load-all. It returns a problem when a load fails, nil
-// when everything loads (or when the module has no Clojure sources).
+// checkModuleLoads loads and AOT-compiles module m's namespaces on its
+// locked base classpath via the runner's aot mode: the module's
+// non-project requires preload, then its namespaces compile in
+// dependency order (the kernel computes the plan). It returns a problem
+// when a load or compile fails, nil when everything loads (or when the
+// module has no Clojure sources).
 func checkModuleLoads(ctx context.Context, e *hotEnv, m string) (*checkProblem, error) {
 	mod, err := e.module(m)
 	if err != nil {
@@ -191,18 +197,53 @@ func checkModuleLoads(ctx context.Context, e *hotEnv, m string) (*checkProblem, 
 			Message:  fmt.Sprintf("org.clojure/clojure %s is below the %s floor: the rig runner cannot load on Clojure 1.7.x; upgrade the pin", v, runnerClojureFloor),
 		}, nil
 	}
+	// The AOT plan (kernel): the non-project namespaces the module
+	// requires and its own namespaces in dependency order.
+	var plan struct {
+		Preload []string `json:"preload"`
+		Compile []string `json:"compile"`
+	}
+	out, err := kernel.Call(ctx, e.kernel, e.java, kernel.Request{
+		Op:        "aot-plan",
+		Workspace: e.root.Dir,
+		Modules:   []string{m},
+		Args: map[string]any{
+			"src-dirs":   srcDirs,
+			"ns-compile": mod.Build.NsCompile,
+		},
+	})
+	if err != nil {
+		var oe *kernel.OpError
+		if errors.As(err, &oe) {
+			return nil, exitf(1, "check: %v", oe)
+		}
+		return nil, err
+	}
+	if err := json.Unmarshal(out, &plan); err != nil {
+		return nil, fmt.Errorf("check: bad kernel response: %w", err)
+	}
 	cp, err := e.cpOf(ctx, m, "")
 	if err != nil {
 		return nil, err
 	}
-	full := cp + string(filepath.ListSeparator) + e.runner
-	// The ns-load JVM is a build/validate JVM: it gets the workspace's
+	// A fresh class dir for the AOT output, first on the classpath (like
+	// the build's working class dir): a namespace that references a
+	// sibling's AOT class needs that output visible when it compiles.
+	classDir, err := os.MkdirTemp("", "rig-check-aot-")
+	if err != nil {
+		return nil, err
+	}
+	defer os.RemoveAll(classDir)
+	full := classDir + string(filepath.ListSeparator) + cp + string(filepath.ListSeparator) + e.runner
+	// The AOT JVM is a build/validate JVM: it gets the workspace's
 	// :rig/compile-jvm-opts (same flags as the AOT build — a namespace that
 	// references a preview API must load under the same flags it compiled
 	// under), not the module's dev-execution :jvm-opts.
 	runArgs := append([]string{}, e.lock.CompileJVMOpts...)
-	runArgs = append(runArgs, "-cp", full, "rig.runner", "load-all")
-	runArgs = append(runArgs, srcDirs...)
+	runArgs = append(runArgs, "-cp", full, "rig.runner", "aot", classDir)
+	runArgs = append(runArgs, plan.Preload...)
+	runArgs = append(runArgs, "--")
+	runArgs = append(runArgs, plan.Compile...)
 	err = jvm.Run{Java: e.java, Args: runArgs, Dir: e.modDir(m), Env: e.javaEnv}.Run()
 	if err == nil {
 		return nil, nil
@@ -212,7 +253,7 @@ func checkModuleLoads(ctx context.Context, e *hotEnv, m string) (*checkProblem, 
 			Severity: "error",
 			Kind:     "load-fail",
 			Module:   m,
-			Message:  "one or more namespaces failed to load (see above)",
+			Message:  "one or more namespaces failed to load or compile (see above)",
 		}, nil
 	}
 	return nil, fmt.Errorf("check: load %s: %w", m, err)
