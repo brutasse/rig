@@ -42,6 +42,7 @@ Set in each module's `deps.edn`. All optional unless noted.
 | `:rig/native-opts` | `[]` | Extra native-image arguments, appended after Rig's fixed ones. |
 | `:rig/uberjar-file` | `target/<name>-<version>.jar` | Uberjar output path, relative to the module. |
 | `:rig/uber-opts` | `{}` | tools.build uberjar options (currently `:exclude`), e.g. `{:exclude ["META-INF/license/.*"]}`. |
+| `:rig/timestamp-string` | — | ISO-8601 UTC instant (e.g. `"2026-01-01T00:00:00Z"`) used as the timestamp of every entry in the built jar and uberjar; entries are also written in name-sorted order. Set together with a pinned `:rig/jvm`, this makes the build output byte-reproducible. Pre-1980 values are refused (the zip format would clamp them silently). |
 | `:rig/test?` | `true` | Recorded in the lock (`test.enabled`). `rig test` itself targets modules by their `:test` alias's `:exec-fn`. |
 | `:rig/publish?` | `false` (true if `:rig/publish` is set) | Whether `rig publish`/`rig release` deploys this module. |
 | `:rig/publish` | `{:repo "clojars" :sign-releases? false}` | Where to publish. `:repo` is a repository id resolved through `~/.m2/settings.xml` credentials and `:mvn/repos` URLs (http/https repositories only); `:sign-releases?` must be `false` (signing is not supported). |

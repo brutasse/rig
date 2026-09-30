@@ -57,6 +57,15 @@
                 (java.util.Collections/list (.entries zf))))
       (finally (.close zf)))))
 
+(defn- zip-entries
+  "The [name time] pairs of the jar at path, in stored entry order."
+  [path]
+  (let [zf (java.util.zip.ZipFile. (io/file path))]
+    (try
+      (vec (for [^java.util.zip.ZipEntry e (java.util.Collections/list (.entries zf))]
+             [(.getName e) (.getTime e)]))
+      (finally (.close zf)))))
+
 (defn- entry-string
   "The content of the named entry of the jar at path, as a string."
   [path name]
@@ -290,6 +299,99 @@
                                                            conj {:id dep-jar
                                                                 :paths [dep-jar]}))}}}))
           "the build must fail before compiling")
+      (finally
+        (delete-tree ws-dir)))))
+
+(deftest jars-pin-entry-times-and-sort-when-a-timestamp-is-declared
+  "With :rig/timestamp-string set, every entry of the built jar is
+  stamped with it and emitted in name-sorted order: same sources, lock
+  and build JVM then yield a byte-identical jar."
+  (let [ws-dir (temp-dir)
+        ws (str ws-dir)
+        src-root (io/file ws-dir "src")
+        src-file (io/file src-root "example" "core.clj")
+        res-root (io/file ws-dir "resources")
+        aa-file (io/file res-root "aa.txt")
+        zz-file (io/file res-root "zz.txt")
+        jar-file (str ws "/target/fixture.jar")
+        pinned (.toEpochMilli (java.time.Instant/parse "2026-01-01T00:00:00Z"))]
+    (io/make-parents src-file)
+    (spit src-file "(ns example.core)\n")
+    (io/make-parents aa-file)
+    (spit aa-file "aa")
+    (spit zz-file "zz")
+    (try
+      (build/build
+       {:args {:builds {"."
+                         (assoc (cfg ws src-root res-root false)
+                                :timestamp-string "2026-01-01T00:00:00Z")}}})
+      (let [entries (zip-entries jar-file)
+            names (map first entries)]
+        (is (= names (sort names)) (str "entries not name-sorted: " names))
+        (is (every? #(= pinned (second %)) entries)
+            (str "entries not stamped with the pin: " entries)))
+      (finally
+        (delete-tree ws-dir)))))
+
+(deftest two-builds-with-a-pinned-timestamp-are-byte-identical
+  "Two builds of the same sources and build config, with
+  :rig/timestamp-string set, produce byte-identical jars: the pin is
+  the switch that makes the jar's sha256 a stable fingerprint of
+  sources, lock and build JVM."
+  (let [make-src (fn [ws]
+                   (let [f (io/file ws "src" "example" "core.clj")]
+                     (io/make-parents f)
+                     (spit f "(ns example.core\n  (:gen-class))\n(defn -main [& args]\n  (println (str \"hello \" (apply str args))))\n")))
+        ws1 (temp-dir)
+        ws2 (temp-dir)]
+    (make-src ws1)
+    (make-src ws2)
+    (try
+      (doseq [ws [ws1 ws2]]
+        (let [src-root (io/file ws "src")
+              res-root (io/file ws "resources")
+              res-file (io/file res-root "msg.txt")]
+          (io/make-parents res-file)
+          (spit res-file "from-resources")
+          (build/build
+           {:args {:builds {"."
+                            (assoc (cfg ws src-root res-root false)
+                                   :timestamp-string "2026-01-01T00:00:00Z")}}})))
+      (is (= (vec (java.nio.file.Files/readAllBytes (.toPath (io/file ws1 "target" "fixture.jar"))))
+             (vec (java.nio.file.Files/readAllBytes (.toPath (io/file ws2 "target" "fixture.jar")))))
+          "the pinned builds must be byte-identical")
+      (finally
+        (delete-tree ws1)
+        (delete-tree ws2)))))
+
+(deftest build-refuses-an-unusable-timestamp-string
+  ":rig/timestamp-string must be an ISO-8601 instant at or after
+  1980-01-01: zip timestamps cannot represent it earlier, and the
+  writer would clamp silently. Unparseable and too-early values fail
+  before the compile."
+  (let [ws-dir (temp-dir)
+        ws (str ws-dir)
+        src-root (io/file ws-dir "src")
+        src-file (io/file src-root "example" "core.clj")
+        res-root (io/file ws-dir "resources")]
+    (io/make-parents src-file)
+    (spit src-file "(ns example.core)\n")
+    (io/make-parents res-root)
+    (try
+      (is (thrown-with-msg? Exception
+                            #"bad :rig/timestamp-string"
+                            (build/build
+                             {:args {:builds {"."
+                                               (assoc (cfg ws src-root res-root false)
+                                                      :timestamp-string "not-a-date")}}}))
+          "an unparseable pin must be refused")
+      (is (thrown-with-msg? Exception
+                            #"before 1980-01-01"
+                            (build/build
+                             {:args {:builds {"."
+                                               (assoc (cfg ws src-root res-root false)
+                                                      :timestamp-string "1979-12-31T23:59:59Z")}}}))
+          "a pre-1980 pin must be refused")
       (finally
         (delete-tree ws-dir)))))
 

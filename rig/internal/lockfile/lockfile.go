@@ -188,14 +188,15 @@ type Exec struct {
 }
 
 type Build struct {
-	ArtifactDirs []string `json:"artifact-dirs"`
-	JavaSrcDirs  []string `json:"java-src-dirs"`
-	JavacOpts    []string `json:"javac-opts,omitempty"`
-	ClassDir     string   `json:"class-dir"`
-	NsCompile    []string `json:"ns-compile,omitempty"`
-	Jar          bool     `json:"jar"`
-	Uberjar      *Uberjar `json:"uberjar"`
-	Native       *Native  `json:"native,omitempty"`
+	ArtifactDirs    []string `json:"artifact-dirs"`
+	JavaSrcDirs     []string `json:"java-src-dirs"`
+	JavacOpts       []string `json:"javac-opts,omitempty"`
+	ClassDir        string   `json:"class-dir"`
+	NsCompile       []string `json:"ns-compile,omitempty"`
+	TimestampString string   `json:"timestamp-string,omitempty"`
+	Jar             bool     `json:"jar"`
+	Uberjar         *Uberjar `json:"uberjar"`
+	Native          *Native  `json:"native,omitempty"`
 }
 
 type Uberjar struct {
