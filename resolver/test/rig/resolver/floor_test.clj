@@ -1,10 +1,10 @@
 (ns rig.resolver.floor-test
-  "The toolchain build's bytecode floor gate (build.clj): both release
-  jars must stay at the Java 8 class-file major (v52) so workspaces
-  pinned below the build host can load them."
+  "The bytecode floor gate (rig.resolver/floor): a built jar must stay
+  loadable on the floor's JVM — no class file above 44 + floor, and no
+  multi-release entry at or below the floor above it either."
   (:require [clojure.java.io :as io]
             [clojure.test :refer :all]
-            [build :as build-script])
+            [rig.resolver.floor :as floor])
   (:import [java.util.zip ZipEntry ZipOutputStream]))
 
 (defn- class-bytes
@@ -16,7 +16,7 @@
 (defn- temp-dir
   []
   (doto (java.io.File. (str (java.nio.file.Files/createTempDirectory "rig-floor-test"
-                                                                     (into-array java.nio.file.attribute.FileAttribute []))))
+                                                                      (into-array java.nio.file.attribute.FileAttribute []))))
     (.deleteOnExit)))
 
 (defn- delete-tree
@@ -42,13 +42,13 @@
     jar))
 
 (deftest class-file-major-reads-the-header
-  (is (= 51 (build-script/class-file-major (class-bytes 51))))
-  (is (= 52 (build-script/class-file-major (class-bytes 52))))
-  (is (= 65 (build-script/class-file-major (class-bytes 65)))))
+  (is (= 51 (floor/class-file-major (class-bytes 51))))
+  (is (= 52 (floor/class-file-major (class-bytes 52))))
+  (is (= 65 (floor/class-file-major (class-bytes 65)))))
 
 (deftest floor-report-flags-only-classes-above-the-floor
-  "MRJ entries under META-INF/versions/ are skipped (only loaded on that
-  version or newer, never on the floor); non-class entries are ignored."
+  "MRJ entries above the floor never load there and are skipped;
+  non-class entries are ignored."
   (let [dir (temp-dir)]
     (try
       (let [jar (fixture-jar dir {"bad/High.class" 65
@@ -58,7 +58,24 @@
                                   "dir/" 65
                                   "META-INF/versions/11/mrj/Mrj.class" 65})]
         (is (= {:classes 3 :violations [["bad/High.class" 65]]}
-               (build-script/floor-report jar))))
+               (floor/floor-report jar 8))))
+      (finally
+        (delete-tree dir)))))
+
+(deftest floor-report-scans-mrj-at-or-below-the-floor
+  "An MRJ entry at a version ≤ the floor loads on it and is scanned
+  against the floor's class file major; a non-numeric version segment is
+  not multi-release and is scanned like any other entry."
+  (let [dir (temp-dir)]
+    (try
+      (let [jar (fixture-jar dir {"META-INF/versions/11/Skipped.class" 65
+                                  "META-INF/versions/9/AtFloor.class" 53
+                                  "META-INF/versions/9/High.class" 54
+                                  "META-INF/versions/x/Weird.class" 65})]
+        (is (= {:classes 3
+                :violations [["META-INF/versions/9/High.class" 54]
+                             ["META-INF/versions/x/Weird.class" 65]]}
+               (floor/floor-report jar 9))))
       (finally
         (delete-tree dir)))))
 
@@ -67,6 +84,19 @@
     (try
       (let [jar (fixture-jar dir {"a/One.class" 52
                                   "b/Two.class" 52})]
-        (is (= {:classes 2 :violations []} (build-script/floor-report jar))))
+        (is (= {:classes 2 :violations []} (floor/floor-report jar 8))))
+      (finally
+        (delete-tree dir)))))
+
+(deftest assert-floor-throws-on-a-violation
+  (let [dir (temp-dir)]
+    (try
+      (let [jar (fixture-jar dir {"bad/High.class" 65})]
+        (is (thrown-with-msg? Exception
+                              #"FLOOR VIOLATION.*bad/High\.class \(v65\)"
+                              (floor/assert-floor jar 8)))
+        (is (nil? (floor/assert-floor (fixture-jar (temp-dir)
+                                                   {"ok/AtFloor.class" 52})
+                                      8))))
       (finally
         (delete-tree dir)))))

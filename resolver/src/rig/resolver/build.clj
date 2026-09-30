@@ -11,7 +11,8 @@
             [clojure.tools.build.api :as b]
             [clojure.tools.build.tasks.process :as process]
             [clojure.tools.build.util.file :as file]
-            [rig.resolver.aot :as aot])
+            [rig.resolver.aot :as aot]
+            [rig.resolver.floor :as floor])
   (:import (java.nio.file Files)
            (java.nio.file.attribute FileAttribute)))
 
@@ -154,22 +155,29 @@
     (aot-compile basis class-dir artifact-dirs extra
                  (get cfg :compile-jvm-opts))
     (write-launch-descriptor class-dir (get cfg :launch))
-    (cond-> {:class-dir class-dir}
-      (get cfg :jar?)
-      (assoc :jar (do
-                     (b/jar {:basis basis
-                             :class-dir class-dir
-                             :jar-file (get cfg :jar-file)
-                             :main (get cfg :main)})
-                     (get cfg :jar-file)))
-      (get cfg :uber?)
-      (assoc :uber (do
-                      (b/uber {:basis basis
-                               :class-dir class-dir
-                               :uber-file (get cfg :uber-file)
-                               :main (get cfg :main)
-                               :exclude (get cfg :exclude)})
-                      (get cfg :uber-file))))))
+    (let [result (cond-> {:class-dir class-dir}
+                   (get cfg :jar?)
+                   (assoc :jar (do
+                                 (b/jar {:basis basis
+                                         :class-dir class-dir
+                                         :jar-file (get cfg :jar-file)
+                                         :main (get cfg :main)})
+                                 (get cfg :jar-file)))
+                   (get cfg :uber?)
+                   (assoc :uber (do
+                                  (b/uber {:basis basis
+                                           :class-dir class-dir
+                                           :uber-file (get cfg :uber-file)
+                                           :main (get cfg :main)
+                                           :exclude (get cfg :exclude)})
+                                  (get cfg :uber-file))))]
+      ;; The workspace's pinned JVM is the bytecode floor of every jar
+      ;; this build produces: a class above it would fail to load there.
+      ;; No floor in the config (the workspace pins no JVM) means no scan.
+      (when-let [floor (get cfg :floor)]
+        (doseq [f (filter some? (map (partial get result) [:jar :uber]))]
+          (floor/assert-floor f floor)))
+      result)))
 
 (defn build
   "Errors propagate: as a kernel op, rig.resolver/main maps them to exit 1."

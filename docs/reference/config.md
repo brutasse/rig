@@ -251,6 +251,12 @@ always come through the proxy.
   LTS feature is looked up from the Adoptium info endpoint; nothing is
   installed automatically). `RIG_JAVA=<path>` overrides everything (dev
   override, like `RIG_KERNEL_JAR`).
+- The pin is also the **bytecode floor** of the module's build output:
+  every class in the jar or uberjar `rig build` produces (dependency
+  classes included, for the uberjar) must load on the pinned JVM, and the
+  build fails listing the offending entries when one does not. A
+  multi-release jar entry is only checked at the JVM versions where it
+  can load. Without the pin there is no floor and no check.
 
 Vendor: Temurin (Eclipse Adoptium), GA releases only.
 
