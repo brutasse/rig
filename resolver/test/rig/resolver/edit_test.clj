@@ -40,6 +40,16 @@
       (doseq [c (.listFiles f)] (rm! (.getPath c)))
       (.delete f))))
 
+(defn- git
+  "Run git in dir; returns the trimmed output, throws on non-zero exit."
+  [dir & args]
+  (let [proc (.start (doto (ProcessBuilder. (into ["git" "-c" "user.name=t" "-c" "user.email=t@t" "-c" "commit.gpgsign=false" "-C" dir] args))
+                       (.redirectErrorStream true)))
+        out (str (str/trim (slurp (.getInputStream proc))))]
+    (when (not (zero? (.waitFor proc)))
+      (throw (Exception. (str "git " (str/join " " args) " failed: " out))))
+    out))
+
 (defn- write-fixture
   [dir root lib app]
   (doseq [[rel text] [["deps.edn" root]
@@ -479,3 +489,50 @@
                   (is (= orig (slurp (io/file dir "modules/app/deps.edn")))
                       "manifest untouched on refusal")))
             (finally (rm! (str dir)))))))))
+
+(deftest update-tolerates-git-dep-in-alias
+  "A :tasks alias holding a git dep must not block rig update — the
+  git-dep classpath roots classify as a git artifact that lands in the
+  lock."
+  (let [git-ws (File. (System/getProperty "java.io.tmpdir")
+                      (str "rig-edit-git-" (java.util.UUID/randomUUID)))
+        sha (atom nil)]
+    (try
+      (do (.mkdirs git-ws)
+          (git (str git-ws) "init")
+          (io/make-parents (io/file git-ws "src" "x.clj"))
+          (spit (io/file git-ws "deps.edn") "{:paths [\"src\"]}\n")
+          (spit (io/file git-ws "src/x.clj") "(ns gitlib.x)\n")
+          (git (str git-ws) "add" "-A")
+          (git (str git-ws) "commit" "-m" "x")
+          (reset! sha (git (str git-ws) "rev-parse" "HEAD"))
+          (with-ws (str "{:rig/modules [\"modules/app\"]\n"
+                        " :deps {org.clojure/clojure {:mvn/version \"1.12.5\"}}\n"
+                        " :aliases {:tasks {:extra-deps {example/gitlib"
+                        " {:git/url \"file://" (str git-ws) "\"\n"
+                        "                              :git/sha \"" (str @sha) "\"}}}}}\n")
+            nil
+            "{:rig/lib example/app
+                     :paths [\"src\"]
+                     :deps {org.clojure/clojure {:mvn/version \"1.12.5\"}}}
+                    "
+            (fn [dir]
+              (let [resp (edit/edit-dep {:workspace dir
+                                         :args {:module "modules/app"
+                                                :coord "org.clojure/clojure"
+                                                :requirement "1.12.4"}})]
+                (is (= "1.12.4" (artifact-version (get resp "lock")
+                                                  "org.clojure/clojure:1.12.4:jar"))
+                    "the update itself applies")
+                (is (some #(= (str "example/gitlib:" (subs (str @sha) 0 7) ":jar")
+                              (:id %))
+                          (get-in (get resp "lock") ["artifacts"]))
+                    "the git dep is locked as a git artifact")
+                (is (some #(= (str "example/gitlib:" (subs (str @sha) 0 7) ":jar") %)
+                          (get-in (get resp "lock")
+                                  ["modules" "." :aliases :tasks :classpath]))
+                    "the git dep is on the :tasks alias classpath")))))
+      (finally
+        (rm! (str (System/getenv "HOME")
+                  "/.gitlibs/libs/example/gitlib"))
+        (rm! (str git-ws))))))
