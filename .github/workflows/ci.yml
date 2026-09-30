@@ -3,7 +3,7 @@
 #
 # Trigger:
 #   - push to any branch → test
-#   - push a tag vX.Y.Z (e.g. git push origin v0.2.0) → test, then release
+#   - push a tag vX.Y.Z → test, then release
 #
 # What test does:
 #   1. gofmt -w rig/ — fixes formatting in place; if anything changed,
@@ -29,7 +29,8 @@
 #      hash-pinned kernel jar and runner jar) to ghcr.io/brutasse/rig
 #   4. publishes a GitHub release with all binaries + kernel jar +
 #      runner jar + SHA256SUMS
-#   5. re-pins the install one-liner's git sha in README.md on main
+#   5. re-pins the install one-liner's git sha and bumps the version
+#      examples in README.md and docs/getting-started.md on main
 #   6. pushes the stamped kernel pin to main
 #
 # The kernel jar and runner jar are served exclusively from the GitHub
@@ -232,19 +233,30 @@ jobs:
           cp rig/internal/kernel/kernel.go "$RUNNER_TEMP/kernel-stamped.go"
           git checkout -- rig/internal/kernel/kernel.go
 
-      - name: Pin install one-liner in README and docs
+      - name: Pin install one-liner and version examples in README and docs
         run: |
           sha=$(git rev-parse HEAD)
+          new=${GITHUB_REF_NAME}
           git fetch origin main
           git checkout --detach origin/main
-          sed -i -E "s#brutasse/rig/([0-9a-f]{40}|PENDING-FIRST-RELEASE)/scripts#brutasse/rig/$sha/scripts#" README.md docs/getting-started.md
+          sed -i -E \
+            -e "s#brutasse/rig/([0-9a-f]{40})/scripts#brutasse/rig/$sha/scripts#" \
+            -e "s#sh -s -- v[0-9][0-9A-Za-z.+~-]*#sh -s -- $new#" \
+            -e "s#--version v[0-9][0-9A-Za-z.+~-]*#--version $new#" \
+            README.md docs/getting-started.md
+          # The version seds must have landed: fail loudly if the doc
+          # wording drifted and the examples still show an old release.
+          grep -q "sh -s -- $new" README.md
+          grep -q "sh -s -- $new" docs/getting-started.md
+          grep -q -- "--version $new" README.md
+          grep -q -- "--version $new" docs/getting-started.md
           if git diff --quiet; then
-            echo "install one-liner already pinned at $sha"
+            echo "install one-liner already pinned at $sha; docs already at $new"
           else
             git config user.name "rig-release[bot]"
             git config user.email "rig-release@users.noreply.github.com"
             git add README.md docs/getting-started.md
-            git commit -m "docs: pin install one-liner to ${{ github.ref_name }} ($sha)"
+            git commit -m "docs: pin install one-liner to $new ($sha); bump version examples to $new"
             git push origin HEAD:main
           fi
 

@@ -85,7 +85,7 @@ run:
 # cross-compiled binaries, SHA256SUMS — in rig/dist/release/. The release
 # workflow publishes that directory; locally it doubles as a packaging
 # dry-run.
-# Usage: make release V=v0.2.0
+# Usage: make release V=vX.Y.Z
 release: kernel pin release-binaries
 	mkdir -p rig/dist/release
 	cp rig/dist/rig-linux-amd64 rig/dist/rig-linux-arm64 rig/dist/rig-darwin-amd64 rig/dist/rig-darwin-arm64 rig/dist/release/
