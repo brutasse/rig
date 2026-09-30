@@ -21,7 +21,7 @@ User guide, workflows, configuration, and migration guides:
 
 One-shot userland install, from the GitHub release artifacts (the script is
 pinned at the git sha of the latest release; the release workflow re-pins it
-after each release — `PENDING-FIRST-RELEASE` is replaced by the first one):
+after each release):
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/brutasse/rig/29b0bb60817c7ce2db5d3a2775a3b64859f214f5/scripts/install-rig.sh | sh
@@ -31,14 +31,14 @@ Installs to `~/.local/bin` (override: `INSTALL_DIR=…`), verifies the binary
 against the release's `SHA256SUMS`. The resolver kernel jar is not
 installed: the Rig binary fetches its pinned kernel from the matching GitHub
 release on first use, hash-verified. Pass a version to install something
-other than the latest release: `sh -s -- v0.2.0`.
+other than the latest release: `sh -s -- v0.1.0`.
 
 Self-update:
 
 ```sh
 rig self-update                    # update to the latest release, if newer
 rig self-update --check            # report only
-rig self-update --version v0.2.0   # update to a specific release
+rig self-update --version v0.1.0   # update to a specific release
 ```
 
 Rig also checks for new releases at most once per 24h (TTL in the state dir;
@@ -100,7 +100,7 @@ make dev    # build the kernel jar, build rig
 make test   # make dev + kernel kaocha suite + Go suite (E2E vs the fresh jar)
 make run WS=<workspace-dir> ARGS="lock"   # run the local rig in a workspace
 make image  # build the Docker image locally (no push)
-make release V=v0.2.0  # package a release in rig/dist/release/ (dry run)
+make release V=vX.Y.Z  # package a release in rig/dist/release/ (dry run)
 ```
 
 `make dev` is the whole loop: `resolver/target/rig-resolver-<V>.jar` and

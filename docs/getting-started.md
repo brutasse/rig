@@ -13,7 +13,7 @@ and verifies the binary against the release's `SHA256SUMS` file before
 installing it. Install a specific release instead of the latest:
 
 ```sh
-curl -fsSL …/scripts/install-rig.sh | sh -s -- v0.2.0
+curl -fsSL …/scripts/install-rig.sh | sh -s -- v0.1.0
 ```
 
 The resolver kernel — a pinned Clojure jar that Rig uses for the "cold"
@@ -28,7 +28,7 @@ manifests (`lock`, `update`, `build`, `check`, …); the day-to-day commands
 ```sh
 rig self-update                    # update to the latest release, if newer
 rig self-update --check            # report only, change nothing
-rig self-update --version v0.2.0   # update to a specific release
+rig self-update --version v0.1.0   # update to a specific release
 ```
 
 The binary must live in a writable directory for `self-update` to work

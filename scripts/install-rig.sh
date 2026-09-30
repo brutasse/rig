@@ -5,7 +5,7 @@
 # release; version selection still floats to the latest release by default):
 #
 #   curl -fsSL https://raw.githubusercontent.com/brutasse/rig/<sha>/scripts/install-rig.sh | sh
-#   curl -fsSL ... | sh -s -- v0.2.0        # install a specific version
+#   curl -fsSL ... | sh -s -- vX.Y.Z        # install a specific version
 #
 # The script fetches the rig binary for the current platform from the GitHub
 # release, verifies it against the release's SHA256SUMS, and installs it to
