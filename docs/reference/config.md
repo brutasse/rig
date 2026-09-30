@@ -49,7 +49,8 @@ Set in each module's `deps.edn`. All optional unless noted.
 | `:rig/artifact-dirs` | the module's own `:paths` entries (plain, in-module, excluding the `:rig/target-dir` tree), else `["src" "resources"]` | Directories compiled and copied into the artifact (jar/uber/native). The module's `:paths` are its classpath; artifact-dirs are what the build packages — external paths and build output on the classpath stay out of the artifact. |
 | `:rig/java-src-dirs` | `[]` | Java source directories (compiled into the jar). |
 | `:rig/javac-opts` | `[]` | javac options (used only when `:rig/java-src-dirs` is non-empty). When the workspace pins `:rig/jvm`, `--release <n>` is prepended unless the opts already set `--release`, `-source` or `-target`. |
-| `:jvm-opts` | `[]` | The standard tools.deps key: JVM flags for **dev execution** — `rig run`, `rig repl`, `rig exec`, `rig test`, `rig prep`. It does not apply to `rig build`, `rig check` or `rig launch` (see [JVM flags](#jvm-flags)). |
+| `:deps/prep-lib` | — | The standard tools.deps prep-library key: a custom function that prepares the module (staleness-checked) before `rig build`, `rig test`, `rig run` or `rig repl` — e.g. compiling generated Java with an in-JVM Maven. Shape: `{:ensure "target/classes" :alias :prep :fn build/compile-java}`. See [prep functions](#prep-functions-depsprep-lib). |
+| `:jvm-opts` | `[]` | The standard tools.deps key: JVM flags for **dev execution** — `rig run`, `rig repl`, `rig exec`, `rig test` — and the module's prep function. It does not apply to `rig build`, `rig check` or `rig launch` (see [JVM flags](#jvm-flags)). |
 | `:rig/launch-opts` | `[]` | JVM flags for **`rig launch`** (the production entrypoint); baked into the artifact's launch descriptor at build time (see [JVM flags](#jvm-flags)). |
 | `:rig/ns-compile` | — | Extra namespaces to AOT-compile alongside the module's own sources, e.g. `[:entry.main]`. |
 
@@ -75,6 +76,55 @@ them.
 Other aliases (`:dev`, …) are first-class for `rig run --alias`, `rig repl
 --alias`, `rig exec --alias`, and `rig tree --alias`; they are resolved
 into the lock like `:test`.
+
+## Prep functions (`:deps/prep-lib`)
+
+The standard tools.deps prep-library key, honored by rig: a function that
+prepares a module before anything builds or runs it — code generation that
+must run inside the module's own classpath, AOT compiling the module's
+own Clojure for its dependents, compiling generated Java with an in-JVM
+Maven, …:
+
+```edn
+;; a/proto/deps.edn
+{:deps/prep-lib {:ensure "target/classes" :alias :prep :fn build/compile-java}
+ :aliases       {:prep {:deps {io.github.clojure/tools.build
+                               {:git/tag "v0.8.2" :git/sha "ba1a2bf"}}
+                        :extra-paths ["build"]
+                        :ns-default build}}}
+```
+
+- `:ensure` — a path or paths (relative to the module) the function
+  guarantees. rig re-runs the function when one is missing, and the
+  build's clean step never deletes them — it wipes only the build's own
+  previous output — so a class dir the prep owns survives `rig build`
+  of the module itself and lands in the jar.
+- `:alias` — an alias of the module; the function runs on the alias's
+  **locked** classpath — rig performs no re-resolution and passes the
+  function no repository URLs (the function may still do its own
+  in-JVM work, e.g. a `b/create-basis` against `~/.m2`). The alias
+  typically declares the build file under `:extra-paths` and the
+  function's namespace under `:ns-default`.
+- `:fn` — a var resolved on the prep classpath, called with a single
+  `nil` argument — the way tools.deps' `exec-prep!` invokes it when the
+  alias declares no `:exec-args` — so declare it `[f]` or `[& _]`, not
+  `[]`. The child's exit status propagates: a failing prep fails the
+  command.
+
+`rig build`, `rig test`, `rig run` and `rig repl` prepare the target
+module and every local module on its classpath that declares a prep (or
+`:rig/java-src-dirs`), in dependency order. The function re-runs when a
+`:ensure` path is missing, when its stamp is out of date (the manifest
+hash, a content digest of the module's sources, a digest of the locked
+dependencies, or the function name changed), or when a local dependency
+was re-prepped in the same invocation. A fresh run records its digests
+under `target/.rig-prep.json`; `rig clean` removes the output and the
+stamp together. The function's JVM gets the module's `:jvm-opts` and the
+prep alias's `:jvm-opts`, and runs from the module's directory.
+
+If the function is only "javac my own sources into my class dir", rig
+does that natively: declare `:rig/java-src-dirs` and drop the prep
+library ([Java sources](../concepts/java.md#migrating-away-from-depsprep-lib)).
 
 ## Authenticated repositories (`:auth :oidc`)
 
@@ -212,11 +262,13 @@ key that matches how the JVM is used:
 | Key | Declared in | Applies to |
 |---|---|---|
 | `:rig/compile-jvm-opts` | workspace (root manifest) | The AOT build — kernel JVM and the compile fork it launches (`rig build`) — and the check namespace load/AOT-compile (`rig check`, stage 2). |
-| `:jvm-opts` | module (standard tools.deps key) | Dev execution: `rig run`, `rig repl`, `rig exec`, `rig test`, `rig prep`. |
+| `:jvm-opts` | module (standard tools.deps key) | Dev execution: `rig run`, `rig repl`, `rig exec`, `rig test`, plus the module's prep function. |
 | `:rig/launch-opts` | module | `rig launch` only. Baked into the artifact's launch descriptor at build time, so it travels with the jar. |
 
-`rig build`, `rig check` and `rig launch` never read `:jvm-opts`; dev
-execution never reads `:rig/launch-opts`. (`rig check`'s stage-1 metadata
+The `rig build` JVMs (kernel and compile fork), `rig check` and `rig
+launch` never read `:jvm-opts` — the exception is the module's prep
+function, which runs as part of a build and takes `:jvm-opts` like any
+dev execution; dev execution never reads `:rig/launch-opts`. (`rig check`'s stage-1 metadata
 kernel op runs bare — it inspects the lock, not the code, so it needs no
 workspace flags.)
 

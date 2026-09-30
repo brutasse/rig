@@ -33,13 +33,41 @@
 (defn- write-launch-descriptor
   "Writes the build's :launch config into the class-dir, where the jar and
   the uber pick it up as META-INF/rig/launch.json — the artifact's own
-  launch plan (`rig launch` reads it). Absent when :launch is not in the
-  config."
+  launch plan (`rig launch` reads it). Deletes a stale descriptor left by
+  a previous build when this build declares no :launch, so no plan ships
+  with the artifact it no longer declares."
   [class-dir launch]
-  (when launch
-    (let [f (io/file class-dir "META-INF/rig/launch.json")]
-      (io/make-parents f)
-      (spit f (json/encode launch)))))
+  (let [f (io/file class-dir "META-INF/rig/launch.json")]
+    (if launch
+      (do (io/make-parents f)
+          (spit f (json/encode launch)))
+      (when (.exists f) (io/delete-file f)))))
+
+(defn- under-ensure?
+  "True when path is one of the prep :ensure paths or lives under one.
+  Paths arrive from the Go side (filepath.Join) and from file-seq, both
+  platform-native, so plain string comparison is safe."
+  [path ensures]
+  (some (fn [en]
+          (or (= path en)
+              (str/starts-with? (str path "/") (str en "/"))))
+        ensures))
+
+(defn- clean-class-dir
+  "Wipes the build's own previous output from the class-dir: a .class left
+  from a previous build would shadow the source and its namespace would
+  never be recompiled (silent stale bytecode). Full AOT is the price of
+  correctness. Content under the module's :deps/prep-lib :ensure paths is
+  prep output — input to the build, not its output — and survives: when a
+  prep owns the class-dir (its :ensure covers it), wiping would destroy
+  what the prep guarantees and the jar would ship without it."
+  [class-dir ensures]
+  (let [root (io/file class-dir)]
+    (when (and (.exists root) (not (under-ensure? (str root) ensures)))
+      (dorun (for [f (file-seq root)
+                   :when (and (not (identical? f root))
+                               (not (under-ensure? (str f) ensures)))]
+               (file/delete f))))))
 
 (defn- script-text
   "The two-phase compile script: the preloads run under the AOT bindings,
@@ -104,12 +132,11 @@
         artifact-dirs (get cfg :artifact-dirs)
         java-src-dirs (get cfg :java-src-dirs)
         copy-dirs (filter #(and % (.isDirectory (io/file %))) artifact-dirs)
-        extra (get cfg :ns-compile)]
-    ;; Every build starts from a clean class-dir; a .class left from a
-    ;; previous build would shadow the source and its namespace would
-    ;; never be recompiled (silent stale bytecode). Full AOT is the
-    ;; price of correctness here.
-    (file/delete class-dir)
+        extra (get cfg :ns-compile)
+        ensure (get cfg :prep-ensure)]
+    ;; Wipe the build's own previous output, not the prep's (see
+    ;; clean-class-dir).
+    (clean-class-dir class-dir (or ensure []))
     ;; Copy src/resource dirs into the class-dir so resources (and sources)
     ;; land in the jar/uber. compile-clj only compiles .clj; it never copies.
     (when (seq copy-dirs)

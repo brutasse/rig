@@ -52,10 +52,9 @@ func hasJava(mod lockfile.Module) bool { return len(mod.Build.JavaSrcDirs) > 0 }
 //   - rig runs each module's :deps/prep-lib :fn on its locked prep-alias
 //     classpath and verifies the declared :ensure output.
 //
-// A module declaring both is prepared with the javac first: the kernel
-// build wipes the class-dir, so the javac must not run after the fn, and
-// the fn's classpath leads with the javac'd classes. Each kind keeps its
-// own stamp and staleness state. Stale preps run in dependency order; a
+// A module declaring both is prepared with the javac first: the fn's
+// classpath leads with the javac'd classes. Each kind keeps its own stamp
+// and staleness state. Stale preps run in dependency order; a
 // re-prepped dependency re-preps its dependents in the same invocation.
 //
 // targetJava reports whether the caller needs the target's own java
@@ -444,6 +443,11 @@ func (e *hotEnv) runJavaPrep(ctx context.Context, m string, mod lockfile.Module)
 		"artifact-dirs": []string{},
 		"java-src-dirs": absJoin(dir, mod.Build.JavaSrcDirs),
 		"class-dir":     filepath.Join(dir, mod.Build.ClassDir),
+	}
+	// Same protection as the module build: the javac must not destroy the
+	// module's prep output (a prep may own the class-dir).
+	if len(mod.PrepEnsure) > 0 {
+		cfg["prep-ensure"] = absJoin(dir, mod.PrepEnsure)
 	}
 	if opts := javacOptsOf(e.lock.JVM, mod.Build.JavacOpts); len(opts) > 0 {
 		cfg["javac-opts"] = opts

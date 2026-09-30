@@ -124,6 +124,11 @@ func (e *hotEnv) buildOne(ctx context.Context, m string, uber, native bool) (str
 		"jar-file":      filepath.Join(dir, "target", jarFileName(mod)),
 		"uber?":         buildUber,
 	}
+	// The prep's :ensure output is the build's input (a prep may own the
+	// whole class-dir); the kernel's clean step must not destroy it.
+	if len(mod.PrepEnsure) > 0 {
+		cfg["prep-ensure"] = absJoin(dir, mod.PrepEnsure)
+	}
 	// An empty main is the absence of a main: passing it through would make
 	// tools.build write an empty Main-Class manifest attribute. The native
 	// path does not use it (the image entry point is rig's shim).
