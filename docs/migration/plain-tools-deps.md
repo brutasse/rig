@@ -3,7 +3,7 @@
 You have a project that is just `deps.edn` files and the Clojure CLI —
 `clj -X:test`, `clj -Spath`, maybe a small Makefile. No tools.project, no
 deps-modules. This is the easiest onboarding: **your manifests already are
-rig manifests** (minus the `:rig/*` keys), and `rig lock` works on them
+Rig manifests** (minus the `:rig/*` keys), and `rig lock` works on them
 untouched.
 
 ## Single module
@@ -123,7 +123,7 @@ waiting to be declared:
 - **`deps.edn` is still `deps.edn`.** `:paths`, `:deps`, `:aliases`,
   `:mvn/repos` behave exactly as tools.deps defines. CIDER, clojure-lsp,
   and any `clj -Sdeps` one-liner keep working on every module.
-- **`clj` remains available** for the edge cases rig has no verb for —
+- **`clj` remains available** for the edge cases Rig has no verb for —
   and `rig exec` exports the locked `CLASSPATH` for scripts that want it.
 - **Your repositories** — including private ones — keep working through
   `~/.m2/settings.xml`, the same file as today.
@@ -142,6 +142,6 @@ waiting to be declared:
   recorded in the lock.
 - **`deps.lock` is committed source.** Review lock diffs like any other
   diff; a changed `sha256` for an unchanged version is a review item.
-- **One manifest per module.** rig finds the project by walking up from
+- **One manifest per module.** Rig finds the project by walking up from
   your directory to the nearest `deps.lock` (or `:rig/modules` root) — so
-  run rig from inside the project, as you do with `clj`.
+  run Rig from inside the project, as you do with `clj`.

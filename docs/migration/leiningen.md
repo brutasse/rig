@@ -27,10 +27,10 @@ A typical `project.clj`:
  :resource-paths ["resources"])
 ```
 
-What rig gives you in exchange: a lockfile with hash-pinned,
+What Rig gives you in exchange: a lockfile with hash-pinned,
 full-tree-resolved dependencies, offline builds, and a single command
 surface (`rig test`, `rig build`, `rig publish`, …). What it does not:
-the Leiningen plugin and task machinery — nothing in rig executes
+the Leiningen plugin and task machinery — nothing in Rig executes
 plugins, and that surface is dropped with a warning, not translated.
 
 ## What `rig migrate` does
@@ -78,7 +78,7 @@ nothing written.
 
 ## The key mapping
 
-| `project.clj` | rig |
+| `project.clj` | Rig |
 |---|---|
 | `defproject` coordinate | `:rig/lib` |
 | `:main` | `:rig/main` |
@@ -89,7 +89,7 @@ nothing written.
 | `:parent-project` | `:managed-dependencies` inherited via `:inherit [:managed-dependencies]` materialized from the parent manifest (parent pool as base, own entries win); other inherited keys drop with a warning; a missing parent path is a blocking problem |
 | `:sub` | root `:rig/modules`, one `deps.edn` per module (`project.clj` files untouched); sibling-module deps → `:local/root` (module-relative, winning over any declared version); the root's `:managed-dependencies` pins move to the root's `:rig/deps`; nested `:sub` is a blocking problem (flatten the module hierarchy) |
 | `:repositories` | `:mvn/repos` |
-| `:deploy-repositories` | `:rig/publish` (only the first entry is migrated; the rest are dropped with a warning; the `:clojars` shorthand maps to the rig `clojars` repo) |
+| `:deploy-repositories` | `:rig/publish` (only the first entry is migrated; the rest are dropped with a warning; the `:clojars` shorthand maps to the Rig `clojars` repo) |
 | `:source-paths` / `:resource-paths` | `:paths` (omitted at the `["src" "resources"]` default) |
 | `:java-source-paths` | `:rig/java-src-dirs` |
 | `:javac-options` | `:rig/javac-opts` |
@@ -130,11 +130,11 @@ effective pin predates it (a `:dev` that still pins `1.0.669`, say), the
 
 ## What gets dropped
 
-Leiningen features with no rig equivalent are dropped **with a warning
+Leiningen features with no Rig equivalent are dropped **with a warning
 per occurrence** — nothing is silently lost:
 
 - `:plugins` (top-level or per-profile) — the wagon, test-report and
-  cljfmt plugins have no rig counterpart;
+  cljfmt plugins have no Rig counterpart;
 - `:aliases` (Leiningen task aliases) — lein task invocations become
   `rig exec`;
 - `:aot`, `:global-vars`, `:native-image` (the `:graalvm` profile);
@@ -144,11 +144,11 @@ per occurrence** — nothing is silently lost:
   exists to supply versions to declared deps; pins nothing references
   are dropped with a warning (transitive version constraints are lost);
 - `~var` versions whose var is computed or undefined (lein-replace
-  interpolation rig cannot evaluate) — a dep whose version comes from
+  interpolation Rig cannot evaluate) — a dep whose version comes from
   one is a blocking problem naming the var and the dep; top-level
   `(def var "literal")` and `(def var (slurp "…"))` defs resolve.
 
-Version vars rig cannot interpret (neither a string literal nor a
+Version vars Rig cannot interpret (neither a string literal nor a
 `(slurp "…")` body) produce a warning and no version key — the manifest
 then carries no `:rig/version`, which is correct when the var reads the
 default `VERSION` file (a wrapped form like `(.trim (try (slurp
@@ -156,7 +156,7 @@ default `VERSION` file (a wrapped form like `(.trim (try (slurp
 
 ## The command surface
 
-| Leiningen | rig |
+| Leiningen | Rig |
 |---|---|
 | `lein test` | `rig test` |
 | `lein run` | `rig run` |
@@ -196,7 +196,7 @@ keep it as a reference; `deps.edn` wins while both exist).
   clojure-lsp, and any `clj -Sdeps` one-liner work on the result.
 - **Your repositories** — including private ones — keep working through
   `~/.m2/settings.xml`, the same file as today.
-- **`clj` remains available** for the edge cases rig has no verb for;
+- **`clj` remains available** for the edge cases Rig has no verb for;
   `rig exec` exports the locked `CLASSPATH` for scripts.
 
 ## Gotchas

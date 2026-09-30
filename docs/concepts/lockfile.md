@@ -4,7 +4,7 @@
 at the workspace root (next to the manifest for single-module projects),
 it is JSON, and it is **always committed**.
 
-You never edit it by hand. rig writes it; you read it to understand what a
+You never edit it by hand. Rig writes it; you read it to understand what a
 build will do, and you diff it in code review.
 
 ## Anatomy
@@ -113,11 +113,11 @@ A real lock (trimmed) from a multi-module workspace:
 
 ### The important fields
 
-- **`artifacts[].sha256`** — computed by the rig binary over the exact bytes
+- **`artifacts[].sha256`** — computed by the Rig binary over the exact bytes
   it pins. Only the binary ever writes a hash into the lock.
 - **`modules[].classpath`** — an ordered list. Every string entry resolves
   to an `artifacts` id; a `{"local": …}` entry expands to that module's
-  source/resource directories. rig rejects a lock that violates this.
+  source/resource directories. Rig rejects a lock that violates this.
 - **`modules[].aliases`** — the resolved form of your `:aliases`: classpath,
   jvm-opts, env, and `exec` (how to launch it: an `exec-fn`, a main, or
   plain). `rig test` reads this; it does not parse the manifest.
@@ -134,11 +134,11 @@ Every command that builds a classpath (`test`, `run`, `repl`, `exec`,
 `build`, …) starts by checking the lock:
 
 1. **No lock** → exit 3, hint: `run 'rig lock'`.
-2. **Lock of an unsupported schema version** (written by an older rig) →
+2. **Lock of an unsupported schema version** (written by an older Rig) →
    exit, hint: `run 'rig lock'`. The re-lock reads the old lock, keeps its
    pins, and writes the current schema.
 3. **A manifest changed** (its `manifest_sha256` no longer matches) →
-   - default (development): rig re-resolves, refreshes the lock, prints one
+   - default (development): Rig re-resolves, refreshes the lock, prints one
      line — `relocked (stale: modules/orchestrator)` — and continues.
    - with `--frozen`: exit 3, lock untouched. This is the CI mode.
 4. **Lock is current** → proceed. No resolution, no network (unless an

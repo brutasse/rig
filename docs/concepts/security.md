@@ -1,16 +1,16 @@
 # Security model
 
-rig's supply-chain story has three parts: **pin** what you use, **verify**
+Rig's supply-chain story has three parts: **pin** what you use, **verify**
 what you run, and **cool down** what you adopt.
 
 ## Every artifact is hash-pinned
 
 `deps.lock` records a sha256 for every Maven artifact in the resolved
-tree. The hash is computed by the rig binary itself, over the exact bytes
+tree. The hash is computed by the Rig binary itself, over the exact bytes
 it stores — never trusted from a repository, a POM, or a pre-existing
 `~/.m2`.
 
-Before any JVM launch, rig checks each classpath artifact against the
+Before any JVM launch, Rig checks each classpath artifact against the
 lock:
 
 - present in the content-addressed cache or in a checksum-checked
@@ -25,9 +25,9 @@ classpath is closed.
 
 ### Where bytes come from
 
-When rig needs an artifact it is not caching, sources are tried in order:
+When Rig needs an artifact it is not caching, sources are tried in order:
 
-1. the rig cache (`~/.local/share/rig` by default);
+1. the Rig cache (`~/.local/share/rig` by default);
 2. the local `~/.m2/repository` copy — accepted only when it is
    self-consistent (its Maven `.sha1` matches its own content) or when it
    hashes to the sha the lock already pins. A poisoned m2 copy is skipped,
@@ -71,7 +71,7 @@ version you are about to adopt — a compromised release is dangerous
 precisely in the first hours, before it is detected, yanked, or written
 up.
 
-rig therefore refuses to *select* a version that was published less than
+Rig therefore refuses to *select* a version that was published less than
 the cooldown window before resolve time:
 
 - the default window is **48 hours**, set per workspace with
@@ -80,7 +80,7 @@ the cooldown window before resolve time:
   `{"corp" "72h"}`;
 - version age comes from repository metadata / `Last-Modified`.
 
-When a fresh version is refused, rig says so and picks the newest
+When a fresh version is refused, Rig says so and picks the newest
 *older* eligible version:
 
 ```
@@ -128,17 +128,17 @@ same lock means the same JDK version on every machine, including CI.
 The JDK archive is downloaded from the vendor's release assets and verified
 against the sha256 published by the Adoptium API for that exact build,
 before it is extracted — the same trust class as a Maven repository
-checksum. rig never launches a JDK it has not verified.
+checksum. Rig never launches a JDK it has not verified.
 
 ## Residual trust
 
 Be honest about the boundaries:
 
-- The resolver kernel rig invokes is a pinned jar (version + git sha +
+- The resolver kernel Rig invokes is a pinned jar (version + git sha +
   jar sha256), trusted like any tool on your machine.
 - Graph integrity above the artifact bytes (POMs, repository metadata)
   relies on the repositories. The final bytes of every jar are always
-  hash-pinned by rig itself.
+  hash-pinned by Rig itself.
 - Managed JDKs are verified against the checksum the Adoptium API
   publishes for the exact release the lock pins; the API is a trust
   boundary, like a Maven repository.
@@ -147,5 +147,5 @@ Be honest about the boundaries:
 - You can collapse the repository trust boundary to a single
   [Pier](https://brutasse.github.io/pier/) instance — one OIDC-gated URL
   for the public world and the corporate jars
-  ([all artifacts through one repository](../workflows/pier.md)). rig's
+  ([all artifacts through one repository](../workflows/pier.md)). Rig's
   per-artifact hash pins are unchanged.

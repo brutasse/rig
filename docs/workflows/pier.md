@@ -10,7 +10,7 @@ and serves your corporate jars from the same bucket.
   attribution goes through the same gated URL. Nothing talks to Central,
   Clojars, or the corporate repo directly.
 - **One trust boundary.** One CEL policy, one set of OIDC issuers, one S3
-  bucket. rig still hash-pins every artifact byte
+  bucket. Rig still hash-pins every artifact byte
   ([security model](../concepts/security.md)).
 - **The public world cached once.** Pier's pull-through caches Central and
   Clojars artifacts on first request; a cold read hits the upstream, a warm
@@ -43,9 +43,9 @@ usual; see the [Pier documentation](https://brutasse.github.io/pier/):
 [pull-through cache](https://brutasse.github.io/pier/pull-through/),
 [policy rules](https://brutasse.github.io/pier/policies/).
 
-## The rig side
+## The Rig side
 
-rig ships with two built-in repositories, `central` and `clojars`.
+Rig ships with two built-in repositories, `central` and `clojars`.
 Redeclaring an id under `:mvn/repos` **replaces** the built-in one — the
 same rule tools.deps applies to its own resolution. The resolver probes
 `:mvn/repos` in map order, first match wins, and Pier answers every probe
@@ -57,7 +57,7 @@ same rule tools.deps applies to its own resolution. The resolver probes
             "clojars" {:url "https://pier.example" :auth :oidc}}
 ```
 
-Everything rig does for Maven artifacts then goes through the redeclared
+Everything Rig does for Maven artifacts then goes through the redeclared
 repository:
 
 - floating-version probes (repository metadata),
@@ -77,7 +77,7 @@ repository:
 `central` id, or add a dedicated `corp` id (the same URL) if you want a
 cleaner publish label. It does not affect attribution.
 
-rig does not inherit `:mvn/repos`: declare the map in the root manifest
+Rig does not inherit `:mvn/repos`: declare the map in the root manifest
 **and** in every module manifest.
 
 ## Authentication
@@ -128,6 +128,6 @@ upstream on a 24h TTL by default).
 
 In CI the runner injects a short-lived token as `RIG_TOKEN_PIER` (the
 gate's environment variable); nothing static lives in the repository or in
-rig's state. The usual CI gate
+Rig's state. The usual CI gate
 ([ci.md](ci.md)) works unchanged — `rig verify --frozen` fetches from the
 lock's URLs, i.e. from Pier, with the bearer.

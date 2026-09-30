@@ -1,8 +1,8 @@
 # Configuration
 
-All rig configuration lives under one namespace — `:rig/*` — in the
+All Rig configuration lives under one namespace — `:rig/*` — in the
 `deps.edn` files. Standard tools.deps keys (`:paths`, `:deps`, `:aliases`)
-are unchanged and documented by the tools.deps spec; rig extends
+are unchanged and documented by the tools.deps spec; Rig extends
 `:mvn/repos` with an `:auth` marker (see
 [authenticated repositories](#authenticated-repositories-auth-oidc)).
 
@@ -39,7 +39,7 @@ Set in each module's `deps.edn`. All optional unless noted.
 | `:rig/uberjar?` | `false` (true if `:rig/uberjar-file` is set) | Build an uberjar (with `rig build --uber`). |
 | `:rig/native?` | `false` (true if `:rig/native-file` is set) | Build a GraalVM native-image binary (with `rig build --native`). |
 | `:rig/native-file` | `target/<lib name>` | Native binary output path, relative to the module (no extension). |
-| `:rig/native-opts` | `[]` | Extra native-image arguments, appended after rig's fixed ones. |
+| `:rig/native-opts` | `[]` | Extra native-image arguments, appended after Rig's fixed ones. |
 | `:rig/uberjar-file` | `target/<name>-<version>.jar` | Uberjar output path, relative to the module. |
 | `:rig/uber-opts` | `{}` | tools.build uberjar options (currently `:exclude`), e.g. `{:exclude ["META-INF/license/.*"]}`. |
 | `:rig/test?` | `true` | Recorded in the lock (`test.enabled`). `rig test` itself targets modules by their `:test` alias's `:exec-fn`. |
@@ -79,7 +79,7 @@ into the lock like `:test`.
 
 ## Prep functions (`:deps/prep-lib`)
 
-The standard tools.deps prep-library key, honored by rig: a function that
+The standard tools.deps prep-library key, honored by Rig: a function that
 prepares a module before anything builds or runs it — code generation that
 must run inside the module's own classpath, AOT compiling the module's
 own Clojure for its dependents, compiling generated Java with an in-JVM
@@ -95,12 +95,12 @@ Maven, …:
 ```
 
 - `:ensure` — a path or paths (relative to the module) the function
-  guarantees. rig re-runs the function when one is missing, and the
+  guarantees. Rig re-runs the function when one is missing, and the
   build's clean step never deletes them — it wipes only the build's own
   previous output — so a class dir the prep owns survives `rig build`
   of the module itself and lands in the jar.
 - `:alias` — an alias of the module; the function runs on the alias's
-  **locked** classpath — rig performs no re-resolution and passes the
+  **locked** classpath — Rig performs no re-resolution and passes the
   function no repository URLs (the function may still do its own
   in-JVM work, e.g. a `b/create-basis` against `~/.m2`). The alias
   typically declares the build file under `:extra-paths` and the
@@ -122,20 +122,20 @@ under `target/.rig-prep.json`; `rig clean` removes the output and the
 stamp together. The function's JVM gets the module's `:jvm-opts` and the
 prep alias's `:jvm-opts`, and runs from the module's directory.
 
-If the function is only "javac my own sources into my class dir", rig
+If the function is only "javac my own sources into my class dir", Rig
 does that natively: declare `:rig/java-src-dirs` and drop the prep
 library ([Java sources](../concepts/java.md#migrating-away-from-depsprep-lib)).
 
 ## Authenticated repositories (`:auth :oidc`)
 
-rig extends `:mvn/repos` (root or module manifest) with an `:auth` marker.
+Rig extends `:mvn/repos` (root or module manifest) with an `:auth` marker.
 `:auth :oidc` marks the repo as behind an OIDC gate:
 
 ```edn
 :mvn/repos {"corp" {:url "https://maven.corp.example" :auth :oidc}}
 ```
 
-Every request rig makes to a marked repo — kernel repo probes, `rig
+Every request Rig makes to a marked repo — kernel repo probes, `rig
 publish` uploads, and the resolver's artifact traffic (see the auth proxy
 below) — carries `Authorization: Bearer <token>`.
 
@@ -166,7 +166,7 @@ Fields:
 | `well-known` | yes | The issuer's OpenID discovery URL. |
 | `audience` | no | The audience the token must carry (default `pier`). |
 | `client-id` | no | The OAuth client identifier (default `rig`). |
-| `redirect-uri` | no | A fixed `http://127.0.0.1:PORT/callback` redirect for the browser flow. Without it rig listens on an ephemeral loopback port. |
+| `redirect-uri` | no | A fixed `http://127.0.0.1:PORT/callback` redirect for the browser flow. Without it Rig listens on an ephemeral loopback port. |
 
 A marked repo is bound to the gate that fronts its `:url` (longest-prefix
 match, on the URL): exactly one matching gate is used; several matching
@@ -205,13 +205,13 @@ browser|device` forces the negotiation flow (auto by default).
 
 ### Auth proxy
 
-tools.deps (MIMA) cannot carry a bearer of its own, so rig does not hand
-it the real repo URL: for every resolution run rig starts a local
+tools.deps (MIMA) cannot carry a bearer of its own, so Rig does not hand
+it the real repo URL: for every resolution run Rig starts a local
 loopback proxy and rewrites the `:url` of each marked repo to it. The
 proxy forwards every Maven request — exact versions and floating ones
 alike — to the repo's real URL with **that repo's** bearer attached,
 streaming the response without touching disk. The tokens never leave
-rig's process memory, and the proxy dies with the command. The repo id is
+Rig's process memory, and the proxy dies with the command. The repo id is
 unchanged, so lock attribution (and Maven's `_remote.repositories`) still
 point at the original repo, and the lock records its original URL.
 Floating versions are probed by the kernel against the original URL, with
@@ -262,7 +262,7 @@ Vendor: Temurin (Eclipse Adoptium), GA releases only.
 
 ## JVM flags
 
-Three contexts, three keys — every JVM rig launches gets its flags from the
+Three contexts, three keys — every JVM Rig launches gets its flags from the
 key that matches how the JVM is used:
 
 | Key | Declared in | Applies to |
@@ -294,7 +294,7 @@ compiles, loads or runs preview code:
 
 A lock with `--enable-preview` in `:rig/compile-jvm-opts` but no `:rig/jvm`
 pin is rejected at load time: the preview set depends on the JVM version,
-and rig will not guess it.
+and Rig will not guess it.
 
 ## Native images (`rig build --native`)
 
@@ -316,37 +316,37 @@ binary (GraalVM):
   (install / list / uninstall / update). `RIG_GRAALVM_HOME=<home>`
   overrides the store (a dev override, like `RIG_JAVA`; it must contain
   `bin/native-image`).
-- **Entry point.** `:rig/main` must be a Clojure namespace. rig compiles
+- **Entry point.** `:rig/main` must be a Clojure namespace. Rig compiles
   a small entry shim (javac beside the workspace's java) whose main
   delegates to `clojure.main` with `-m <ns>`, so the binary runs with
   plain args: `<binary> arg1 arg2`.
 - **Class initialization.** A native image cannot load classes from a
-  classpath at run time: rig loads the Clojure runtime and the module's
+  classpath at run time: Rig loads the Clojure runtime and the module's
   namespace at image build time, and marks every namespace package it
   finds on the classpath for build-time initialization. A namespace
   reached only dynamically (outside the transitive `require` closure of
   `:rig/main`) must be `require`ed at top level, else the build fails
   naming the missing class.
-- **Arguments.** rig passes the fixed arguments `--no-fallback`,
+- **Arguments.** Rig passes the fixed arguments `--no-fallback`,
   `--class-path <class dir>:<locked classpath>`,
   `--initialize-at-build-time=<namespace packages>`, and
   `-o <native-file>`; `:rig/native-opts` is appended after them. A
-  repeated `--initialize-at-build-time` in the opts adds to rig's list;
-  `--fallback` conflicts with rig's `--no-fallback`.
+  repeated `--initialize-at-build-time` in the opts adds to Rig's list;
+  `--fallback` conflicts with Rig's `--no-fallback`.
 - **Prerequisites.** A full JDK (the shim is compiled with `javac`), a C
   compiler for linking, and a few GB of RAM. A native build takes
   minutes, not seconds.
-- **Reflection.** rig does not manage native-image configuration in v1:
+- **Reflection.** Rig does not manage native-image configuration in v1:
   `META-INF/native-image/**` entries in dependency jars are
   auto-discovered, and `:rig/native-opts` is the escape hatch
   (`--features=…`, `--initialize-at-build-time=…`, …).
 
 ## Production launch (`rig launch`)
 
-`rig launch` runs the built artifact with rig's production JVM flag set.
+`rig launch` runs the built artifact with Rig's production JVM flag set.
 The flag order is fixed:
 
-1. **rig's defaults** — G1 garbage collection (`-XX:+UseG1GC`, with
+1. **Rig's defaults** — G1 garbage collection (`-XX:+UseG1GC`, with
    `-XX:+AlwaysPreTouch`), exit on out-of-memory
    (`-XX:+ExitOnOutOfMemoryError`, plus
    `-XX:+HeapDumpOnOutOfMemoryError`), and loopback-only JMX on port
@@ -357,10 +357,10 @@ The flag order is fixed:
    defaults.
 2. **the module's `:rig/launch-opts`** (from the module manifest, or from
    the baked launch descriptor when launching a jar standalone) — later
-   flags override rig's defaults (last JVM flag wins; a repeated `-D`
+   flags override Rig's defaults (last JVM flag wins; a repeated `-D`
    re-sets the property). A garbage collector in `:rig/launch-opts`
    (e.g. `-XX:+UseZGC`) *replaces* the G1 default: the JVM refuses to
-   start with two collectors selected, so rig drops its own rather than
+   start with two collectors selected, so Rig drops its own rather than
    pass both.
 
 The JMX port is fixed at 10101; if it collides in your environment,
@@ -380,8 +380,8 @@ override both `-Dcom.sun.management.jmxremote.port=…` and
 `main`, `jvm-opts` (the module's `:rig/launch-opts` — the JSON field name
 predates the key and stays, so old artifacts keep launching), `java` (the
 build JVM's feature version) and `uber` —
-all taken from the lock at build time. rig's production defaults are *not*
-baked in: the launching rig applies them, so the policy follows rig
+all taken from the lock at build time. Rig's production defaults are *not*
+baked in: the launching Rig applies them, so the policy follows Rig
 upgrades even for old artifacts. `rig launch <jar>` reads the descriptor
 first, so a built jar launches standalone, without the workspace.
 
@@ -403,7 +403,7 @@ first, so a built jar launches standalone, without the workspace.
   JDK auto-install, no artifact fetch, no update notice. The lock is inert
   data — launch never checks staleness, never re-locks, and `--frozen` has
   no effect on it.
-- The child's exit code is rig's.
+- The child's exit code is Rig's.
 
 ## What is *not* configured
 

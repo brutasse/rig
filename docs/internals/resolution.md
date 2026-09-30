@@ -1,23 +1,23 @@
 # Version resolution
 
-How rig picks versions, and why the answer is the ecosystem's answer —
-plus exactly where rig adds its own layer on top.
+How Rig picks versions, and why the answer is the ecosystem's answer —
+plus exactly where Rig adds its own layer on top.
 
 ## The graph is tools.deps'
 
-rig does not re-implement Maven. For every module and alias, the kernel
+Rig does not re-implement Maven. For every module and alias, the kernel
 calls `clojure.tools.deps/create-basis` on the module's directory — the
 same function the `clojure` CLI uses. POM fetching, transitive
 dependencies, nearest-wins, exclusions, and repository precedence are
-tools.deps semantics, unmodified — with one exception rig registers on
+tools.deps semantics, unmodified — with one exception Rig registers on
 top of the Maven comparator: a local module beats a published
 coordinate ([local modules beat published
 coordinates](#local-modules-beat-published-coordinates)).
 
-What rig owns is a single narrow question: *which exact version does a
+What Rig owns is a single narrow question: *which exact version does a
 floating requirement (`RELEASE`/`LATEST`) mean today?* That is the one
 place where the ecosystem's own answer changes under your feet — and the
-one rig wants to gate, record, and keep stable across re-locks.
+one Rig wants to gate, record, and keep stable across re-locks.
 
 ## The flow of `rig lock`
 
@@ -51,9 +51,9 @@ Per floating coordinate, in order of precedence:
    what makes re-locks stable: `rig lock` never bumps a version you
    already use, and `rig update` of one coordinate keeps the rest.
 3. **Native resolution** — when the workspace's cooldowns are all zero,
-   the floating requirement is left to `tools.deps` itself: rig adds
+   the floating requirement is left to `tools.deps` itself: Rig adds
    nothing, and the result is the ecosystem's own answer, untouched.
-4. **Cooldown-gated selection** — otherwise rig looks at the
+4. **Cooldown-gated selection** — otherwise Rig looks at the
    repository's version candidates and picks the newest one old enough
    (below).
 
@@ -95,13 +95,13 @@ mechanics and the escape hatches are on the
   never re-probes ([the closed build](closed-build.md)).
 - Credentials for private repositories come from `~/.m2/settings.xml`,
   the same file Maven and tools.deps use; `:auth :oidc` repositories are
-  fronted by rig's local auth proxy instead.
+  fronted by Rig's local auth proxy instead.
 
 ## Ecosystem interop
 
 - **Each module stays independently resolvable.** `clojure -Sdeps`,
   editors, and any other tooling read the `deps.edn` exactly as before —
-  rig's pins live in the lock, not in the manifest. Resolution never
+  Rig's pins live in the lock, not in the manifest. Resolution never
   writes the manifest on disk; the only writers are the explicit
   `add`/`remove`/`update` commands (`edit-dep` op, format-preserving via
   `rewrite-clj` + cljfmt) and `migrate`.
@@ -109,7 +109,7 @@ mechanics and the escape hatches are on the
   (`~/.gitlibs/libs`, `group/name:<short-sha>:jar` coordinates), so
   checkouts are shared with the `clojure` CLI and never duplicated.
 - **`~/.m2/repository` is reused** as an artifact source — imported into
-  the rig cache only when its bytes check out.
+  the Rig cache only when its bytes check out.
 - **`rig outdated`** compares the lock's pins against the same
   `maven-metadata.xml`, and reports `latest`, `latest-satisfying` (same
   major), and whether the jump is breaking — the same candidate pool
@@ -117,11 +117,11 @@ mechanics and the escape hatches are on the
 
 ## Deliberate deviations
 
-**Cooldowns gate *selection only*.** They change which version rig picks
+**Cooldowns gate *selection only*.** They change which version Rig picks
 for a floating requirement — never the graph itself, never a concrete
 requirement, never the order tools.deps computes. The decision is
 additive and recorded: `skipped` in the lock, `refused`/`forced` on
-stderr. Set every cooldown to `"0s"` and rig's selection layer becomes
+stderr. Set every cooldown to `"0s"` and Rig's selection layer becomes
 the identity: what you get is exactly what `clojure` would give you.
 
 ## Local modules beat published coordinates
@@ -130,7 +130,7 @@ The second deviation lives in the graph, not in selection. When the same
 library enters a basis as both a `:local/root` requirement and a
 `:mvn/version` requirement — typically a transitive POM that references
 the module's own published artifact — vanilla tools.deps cannot order
-the two, and resolution fails. rig registers `compare-versions` methods
+the two, and resolution fails. Rig registers `compare-versions` methods
 for the cross-type pair so that the local module dominates, in either
 direction, and the lock records the local module; the published
 coordinate never enters the lock.

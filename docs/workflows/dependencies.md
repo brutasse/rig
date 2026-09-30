@@ -17,7 +17,7 @@ By default, the requirement is added **shared**: it is recorded in the
 workspace's `:rig/deps` and propagated to every module that declares the
 coordinate. `-p` chooses which module's `:deps` receives the edit;
 `--shared=false` keeps the requirement local to that module. Without a
-version, rig selects the newest available version, subject to the
+version, Rig selects the newest available version, subject to the
 [cooldown](../concepts/security.md#cooldowns-the-adoption-window).
 
 A successful add prints what it did:
@@ -34,7 +34,7 @@ root's `:rig/deps`, plus any other affected modules); the last line confirms
 the new lock.
 
 If the re-resolve fails — a bad version, an artifact that doesn't exist,
-a repo you can't reach — rig reverts the manifest edits byte-for-byte,
+a repo you can't reach — Rig reverts the manifest edits byte-for-byte,
 prints `reverted N manifest file(s): the edit failed`, and exits
 non-zero; the lock is not updated. A failed change leaves no trace:
 cooldown refusals (exit 5) and unknown coordinates are refused before

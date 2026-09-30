@@ -16,11 +16,11 @@ Whatever you are coming from, the migration is the same five steps, and
 
 1. **Add the lock (additive, zero risk).** `rig lock` on the current repo
    and commit `deps.lock`. Nothing else changes — your manifests are
-   already self-contained, and rig reads them as-is. Every build is now
+   already self-contained, and Rig reads them as-is. Every build is now
    hash-pinned, and you have a baseline to prove parity against.
 2. **Swap the command surface.** Replace the old invocations — Makefile
-   targets, CI steps, shell muscle memory — with the rig verbs
-   (`clj -T:project test` → `rig test`, …). rig is the command surface;
+   targets, CI steps, shell muscle memory — with the Rig verbs
+   (`clj -T:project test` → `rig test`, …). Rig is the command surface;
    a Makefile that only wrapped the old tooling is now unnecessary.
    Verify the locked classpath is byte-identical to what the old tooling
    resolved (`clojure -Spath` is the oracle) and that the test suite is

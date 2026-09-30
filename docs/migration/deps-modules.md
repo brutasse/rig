@@ -66,7 +66,7 @@ each module self-contained. `:rig/deps` is what you opt into when you
 want a shared requirement across modules (step 3 below).
 
 There is no merge step. There is no on-disk rewriting of module manifests
-by the tooling — the only manifest edits rig makes are your explicit
+by the tooling — the only manifest edits Rig makes are your explicit
 `rig add`/`update`/`remove` (and the one-shot `rig migrate`),
 format-preserving, in one visible diff.
 And instead of drift being invisible, it is a named, reported condition:
@@ -93,7 +93,7 @@ Copy each pool entry into the `:deps` of every module that inherits it
 `:exoscale.deps/inherit` markers found on the entries themselves (inert
 residue — a migrated manifest must carry no `exoscale.*` key anywhere),
 then delete the managed map (and `:exoscale.deps/managed-aliases` — there
-is no alias inheritance in rig; aliases are per-module, and shared test
+is no alias inheritance in Rig; aliases are per-module, and shared test
 deps move to the modules' `:test` aliases or to `:rig/deps` requirements):
 
 ```
@@ -171,11 +171,11 @@ rig update org.clojure/test.check 1.1.1   # settle a cross-module version
 
 ## What you lose, and why it is fine
 
-| deps-modules feature | In rig |
+| deps-modules feature | In Rig |
 |---|---|
 | single version file for all modules | `:rig/deps` — declared once, read at resolve time |
 | selective inheritance (`:inherit [:mvn/version]`) | not needed: a module's own requirement map already expresses exactly what it wants; shared coordinates are aligned by `rig update`, not by rewriting |
 | alias synchronization (`managed-aliases`) | not needed: aliases are per-module by design; shared test deps go through `:rig/deps` requirements + each module's `:test` alias |
 | `dry-run?` preview | the manifest diff *is* the preview — `rig update` prints each edit before writing |
-| comments/formatting preserved on merge | rig never rewrites manifests except for your explicit dep edits, which are format-preserving |
+| comments/formatting preserved on merge | Rig never rewrites manifests except for your explicit dep edits, which are format-preserving |
 | forgetting the sync step | no sync step exists; `rig check` fails loudly on drift instead |
