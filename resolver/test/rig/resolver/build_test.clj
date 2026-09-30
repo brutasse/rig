@@ -391,3 +391,41 @@
           (is (contains? names "example/core__init.class") names)))
       (finally
         (delete-tree ws-dir)))))
+
+(deftest build-fails-when-a-dependency-class-exceeds-the-floor
+  "The floor (cfg :floor, the pinned JVM's feature version) gates every
+  jar the build produces: a classpath dependency carrying a class above
+  it fails the uber build (the class lands in the uber); the same build
+  passes at a floor at or above the class, and without a floor (no pin,
+  no scan)."
+  (let [ws-dir (temp-dir)
+        ws (str ws-dir)
+        src-root (io/file ws-dir "src")
+        src-file (io/file src-root "example" "core.clj")
+        res-root (io/file ws-dir "resources")
+        dep-jar (str ws-dir "/dep.jar")
+        class-bytes (byte-array [0xCA 0xFE 0xBA 0xBE 0 0 0 65 0 0 0 0])]
+    (io/make-parents src-file)
+    (spit src-file "(ns example.core)\n(def x 1)\n")
+    (with-open [zos (java.util.zip.ZipOutputStream. (io/output-stream dep-jar))]
+      (let [^java.util.zip.ZipEntry e (java.util.zip.ZipEntry. "dep/High.class")]
+        (.setTime e 1577836800000)
+        (.putNextEntry zos e)
+        (.write zos class-bytes)
+        (.closeEntry zos)))
+    (let [cfg (fn []
+                (-> (cfg ws src-root res-root true)
+                    (update :classpath
+                            conj {:id dep-jar :paths [dep-jar]})))]
+      (try
+        (is (thrown-with-msg? Exception
+                              #"FLOOR VIOLATION.*dep/High\.class \(v65\)"
+                              (build/build {:args {:builds {"."
+                                                            (assoc (cfg) :floor 8)}}})))
+        (is (some? (build/build {:args {:builds {"."
+                                                 (assoc (cfg) :floor 21)}}}))
+            "a class at the floor (v65 = Java 21) must pass")
+        (is (some? (build/build {:args {:builds {"." (cfg)}}}))
+            "no floor in the config: no scan")
+        (finally
+          (delete-tree ws-dir))))))

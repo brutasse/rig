@@ -144,6 +144,14 @@ func (e *hotEnv) buildOne(ctx context.Context, m string, uber, native bool) (str
 	if opts := javacOptsOf(hostV, e.lock.JVM, mod.Build.JavacOpts); len(opts) > 0 {
 		cfg["javac-opts"] = opts
 	}
+	// The workspace's pinned JVM is the bytecode floor of the jars the
+	// kernel builds: any class above it would fail to load there, and the
+	// kernel scans every jar it produces. Feature version; the kernel
+	// derives the class-file major. Absent without a pin — no floor, no
+	// scan.
+	if floor := floorOf(e.lock.JVM); floor > 0 {
+		cfg["floor"] = floor
+	}
 	// The AOT fork (not the kernel JVM) is where compilation happens: the
 	// workspace's :rig/compile-jvm-opts must reach it as JVM flags.
 	if len(e.lock.CompileJVMOpts) > 0 {
@@ -679,6 +687,16 @@ func javacOptsOf(hostV string, jvm *lockfile.JVM, opts []string) []string {
 		return append([]string{"--release", strconv.Itoa(n)}, opts...)
 	}
 	return opts
+}
+
+// floorOf is the workspace's bytecode floor: the feature version of its
+// pinned JVM (e.g. 8, 11, 21). 0 when the workspace pins no JVM — the
+// build then carries no floor and the kernel skips the scan.
+func floorOf(jvm *lockfile.JVM) int {
+	if jvm == nil {
+		return 0
+	}
+	return jdk.FeatureVersion(jvm.Requested)
 }
 
 // controlsSourceLevel reports whether opts already set --release, -source or

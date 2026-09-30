@@ -337,8 +337,11 @@ rig build [--uber | --native]
 Build the module's jar, or the uberjar with `--uber` (requires
 `:rig/uberjar?`), or the native-image binary with `--native` (requires
 `:rig/native?` and the workspace's `:rig/jvm` pin; the binary's entry
-point is `:rig/main`) — always on the locked classpath. `built <path>`
-on success. See [Native images](config.md#native-images-rig-build---native).
+point is `:rig/main`) — always on the locked classpath. With the
+workspace's `:rig/jvm` pin, every jar the build produces is scanned
+against it as the bytecode floor: a class that would not load on the
+pinned JVM fails the build (see [JVMs](config.md#jvms-rigjvm)).
+`built <path>` on success. See [Native images](config.md#native-images-rig-build---native).
 
 ### `rig install`
 

@@ -47,6 +47,31 @@ func TestJavacOptsOf(t *testing.T) {
 	}
 }
 
+func TestFloorOf(t *testing.T) {
+	pin := func(requested string) *lockfile.JVM {
+		return &lockfile.JVM{Vendor: "temurin", Requested: requested, Version: requested}
+	}
+	tests := []struct {
+		name string
+		jvm  *lockfile.JVM
+		want int
+	}{
+		{"no pin", nil, 0},
+		{"plain feature version", pin("21"), 21},
+		{"full version request", pin("17.0.13+9"), 17},
+		{"legacy 1.x request", pin("1.8"), 8},
+		{"legacy 1.x full version", pin("1.8.0_422"), 8},
+		{"unparseable request", pin("garbage"), 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := floorOf(tt.jvm); got != tt.want {
+				t.Errorf("floorOf = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestControlsSourceLevel(t *testing.T) {
 	for _, o := range [][]string{
 		{"--release", "17"},
