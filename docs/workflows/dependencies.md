@@ -68,8 +68,6 @@ rig update org.clojure/clojure 1.12.5       # pin one coord to an exact version
 - **No arguments** — a full re-resolve that keeps existing pins
   (`respect-existing-pins`); only requirements that were floating
   (`RELEASE`/`LATEST` — see `check`'s `floating-version` finding) re-select.
-  This is also what `rig release` does internally when the version
-  changes.
 - **coord + version** — an explicit pin. This is your judgment; it always
   wins, and the lock records it as `pinned … (explicit)`.
 - **coord only** — newest eligible version, cooldown-gated. If the newest

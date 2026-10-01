@@ -1,11 +1,12 @@
 # CI
 
-The CI story is three commands, plus the release:
+The CI story is three commands, plus the release (`rig publish` + a tag —
+[Build, publish, release](build-publish.md#releasing)):
 
 ```sh
 rig verify --frozen && rig check --frozen && rig test --frozen
 rig build --uber --frozen
-rig release
+rig publish
 ```
 
 ## The gate
@@ -62,7 +63,10 @@ jobs:
         run: rig build --uber --frozen
 
       - name: Release
-        run: rig release
+        run: |
+          rig publish
+          git tag "v$(cat VERSION)"
+          git push origin HEAD --tags
 
       - name: Save rig cache
         if: always()
@@ -83,9 +87,10 @@ Notes:
   miss and re-fetch). It is optional speed for the default gate, which can
   fetch on a cold cache, but required for the offline gate below: a cache
   hit is what keeps that build hermetic.
-- `rig release` pushes the branch and the tag, so the workflow can run
-  from a push on `main` (or keep the release manual — `rig release
-  --dry-run` in CI is a cheap plan check).
+- The release is `rig publish` + a tag on the released version: the
+  version history is yours ([Build, publish, release](build-publish.md#releasing)).
+  The push on `main` that triggered the workflow already carries the
+  branch, so the step only pushes the tag.
 
 ## Hermetic / air-gapped CI (opt-in `--offline`)
 

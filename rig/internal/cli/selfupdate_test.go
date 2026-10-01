@@ -12,6 +12,15 @@ import (
 	"time"
 )
 
+func readFile(t *testing.T, path string) string {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
 // selfUpdateAPI serves the GitHub release API shape plus assets for tag.
 func selfUpdateAPI(t *testing.T, tag, binaryContent string) *httptest.Server {
 	t.Helper()

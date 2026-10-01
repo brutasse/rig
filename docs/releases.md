@@ -235,6 +235,10 @@ v1 lock in place. See
   README and docs examples (install one-liner, `self-update --version`
   examples), replacing the hand-pinning that had left stale `v0.2.0`
   examples in the docs.
+- `rig release` is removed (breaking): a release is now a version commit
+  plus `rig publish` plus a tag — the version history and the tag are
+  yours, Rig does the publish. See
+  [Build, publish, release](workflows/build-publish.md#releasing).
 
 ## v0.1.0 — 2026-09-25
 
