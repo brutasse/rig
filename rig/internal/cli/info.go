@@ -82,15 +82,7 @@ func (o *opts) graalvmInfo(root *workspace.Root) (string, error) {
 		return "", err
 	}
 	st := graal.NewStoreAt(store.Root)
-	var (
-		inst *graal.Inst
-		lerr error
-	)
-	if pin.Version != "" {
-		inst, lerr = st.Lookup(pin.Version)
-	} else {
-		inst, lerr = st.Best(pin.Requested)
-	}
+	inst, lerr := st.Best(pin.Requested)
 	if lerr == nil {
 		return fmt.Sprintf("graalvm:\t%s (graalvm %s, pinned %q)\n",
 			inst.NativeImagePath, inst.Version, pin.Requested), nil

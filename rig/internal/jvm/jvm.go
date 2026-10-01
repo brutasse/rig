@@ -52,9 +52,21 @@ type Run struct {
 	Args []string
 	Dir  string
 	Env  []string
+	// Exec, when set, replaces the current process with the JVM instead of
+	// forking and waiting: the caller's process becomes the JVM (its exit
+	// code is the JVM's, and signals reach it directly). On platforms
+	// without process exec, or when exec fails, Run falls back to forking
+	// and waiting.
+	Exec bool
 }
 
 func (r Run) Run() error {
+	if r.Exec {
+		if err := r.exec(); err == nil {
+			return nil // unreachable: the process image was replaced
+		}
+		// No process exec on this platform (or it failed): fork and wait.
+	}
 	cmd := exec.Command(r.Java, r.Args...)
 	cmd.Dir = r.Dir
 	cmd.Env = append(os.Environ(), r.Env...)

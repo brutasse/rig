@@ -17,7 +17,7 @@ Set in the root `deps.edn` of a workspace (a `deps.edn` containing
 | `:rig/deps` | — | Shared requirements: the single place to bump a cross-module version. Values are plain requirement maps (`{:mvn/version …}`, optionally with `:exclusions`, `:local/root`, `:git`). `rig update` keeps this in sync with the modules, and `rig check` reports drift. It is not merged into module classpaths: modules keep declaring their own `:deps`. |
 | `:rig/cooldown` | `"48h"` | Minimum age of a version before it may be selected. `"0s"` disables. See [cooldowns](../concepts/security.md#cooldowns-the-adoption-window). |
 | `:rig/cooldown-repos` | — | Per-repository cooldown overrides, keyed by `:mvn/repos` id: `{"corp" "72h"}`. |
-| `:rig/jvm` | — | The JVM the project runs on, e.g. `"21"` or `"21.0.10+7"` (Temurin). Recorded in the lock as an exact version; `rig` installs it into its state dir when missing (see [JVMs](#jvms-rigjvm)). Minimum supported value: `8` — the kernel jar is built for Java 8, so older JVMs cannot load it. |
+| `:rig/jvm` | — | The JVM the project runs on, as a major (feature) version: `"21"` (Temurin). Rig manages the exact release — the newest one installed in the state dir matching the major, or the newest release when online (see [JVMs](#jvms-rigjvm)). Minimum supported value: `8` — the kernel jar is built for Java 8, so older JVMs cannot load it. |
 | `:rig/compile-jvm-opts` | `[]` | JVM flags for the build/validate JVMs: the AOT build — the kernel JVM and the compile fork it launches — and the check namespace load/AOT-compile (see [JVM flags](#jvm-flags)). Version-sensitive flags like `--enable-preview` require a `:rig/jvm` pin. |
 | `:rig/version-file` | `"VERSION"` | Root version file recorded in the lock for the root module. |
 
@@ -234,13 +234,22 @@ always come through the proxy.
 {:rig/jvm "21"}
 ```
 
-- `rig lock` records the pin in `deps.lock` as an **exact** version
-  (e.g. `21.0.12.1+1`), resolved from the Adoptium API at lock time.
-  Re-locks keep the locked version; `rig jvm update` advances it to the
-  newest release still satisfying the manifest pin.
-- When a command needs a JVM and the locked one is not installed, `rig`
-  downloads, sha256-verifies and installs it (one visible line). Under
-  `--offline` this fails with a hint instead.
+- The pin is the project's major (feature) version — what matters for
+  compatibility. `rig lock` records it in `deps.lock` as-is; Rig manages
+  the exact release: the newest installed in the state dir matching the
+  major, or the newest matching release when one needs to be fetched.
+- When a command needs a JVM, `rig` first uses the rig-managed JDK
+  matching the pin when one is installed in the state dir — it takes
+  precedence over the system `java` even when the system's feature version
+  matches. Only when no managed JDK is installed does a matching system
+  JDK (`JAVA_HOME`, then `PATH`) serve. When neither is present and Rig is
+  online, it downloads, sha256-verifies and installs the newest matching
+  release into the state dir on demand (one visible line). Under
+  `--offline` this fails with a hint.
+- Rig keeps one JDK per major version: `rig jvm install <major>` installs
+  the newest release for it and exits without changing anything when a JDK
+  for the major is already installed; `rig jvm update` moves the installed
+  JDK for the pinned major to the newest release, replacing it.
 - Managed JDKs live in the state dir
   (`~/.local/share/rig/jdks/temurin-<version>/`); `rig jvm list` shows them
   alongside the system `java`. Launched processes get
@@ -308,15 +317,14 @@ binary (GraalVM):
 
 - **GraalVM.** The version is derived from the workspace's `:rig/jvm`
   pin — `--native` without a pin is a usage error — and recorded in the
-  lock as an exact release (`graalvm: {vendor, requested, version}`,
-  e.g. `21.0.2`). The build never downloads: when the locked GraalVM is
-  not installed, `rig build --native` fails with a hint — install it
-  first with `rig graalvm install <version>` (downloaded from the
-  `graalvm/graalvm-ce-builds` GitHub releases, sha256-verified, into the
-  state dir `~/.local/share/rig/graal/`). Manage them with `rig graalvm`
-  (install / list / uninstall / update). `RIG_GRAALVM_HOME=<home>`
-  overrides the store (a dev override, like `RIG_JAVA`; it must contain
-  `bin/native-image`).
+  lock (`graalvm: {vendor, requested}`). The build never downloads: when
+  no GraalVM for the major is installed, `rig build --native` fails with a
+  hint — install it first with `rig graalvm install <major>` (downloaded
+  from the `graalvm/graalvm-ce-builds` GitHub releases, sha256-verified,
+  into the state dir `~/.local/share/rig/graal/`). One GraalVM per major;
+  manage them with `rig graalvm` (install / list / uninstall / update).
+  `RIG_GRAALVM_HOME=<home>` overrides the store (a dev override, like
+  `RIG_JAVA`; it must contain `bin/native-image`).
 - **Entry point.** `:rig/main` must be a Clojure namespace. Rig compiles
   a small entry shim (javac beside the workspace's java) whose main
   delegates to `clojure.main` with `-m <ns>`, so the binary runs with
@@ -344,18 +352,25 @@ binary (GraalVM):
 
 ## Production launch (`rig launch`)
 
-`rig launch` runs the built artifact with Rig's production JVM flag set.
-The flag order is fixed:
+`rig launch` is the production entrypoint (see [Production launch](../workflows/production-launch.md)
+for the workflow: launch opts, the runtime image, the entrypoint). It
+replaces its own process with the JVM (process exec) — the app is the
+process itself, in a container its PID 1, signals reach the JVM directly,
+and its exit code is the process's (on Windows rig forks and waits) — and
+runs the artifact with Rig's production JVM flag set. The flag
+order is fixed:
 
-1. **Rig's defaults** — G1 garbage collection (`-XX:+UseG1GC`, with
-   `-XX:+AlwaysPreTouch`), exit on out-of-memory
-   (`-XX:+ExitOnOutOfMemoryError`, plus
-   `-XX:+HeapDumpOnOutOfMemoryError`), and loopback-only JMX on port
-   **10101** (`-Dcom.sun.management.jmxremote`, `authenticate=false`,
-   `ssl=false`; the RMI port is pinned to 10101 and
-   `-Djava.rmi.server.hostname=127.0.0.1` keeps JMX to same-host
-   clients). There is no `MaxRAMPercentage` and no GC logging in the
-   defaults.
+1. **Rig's defaults** — applied by the launching rig at launch time
+   (not baked into the artifact, so the policy tracks rig upgrades):
+
+   | flag | purpose |
+   |---|---|
+   | `-XX:+UseG1GC` | the default garbage collector — balanced pauses and throughput |
+   | `-XX:+AlwaysPreTouch` | commit every heap page at startup, so the app never pays first-touch page faults under load |
+   | `-XX:+ExitOnOutOfMemoryError` | fail fast on OOM instead of limping along — the orchestrator restarts |
+   | `-XX:+HeapDumpOnOutOfMemoryError` | leave a heap dump for the post-mortem when that OOM happens |
+   | `-Dcom.sun.management.jmxremote` plus the `jmxremote` properties (`port=10101`, `rmi.port=10101`, `authenticate=false`, `ssl=false`) and `-Djava.rmi.server.hostname=127.0.0.1` | loopback-only JMX on the fixed port **10101**, no auth, no SSL — same-host monitoring only |
+
 2. **the module's `:rig/launch-opts`** (from the module manifest, or from
    the baked launch descriptor when launching a jar standalone) — later
    flags override Rig's defaults (last JVM flag wins; a repeated `-D`
@@ -363,10 +378,42 @@ The flag order is fixed:
    (e.g. `-XX:+UseZGC`) *replaces* the G1 default: the JVM refuses to
    start with two collectors selected, so Rig drops its own rather than
    pass both.
+3. **`RIG_LAUNCH_OPTS` (env var)** — per-deployment JVM flags,
+   whitespace-separated, appended last: the same rules apply — last JVM
+   flag wins — and a collector in it replaces any earlier selection,
+   including one from `:rig/launch-opts`. This is the way to tune a
+   deployment (heap size, collector, properties) without rebuilding the
+   artifact.
 
-The JMX port is fixed at 10101; if it collides in your environment,
-override both `-Dcom.sun.management.jmxremote.port=…` and
-`-Dcom.sun.management.jmxremote.rmi.port=…` from `:rig/launch-opts`.
+### What happens when a later stage overrides
+
+Rig concatenates all three stages, in order, and passes them to the JVM
+as one flag list. Two mechanisms then apply:
+
+- **the JVM's last-wins** — for every flag the JVM uses the last
+  occurrence: a later `-Xmx2g` beats an earlier `-Xmx1g`, a repeated
+  `-Dfoo=…` re-sets the property, and boolean flags are idempotent. The
+  earlier occurrence is still passed — the JVM just ignores it.
+- **rig's collector rule** — the one flag family rig handles itself:
+  selecting two collectors at once is a fatal VM error, so rig drops
+  every collector selection but the *last* across all three stages;
+  only one collector ever reaches the JVM.
+
+| collector declared in | survives | dropped by rig |
+|---|---|---|
+| nowhere | the G1 default | — |
+| `:rig/launch-opts` (e.g. `-XX:+UseZGC`) | that collector | the G1 default |
+| `RIG_LAUNCH_OPTS` (e.g. `-XX:+UseSerialGC`) | that collector | the G1 default **and** the launch-opts collector |
+
+The negated form counts as a selection (`-XX:-UseG1GC` triggers the same
+rule), and the same collector in two stages is passed once, not twice.
+
+Changing a default: to move the JMX port, override *both*
+`-Dcom.sun.management.jmxremote.port=…` and
+`-Dcom.sun.management.jmxremote.rmi.port=…`; to reach JMX from outside
+the container, also override `-Djava.rmi.server.hostname=…` and the
+`authenticate`/`ssl` flags; to switch a default off, pass its negation
+(e.g. `-XX:-AlwaysPreTouch`).
 
 ### The launch descriptor
 
@@ -400,11 +447,11 @@ first, so a built jar launches standalone, without the workspace.
   refused in both directions — the artifact runs on the JVM it was built
   with). Mismatch is an error (exit 2) with a hint
   (`rig jvm install <n>`, or `JAVA_HOME`).
-- **Offline by definition.** `rig launch` never touches the network: no
-  JDK auto-install, no artifact fetch, no update notice. The lock is inert
-  data — launch never checks staleness, never re-locks, and `--frozen` has
-  no effect on it.
-- The child's exit code is Rig's.
+- **Offline by definition.** `rig launch` runs what is already built and
+  cached. The lock is inert data — a stale lock is ignored, and
+  `--frozen` has no effect on it.
+- `rig launch` replaces its own process with the JVM: the JVM's exit
+  code is the process's.
 
 ## What is *not* configured
 

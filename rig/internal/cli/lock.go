@@ -14,8 +14,6 @@ import (
 	"github.com/brutasse/rig/internal/classpath"
 	"github.com/brutasse/rig/internal/digest"
 	"github.com/brutasse/rig/internal/fetch"
-	"github.com/brutasse/rig/internal/graal"
-	"github.com/brutasse/rig/internal/jdk"
 	"github.com/brutasse/rig/internal/kernel"
 	"github.com/brutasse/rig/internal/lockfile"
 	"github.com/brutasse/rig/internal/workspace"
@@ -126,8 +124,8 @@ func lockFromResponse(ctx context.Context, client *fetch.Client, store *cache.St
 }
 
 // completeLock fills tool/locked_at, the resolver identity (the pin, plus
-// the sha256 of the kernel jar that ran), the exact jvm version, and every
-// mvn artifact's sha256 (fetching each), then validates.
+// the sha256 of the kernel jar that ran), and every mvn artifact's sha256
+// (fetching each), then validates.
 func completeLock(ctx context.Context, client *fetch.Client, store *cache.Store, m2root, kernelJar string, lock *lockfile.Document) error {
 	lock.Tool = lockfile.Tool{Name: "rig", Version: Version}
 	lock.LockedAt = time.Now().UTC().Truncate(time.Second)
@@ -141,31 +139,6 @@ func completeLock(ctx context.Context, client *fetch.Client, store *cache.Store,
 		Version: kernel.Current.Version,
 		GitSHA:  kernel.Current.GitSHA,
 		SHA256:  sha,
-	}
-
-	if j := lock.JVM; j != nil {
-		if j.Vendor == "" {
-			j.Vendor = jdk.Vendor
-		}
-		if j.Version == "" && !client.Offline {
-			a, err := jdk.NewAPI("").Resolve(ctx, j.Requested)
-			if err != nil {
-				return fmt.Errorf("lock: jvm: %w", err)
-			}
-			j.Version = a.Version
-		}
-	}
-	if g := lock.GraalVM; g != nil {
-		if g.Vendor == "" {
-			g.Vendor = graal.Vendor
-		}
-		if g.Version == "" && !client.Offline {
-			a, err := graal.NewAPI("").Resolve(ctx, g.Requested)
-			if err != nil {
-				return fmt.Errorf("lock: graalvm: %w", err)
-			}
-			g.Version = a.Version
-		}
 	}
 
 	var items []fetch.Item

@@ -28,12 +28,12 @@ automatically before the consumer builds — see
 
 `--native` builds a GraalVM native-image binary instead of a jar: the
 module declares `:rig/native?`, the workspace pins `:rig/jvm` (the
-GraalVM is derived from the pin, recorded in the lock as an exact
-release). The build never downloads: `rig build --native` fails with a
-hint when the GraalVM is missing — install it with `rig graalvm
-install <version>` first. The binary is standalone — no JVM, no
-classpath — and runs on plain args with `:rig/main` as entry namespace
-(see [Native images](../reference/config.md#native-images-rig-build---native)).
+GraalVM major is derived from the pin). The build never downloads:
+`rig build --native` fails with a hint when no GraalVM for the major is
+installed — install it with `rig graalvm install <major>` first. The
+binary is standalone — no JVM, no classpath — and runs on plain args
+with `:rig/main` as entry namespace
+(see [Native images](../reference/config.md#native-images-rig-build-native)).
 A native build needs a C compiler and a few GB of RAM, and takes minutes.
 
 ## Installing locally

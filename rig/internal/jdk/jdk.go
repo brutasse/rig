@@ -59,10 +59,13 @@ func parseVersion(s string) (version, error) {
 	return v, nil
 }
 
-// ValidRequested reports whether s is a usable JVM version request.
+// ValidRequested reports whether s is a usable JVM version request: a major
+// (feature) version, e.g. "21". Patch and build numbers are not requests —
+// they matter for identification, not for compatibility.
+var requestedRe = regexp.MustCompile(`^\d{1,2}$`)
+
 func ValidRequested(s string) bool {
-	_, err := parseVersion(s)
-	return err == nil
+	return requestedRe.MatchString(s)
 }
 
 // FeatureVersion is the JVM feature version of a version string:
@@ -77,14 +80,6 @@ func FeatureVersion(v string) int {
 		return 0
 	}
 	return n
-}
-
-// IsExact reports whether s fully specifies a release version (three or
-// more components, no build number): such a request maps to exactly one
-// release, so it can be served without looking the release list up.
-func IsExact(s string) bool {
-	v, err := parseVersion(s)
-	return err == nil && !v.hasBuild && len(v.comps) >= 3
 }
 
 // Satisfies reports whether candidate fulfills requested: every component
@@ -430,29 +425,17 @@ func (s *Store) Uninstall(requested string) (string, error) {
 	return v, nil
 }
 
-// Ensure returns an installed JDK for the pin: the exact version when set,
-// else the newest installed satisfying requested. When nothing suitable is
-// installed and offline is false, the needed release is downloaded,
-// hash-verified and installed.
-func Ensure(ctx context.Context, st *Store, requested, version string, offline bool) (*Inst, error) {
-	switch {
-	case version != "":
-		if inst, err := st.Lookup(version); err == nil {
-			return inst, nil
-		}
-	case !offline:
-		if inst, err := st.Best(requested); err == nil {
-			return inst, nil
-		}
+// Ensure returns an installed JDK for the pin: the newest installed release
+// matching requested. When none is installed and offline is false, the
+// newest matching release is downloaded, hash-verified and installed.
+func Ensure(ctx context.Context, st *Store, requested string, offline bool) (*Inst, error) {
+	if inst, err := st.Best(requested); err == nil {
+		return inst, nil
 	}
 	if offline {
-		want := requested
-		if version != "" {
-			want = version
-		}
-		return nil, fmt.Errorf("offline: temurin %s not installed (run 'rig jvm install %s' online)", want, want)
+		return nil, fmt.Errorf("offline: temurin %s not installed (run 'rig jvm install %s' online)", requested, requested)
 	}
-	a, err := NewAPI("").Resolve(ctx, firstNonEmpty(version, requested))
+	a, err := NewAPI("").Resolve(ctx, requested)
 	if err != nil {
 		return nil, err
 	}
@@ -463,13 +446,6 @@ func Ensure(ctx context.Context, st *Store, requested, version string, offline b
 	}
 	fmt.Printf("installed %s %s\n", inst.Vendor, inst.Version)
 	return inst, nil
-}
-
-func firstNonEmpty(a, b string) string {
-	if a != "" {
-		return a
-	}
-	return b
 }
 
 // Install downloads a, verifies its sha256, and extracts it under the store.

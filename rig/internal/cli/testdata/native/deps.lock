@@ -23,13 +23,11 @@
   },
   "jvm": {
     "vendor": "temurin",
-    "requested": "21",
-    "version": "21.0.12.1+1"
+    "requested": "21"
   },
   "graalvm": {
     "vendor": "graalvm",
-    "requested": "21",
-    "version": "21.0.2"
+    "requested": "21"
   },
   "artifacts": [
     {

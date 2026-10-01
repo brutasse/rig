@@ -121,14 +121,20 @@ are exactly the bytes your lock pinned, and getting them needed no network.
 
 ## Managed JVMs
 
-When a workspace pins a JVM (`:rig/jvm`), the lock records the **exact**
-release (e.g. `21.0.12.1+1`), so the JVM is part of the build function: the
-same lock means the same JDK version on every machine, including CI.
+When a workspace pins a JVM (`:rig/jvm`), the lock records the major
+(feature) version the project runs on — what matters for compatibility.
+Every machine runs that major: the rig-managed JDK for it when one is
+installed in the state dir (it takes precedence over the system `java`),
+a matching system JDK when none is installed, and the newest matching
+release when a machine has neither and is online — offline fails with a
+hint instead. The exact patch release can differ between machines
+(21.0.10 vs 21.0.11); the major never does.
 
-The JDK archive is downloaded from the vendor's release assets and verified
-against the sha256 published by the Adoptium API for that exact build,
-before it is extracted — the same trust class as a Maven repository
-checksum. Rig never launches a JDK it has not verified.
+When Rig installs a managed JDK, the archive is downloaded from the
+vendor's release assets and verified against the sha256 published by the
+Adoptium API for that exact build, before it is extracted — the same
+trust class as a Maven repository checksum. Rig never launches a
+managed JDK it has not verified.
 
 ## Residual trust
 
@@ -140,7 +146,7 @@ Be honest about the boundaries:
   relies on the repositories. The final bytes of every jar are always
   hash-pinned by Rig itself.
 - Managed JDKs are verified against the checksum the Adoptium API
-  publishes for the exact release the lock pins; the API is a trust
+  publishes for the exact release Rig installs; the API is a trust
   boundary, like a Maven repository.
 - `--force` and explicit version pins are escape hatches you own; the lock
   records that you used them.

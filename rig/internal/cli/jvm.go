@@ -17,27 +17,49 @@ import (
 	"github.com/brutasse/rig/internal/workspace"
 )
 
-// pickJava picks the JVM for this workspace: the RIG_JAVA override, then the
-// lock's pinned managed JDK (installed on demand when online), then
-// JAVA_HOME, then PATH. It returns the java binary and the extra env entries
-// for launched processes (JAVA_HOME when a managed JDK is in use).
+// pickJava picks the JVM for this workspace: the RIG_JAVA override, then —
+// when the lock pins a JVM — the rig-managed JDK matching the pin, which
+// takes precedence over the system java even when its feature version
+// matches (installed on demand when online); a matching system JDK
+// (JAVA_HOME, then PATH) serves only when no managed JDK is installed.
+// Without a pin, the system java is used. It returns the java binary and
+// the extra env entries for launched processes (JAVA_HOME when a managed
+// JDK is in use).
 func (o *opts) pickJava(ctx context.Context, store *cache.Store, root *workspace.Root) (string, []string, error) {
 	if p := os.Getenv("RIG_JAVA"); p != "" {
 		return p, nil, nil
 	}
+	system, serr := jvm.Find()
 	if root != nil && root.Lock != nil && root.Lock.JVM != nil {
 		pin := root.Lock.JVM
-		inst, err := jdk.Ensure(ctx, jdk.NewStoreAt(store.Root), pin.Requested, pin.Version, o.offline)
+		st := jdk.NewStoreAt(store.Root)
+		if inst, err := st.Best(pin.Requested); err == nil {
+			return inst.JavaPath, []string{"JAVA_HOME=" + inst.Home}, nil
+		}
+		if serr == nil {
+			if v, verr := jvm.Version(system); verr == nil && pinSatisfied(v, pin.Requested) {
+				return system, nil, nil
+			}
+		}
+		inst, err := jdk.Ensure(ctx, st, pin.Requested, o.offline)
 		if err != nil {
 			return "", nil, err
 		}
 		return inst.JavaPath, []string{"JAVA_HOME=" + inst.Home}, nil
 	}
-	java, err := jvm.Find()
-	if err != nil {
-		return "", nil, o.noJavaHint(ctx, err)
+	if serr != nil {
+		return "", nil, o.noJavaHint(ctx, serr)
 	}
-	return java, nil, nil
+	return system, nil, nil
+}
+
+// pinSatisfied reports whether a JVM of version v satisfies requested, the
+// workspace's :rig/jvm pin: an exact match on feature version, the same
+// rule launch enforces (patch releases are irrelevant).
+func pinSatisfied(v, requested string) bool {
+	got := jdk.FeatureVersion(v)
+	want := jdk.FeatureVersion(requested)
+	return got != 0 && got == want
 }
 
 // noJavaHint appends an install suggestion to the "no java found" error.
@@ -71,13 +93,15 @@ func newJVMCmd(o *opts) *cobra.Command {
 
 func newJVMInstallCmd(o *opts) *cobra.Command {
 	return &cobra.Command{
-		Use:   "install <version>",
+		Use:   "install <major>",
 		Short: "Install a Temurin JDK into the rig state dir",
-		Long: `Installs a Temurin JDK (Eclipse Adoptium) into the rig state dir,
-verifying the download against the sha256 published by the Adoptium API.
+		Long: `Installs the newest Temurin JDK (Eclipse Adoptium) for a major version into
+the rig state dir, verifying the download against the sha256 published by
+the Adoptium API. One JDK per major version: when a matching major is
+already installed, this exits without changing anything — use
+'rig jvm update' to move it to the newest release.
 
-<version> is a feature version ("21" — the newest 21.x release) or an exact
-version ("21.0.10", "21.0.10+7").`,
+<major> is a major (feature) version: "21".`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runJVMInstall(cmd.Context(), o, args[0])
@@ -87,7 +111,7 @@ version ("21.0.10", "21.0.10+7").`,
 
 func runJVMInstall(ctx context.Context, o *opts, requested string) error {
 	if !jdk.ValidRequested(requested) {
-		return exitf(2, "bad version %q (want e.g. \"21\" or \"21.0.10+7\")", requested)
+		return exitf(2, "bad version %q (want a major version, e.g. \"21\")", requested)
 	}
 	if o.offline {
 		return exitf(1, "offline: cannot install a JDK (run 'rig jvm install %s' online)", requested)
@@ -97,13 +121,13 @@ func runJVMInstall(ctx context.Context, o *opts, requested string) error {
 		return err
 	}
 	st := jdk.NewStoreAt(store.Root)
+	if inst, err := st.Best(requested); err == nil {
+		fmt.Printf("already installed: %s %s\n", inst.Vendor, inst.Version)
+		return nil
+	}
 	a, err := jdk.NewAPI("").Resolve(ctx, requested)
 	if err != nil {
 		return err
-	}
-	if inst, err := st.Lookup(a.Version); err == nil {
-		fmt.Printf("already installed: %s %s\n", inst.Vendor, inst.Version)
-		return nil
 	}
 	fmt.Printf("installing %s %s (%s, %d MB)…\n", a.Vendor, a.Version, a.OS+"/"+a.Arch, a.Size/1024/1024)
 	inst, err := st.Install(ctx, a)
@@ -173,7 +197,7 @@ func fileExists(p string) bool {
 func newJVMUninstallCmd(o *opts) *cobra.Command {
 	return &cobra.Command{
 		Use:   "uninstall <version>",
-		Short: "Remove an installed JDK (exact version or unique prefix)",
+		Short: "Remove an installed JDK (major version or unique prefix)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runJVMUninstall(o, args[0])
@@ -197,10 +221,11 @@ func runJVMUninstall(o *opts, requested string) error {
 func newJVMUpdateCmd(o *opts) *cobra.Command {
 	return &cobra.Command{
 		Use:   "update",
-		Short: "Bump the locked JVM to the newest release satisfying the manifest pin",
-		Long: `Updates the exact JVM version recorded in deps.lock to the newest release
-satisfying the workspace's :rig/jvm pin. The manifest is untouched; a fresh
-machine following the new lock installs that exact version.`,
+		Short: "Update the rig-managed JDK for the pinned major to the newest release",
+		Long: `Updates the rig-managed Temurin JDK for the workspace's :rig/jvm pin to the
+newest release for that major version, replacing the installed one (rig
+keeps one JDK per major version). When no JDK for the major is installed,
+the newest release is installed. The manifest and the lock are untouched.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runJVMUpdate(cmd.Context(), o)
@@ -220,31 +245,50 @@ func runJVMUpdate(ctx context.Context, o *opts) error {
 	if pin == nil {
 		return exitf(2, "no :rig/jvm pin in the lock (add it to the root deps.edn and re-lock)")
 	}
-	if o.frozen {
-		return exitf(3, "--frozen: the lock is read-only")
+	if o.offline {
+		return exitf(1, "offline: cannot update a JDK (run 'rig jvm update' online)")
 	}
+	store, err := o.store()
+	if err != nil {
+		return err
+	}
+	st := jdk.NewStoreAt(store.Root)
+	old, _ := st.Best(pin.Requested)
 	a, err := jdk.NewAPI("").Resolve(ctx, pin.Requested)
 	if err != nil {
 		return err
 	}
-	if a.Version == pin.Version {
-		fmt.Printf("jvm up to date: %s\n", pin.Version)
+	if old != nil && old.Version == a.Version {
+		fmt.Printf("jvm up to date: %s\n", old.Version)
 		return nil
 	}
-	old := pin.Version
-	pin.Version = a.Version
-	if err := root.Lock.Save(root.LockPath()); err != nil {
+	if old != nil {
+		fmt.Printf("updating temurin %s → %s (%s, %d MB)…\n", old.Version, a.Version, a.OS+"/"+a.Arch, a.Size/1024/1024)
+	} else {
+		fmt.Printf("installing %s %s (%s, %d MB)…\n", a.Vendor, a.Version, a.OS+"/"+a.Arch, a.Size/1024/1024)
+	}
+	inst, err := st.Install(ctx, a)
+	if err != nil {
 		return err
 	}
-	fmt.Printf("jvm pin updated: %s → %s\n", displayOrNone(old), a.Version)
-	return nil
-}
-
-func displayOrNone(s string) string {
-	if s == "" {
-		return "(unresolved)"
+	// One JDK per major: drop any other install matching the pin.
+	insts, err := st.List()
+	if err != nil {
+		return err
 	}
-	return s
+	for _, i := range insts {
+		if i.Version != inst.Version && jdk.Satisfies(pin.Requested, i.Version) {
+			if _, err := st.Uninstall(i.Version); err != nil {
+				return err
+			}
+		}
+	}
+	if old != nil {
+		fmt.Printf("jvm updated: %s → %s\n", old.Version, inst.Version)
+	} else {
+		fmt.Printf("installed %s %s to %s\n", inst.Vendor, inst.Version, inst.Dir)
+	}
+	return nil
 }
 
 // javaInfo returns the `rig info` java lines: the pinned managed JDK when the
@@ -261,15 +305,7 @@ func (o *opts) javaInfo(root *workspace.Root) (string, error) {
 			return "", err
 		}
 		st := jdk.NewStoreAt(store.Root)
-		var (
-			inst *jdk.Inst
-			lerr error
-		)
-		if pin.Version != "" {
-			inst, lerr = st.Lookup(pin.Version)
-		} else {
-			inst, lerr = st.Best(pin.Requested)
-		}
+		inst, lerr := st.Best(pin.Requested)
 		if lerr == nil {
 			return fmt.Sprintf("java:\t%s (temurin %s, pinned %q)\n", inst.JavaPath, inst.Version, pin.Requested), nil
 		}

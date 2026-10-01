@@ -118,9 +118,9 @@ jobs:
   native-e2e:
     # Builds the testdata/native fixture into a GraalVM native binary and
     # runs it (make test-native). GraalVM is pulled by rig itself:
-    # `rig graalvm install` downloads the community build from the
-    # graalvm/graalvm-ce-builds GitHub release, sha256-verified, at the
-    # version the fixture's lock pins.
+    # `rig graalvm install` downloads the newest community build for the
+    # major the fixture's lock pins, from the
+    # graalvm/graalvm-ce-builds GitHub release, sha256-verified.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -140,9 +140,9 @@ jobs:
 
       - name: Install GraalVM with rig
         run: |
-          VER=$(python3 -c "import json; print(json.load(open('rig/internal/cli/testdata/native/deps.lock'))['graalvm']['version'])")
-          rig/dist/rig graalvm install "$VER"
-          echo "GRAALVM=$HOME/.local/share/rig/graal/graalvm-$VER/graal" >> "$GITHUB_ENV"
+          REQ=$(python3 -c "import json; print(json.load(open('rig/internal/cli/testdata/native/deps.lock'))['graalvm']['requested'])")
+          rig/dist/rig graalvm install "$REQ"
+          echo "GRAALVM=$(rig/dist/rig graalvm list | awk '/graalvm / {print $NF; exit}')" >> "$GITHUB_ENV"
 
       - name: Native E2E
         run: make test-native GRAALVM="$GRAALVM"

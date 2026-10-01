@@ -15,9 +15,9 @@
   (let [ws (doto (java.io.File.
                   (str (java.nio.file.Files/createTempDirectory "rig-resolve-test"
                                                                 (into-array java.nio.file.attribute.FileAttribute []))))
-               (.deleteOnExit))]
-     (spit (io/file ws "deps.edn") root-text)
-     (str ws)))
+             (.deleteOnExit))]
+    (spit (io/file ws "deps.edn") root-text)
+    (str ws)))
 
 (defn- temp-ws-with-sibling
   "A workspace <base>/ws with an out-of-root module <base>/sibling (referenced
@@ -26,7 +26,7 @@
   (let [base (doto (java.io.File.
                     (str (java.nio.file.Files/createTempDirectory "rig-resolve-test"
                                                                   (into-array java.nio.file.attribute.FileAttribute []))))
-                    (.deleteOnExit))]
+               (.deleteOnExit))]
     (doto (java.io.File. (str base "/ws")) (.mkdirs) (.deleteOnExit))
     (doto (java.io.File. (str base "/sibling/src")) (.mkdirs) (.deleteOnExit))
     (spit (io/file base "ws" "deps.edn") root-text)
@@ -37,7 +37,7 @@
   (let [ws (temp-ws "{:rig/lib x/y\n :rig/jvm \"21\"}\n")
         lock (-> (resolve/resolve-lock {:workspace ws})
                  (get "lock"))]
-    (is (= {"vendor" "temurin" "requested" "21" "version" nil}
+    (is (= {"vendor" "temurin" "requested" "21"}
            (get lock "jvm")))))
 
 (deftest no-jvm-pin-no-jvm-key
@@ -46,23 +46,13 @@
                  (get "lock"))]
     (is (nil? (get lock "jvm")))))
 
-(deftest jvm-pin-carries-over-when-request-unchanged
-  (let [ws (temp-ws "{:rig/lib x/y\n :rig/jvm \"21\"}\n")
-        lock (-> (resolve/resolve-lock
-                  {:workspace ws
-                   :lock {:jvm {:vendor "temurin" :requested "21" :version "21.0.10+7"}}})
-                 (get "lock"))]
-    (is (= "21.0.10+7" (get-in lock ["jvm" "version"])))
-    (is (= "21" (get-in lock ["jvm" "requested"])))))
-
-(deftest jvm-pin-drops-old-version-when-request-changes
+(deftest jvm-pin-is-vendor-and-requested-only
   (let [ws (temp-ws "{:rig/lib x/y\n :rig/jvm \"25\"}\n")
         lock (-> (resolve/resolve-lock
                   {:workspace ws
                    :lock {:jvm {:vendor "temurin" :requested "21" :version "21.0.10+7"}}})
                  (get "lock"))]
-    (is (= "25" (get-in lock ["jvm" "requested"])))
-    (is (nil? (get-in lock ["jvm" "version"])))))
+    (is (= {"vendor" "temurin" "requested" "25"} (get lock "jvm")))))
 
 (deftest compile-jvm-opts-are-copied-into-the-lock
   (let [ws (temp-ws "{:rig/lib x/y\n :rig/compile-jvm-opts [\"--enable-preview\"]}\n")
@@ -143,9 +133,9 @@
   ;; paths — not mis-attributed to the enclosing root module
   ;; ({"local" "."}).
   (let [ws (doto (java.io.File.
-                   (str (java.nio.file.Files/createTempDirectory "rig-resolve-test"
-                                                                 (into-array java.nio.file.attribute.FileAttribute []))))
-                  (.deleteOnExit))]
+                  (str (java.nio.file.Files/createTempDirectory "rig-resolve-test"
+                                                                (into-array java.nio.file.attribute.FileAttribute []))))
+             (.deleteOnExit))]
     (try
       (do
         (doto (io/file ws "dev") (.mkdirs) (.deleteOnExit))
@@ -171,9 +161,9 @@
   ;; is followed: every level locks as a local module and reaches the
   ;; referencing classpaths.
   (let [ws (doto (java.io.File.
-                   (str (java.nio.file.Files/createTempDirectory "rig-resolve-test"
-                                                                 (into-array java.nio.file.attribute.FileAttribute []))))
-                  (.deleteOnExit))]
+                  (str (java.nio.file.Files/createTempDirectory "rig-resolve-test"
+                                                                (into-array java.nio.file.attribute.FileAttribute []))))
+             (.deleteOnExit))]
     (try
       (do
         (doto (io/file ws "dev" "inner") (.mkdirs) (.deleteOnExit))
@@ -208,7 +198,7 @@
   (let [ws (temp-ws "{:rig/lib x/y\n :rig/jvm \"21\"\n :rig/native? true}\n")
         lock (-> (resolve/resolve-lock {:workspace ws})
                  (get "lock"))]
-    (is (= {"vendor" "graalvm" "requested" "21" "version" nil}
+    (is (= {"vendor" "graalvm" "requested" "21"}
            (get lock "graalvm")))))
 
 (deftest no-graalvm-pin-without-jvm-pin
@@ -223,23 +213,13 @@
                  (get "lock"))]
     (is (nil? (get lock "graalvm")))))
 
-(deftest graalvm-pin-carries-over-when-request-unchanged
-  (let [ws (temp-ws "{:rig/lib x/y\n :rig/jvm \"21\"\n :rig/native? true}\n")
-        lock (-> (resolve/resolve-lock
-                  {:workspace ws
-                   :lock {:graalvm {:vendor "graalvm" :requested "21" :version "21.0.2"}}})
-                 (get "lock"))]
-    (is (= "21.0.2" (get-in lock ["graalvm" "version"])))
-    (is (= "21" (get-in lock ["graalvm" "requested"])))))
-
-(deftest graalvm-pin-drops-old-version-when-request-changes
+(deftest graalvm-pin-is-vendor-and-requested-only
   (let [ws (temp-ws "{:rig/lib x/y\n :rig/jvm \"25\"\n :rig/native? true}\n")
         lock (-> (resolve/resolve-lock
                   {:workspace ws
                    :lock {:graalvm {:vendor "graalvm" :requested "21" :version "21.0.2"}}})
                  (get "lock"))]
-    (is (= "25" (get-in lock ["graalvm" "requested"])))
-    (is (nil? (get-in lock ["graalvm" "version"])))))
+    (is (= {"vendor" "graalvm" "requested" "25"} (get lock "graalvm")))))
 
 (deftest native-build-config-is-locked
   (let [ws (temp-ws "{:rig/lib x/y\n :rig/jvm \"21\"\n :rig/native? true}\n")
@@ -401,9 +381,9 @@
   "A temp workspace that is a git repo with one commit and the given files."
   [files f]
   (let [ws (doto (java.io.File.
-                    (str (java.nio.file.Files/createTempDirectory "rig-version-fn"
-                                                                  (into-array java.nio.file.attribute.FileAttribute []))))
-                   (.deleteOnExit))]
+                  (str (java.nio.file.Files/createTempDirectory "rig-version-fn"
+                                                                (into-array java.nio.file.attribute.FileAttribute []))))
+             (.deleteOnExit))]
     (try
       (do (git (str ws) "init")
           (doseq [[rel text] files]
@@ -434,7 +414,7 @@
   (let [ws (doto (java.io.File.
                   (str (java.nio.file.Files/createTempDirectory "rig-version-fn"
                                                                 (into-array java.nio.file.attribute.FileAttribute []))))
-                 (.deleteOnExit))]
+             (.deleteOnExit))]
     (let [data {:rig/version-fn :epoch}
           v (manifest/read-version data ws ws)]
       (is (string? v))
@@ -444,9 +424,9 @@
 
 (deftest version-fn-loses-to-explicit-version-and-file
   (let [ws (doto (java.io.File.
-                    (str (java.nio.file.Files/createTempDirectory "rig-version-fn"
-                                                                  (into-array java.nio.file.attribute.FileAttribute []))))
-                   (.deleteOnExit))]
+                  (str (java.nio.file.Files/createTempDirectory "rig-version-fn"
+                                                                (into-array java.nio.file.attribute.FileAttribute []))))
+             (.deleteOnExit))]
     (try
       (do (spit (io/file ws "VERSION") "1.2.3")
           (is (= "1.2.3" (manifest/read-version {:rig/version-fn :epoch} ws ws)))
@@ -457,7 +437,7 @@
   (let [ws (doto (java.io.File.
                   (str (java.nio.file.Files/createTempDirectory "rig-version-fn"
                                                                 (into-array java.nio.file.attribute.FileAttribute []))))
-                 (.deleteOnExit))]
+             (.deleteOnExit))]
     (is (thrown? Exception
                  (manifest/read-version {:rig/version-fn :nonsense} ws ws)))))
 
@@ -597,7 +577,7 @@
                     (.mkdirs) (.deleteOnExit))
         proxy-root (doto (java.io.File. (str (System/getProperty "java.io.tmpdir") "/"
                                              (str "rig-proxy-py-" (java.util.UUID/randomUUID))))
-                         (.mkdirs) (.deleteOnExit))
+                     (.mkdirs) (.deleteOnExit))
         [orig-base orig-seen orig-srv] (start-serving (str orig-root) "tok-e2e")
         [proxy-base proxy-seen proxy-srv] (start-serving (str proxy-root) nil)
         base-path (repo-artifacts! (str proxy-root) group name v)
@@ -636,7 +616,7 @@
                     (.mkdirs) (.deleteOnExit))
         proxy-root (doto (java.io.File. (str (System/getProperty "java.io.tmpdir") "/"
                                              (str "rig-proxy-py-" (java.util.UUID/randomUUID))))
-                         (.mkdirs) (.deleteOnExit))
+                     (.mkdirs) (.deleteOnExit))
         [orig-base orig-seen orig-srv] (start-serving (str orig-root) "tok-e2e")
         [proxy-base proxy-seen proxy-srv] (start-serving (str proxy-root) nil)
         base-path (repo-artifacts! (str proxy-root) group name v)
@@ -675,7 +655,7 @@
                     (.mkdirs) (.deleteOnExit))
         proxy-root (doto (java.io.File. (str (System/getProperty "java.io.tmpdir") "/"
                                              (str "rig-proxy-py-" (java.util.UUID/randomUUID))))
-                         (.mkdirs) (.deleteOnExit))
+                     (.mkdirs) (.deleteOnExit))
         [orig-base orig-seen orig-srv] (start-serving (str orig-root) "tok-e2e")
         [proxy-base proxy-seen proxy-srv] (start-serving (str proxy-root) nil)
         base-path (repo-artifacts! (str proxy-root) group name v)

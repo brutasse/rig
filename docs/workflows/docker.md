@@ -18,54 +18,29 @@ The image contains:
 
 ## As an app base
 
+For a dev container or CI job where `rig` must work from the first
+layer: the kernel and runner jars are pre-baked in the image, so `rig`
+fetches nothing from GitHub — only your artifact repositories.
+
 ```dockerfile
 FROM ghcr.io/brutasse/rig:latest
 WORKDIR /app
 COPY . .
-RUN rig lock
 RUN rig verify --frozen && rig test --frozen
 ```
 
 ## As an app entrypoint
 
-`rig launch` is the production entrypoint: it runs the built artifact with
-Rig's JVM flag set (G1, exit-on-OOM, loopback-only JMX on a single port,
-10101), overridable per module via `:rig/launch-opts`. Two patterns:
-
-### The workspace image
-
-The Rig image is both the build base and the runtime:
-
-```dockerfile
-FROM ghcr.io/brutasse/rig:latest
-WORKDIR /app
-COPY . .
-RUN rig verify --frozen && rig build --uber --frozen -p modules/app
-EXPOSE 10101
-ENTRYPOINT ["rig", "launch"]
-```
-
-`CMD` arguments (e.g. `docker run img --env prod`) are passed to the app's
-main; the jar comes from the lock. Launch never checks lock staleness — it
-runs what was built, offline, with no state dir needed at runtime.
-
-### The slim image
-
-The artifact is self-describing (the launch plan is baked into the jar), so
-the runtime needs only a JRE and the Rig binary:
-
-```dockerfile
-FROM eclipse-temurin:21-jre-jammy
-COPY --from=ghcr.io/brutasse/rig:latest /usr/local/bin/rig /usr/local/bin/
-WORKDIR /app
-COPY target/app-uber.jar /app/app.jar
-EXPOSE 10101
-ENTRYPOINT ["rig", "launch", "/app/app.jar"]
-```
-
-No workspace, no lock: `rig launch /app/app.jar` reads the jar's
-`META-INF/rig/launch.json`. (The plain, non-uber jar needs the workspace —
-its classpath lives in the lock.)
+`rig launch` is the production entrypoint: it runs the built artifact
+with Rig's production JVM flag set (G1, exit-on-OOM, loopback-only JMX
+on 10101) — overridable per module via `:rig/launch-opts` and per
+deployment via the `RIG_LAUNCH_OPTS` env var — and replaces its own
+process with the JVM, so the app is the container's PID 1. It is
+offline by definition, and the launch plan is baked into the artifact
+by `rig build`. The full workflow — declaring launch opts, the Docker
+images (slim and workspace variants), process & lifecycle, and
+per-deployment overrides — is in
+[Production launch](production-launch.md).
 
 ## Multi-stage
 
@@ -77,23 +52,28 @@ WORKDIR /app
 COPY --from=ghcr.io/brutasse/rig:latest /usr/local/bin/rig /usr/local/bin/
 COPY --from=ghcr.io/brutasse/rig:latest /root/.local/share/rig /root/.local/share/rig
 COPY . .
-RUN rig lock
 RUN rig verify --frozen && rig test --frozen
 ```
 
 The second `COPY` brings the pre-baked kernel and runner jars with it, so `rig` needs no
-GitHub access at runtime — it only talks to your artifact repositories.
+GitHub access at runtime — it only talks to your artifact repositories. The build
+consumes the committed `deps.lock`: `rig verify --frozen` fails when it is missing
+or stale; locking is workstation work.
 
 ## Pinned JVMs
 
-If the project pins a JVM (`:rig/jvm` in the root `deps.edn`), pre-install
-it so the build doesn't download it:
+Base the image on the declared JDK — `:rig/jvm "21"` in the root
+`deps.edn` becomes `eclipse-temurin:21-jdk` (the jammy variant above) —
+and the build compiles with the image's JDK: no rig-managed JDK for the
+pin is installed in the copied state dir, so Rig falls back to the
+system `java`, which satisfies the pin. There is no `RUN rig jvm
+install` step — the image's JDK *is* the build JVM. When the base image
+carries no matching JDK, the build downloads the newest matching
+release on demand (`--offline` fails instead).
 
-```dockerfile
-RUN rig jvm install 21      # or the exact version from deps.lock
-```
-
-The JDK lands in the same state dir that was copied above.
+The runtime side of the same pin — the app's container base must carry
+that JDK — is in
+[Production launch](production-launch.md#the-docker-image).
 
 ## Non-root users
 
@@ -103,8 +83,8 @@ user's home, or point every invocation at a shared dir with
 
 ## Offline builds
 
-The kernel and runner jars are in the image, but the *artifact* cache is cold: `rig lock`
-/ `rig verify` in the Dockerfile fetch from your repositories (hash-checked
-against the lock). For hermetic `--offline` builds, warm the state dir in an
-earlier layer (or cache it across runs) first — see
+The kernel and runner jars are in the image, but the *artifact* cache is
+cold: `rig verify` in the Dockerfile fetches from your repositories
+(hash-checked against the lock). For hermetic `--offline` builds, warm the
+state dir in an earlier layer (or cache it across runs) first — see
 [CI](ci.md#hermetic-air-gapped-ci-opt-in-offline).

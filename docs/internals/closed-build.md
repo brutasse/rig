@@ -44,11 +44,10 @@ before touching the network.
 The kernel's `resolve` response has no hashes. After it returns,
 `completeLock` in the Go binary:
 
-1. resolves the exact JVM version for a `:rig/jvm` pin (Adoptium API);
-2. fetches **every** `mvn` artifact through `fetch.GetNew`, in parallel —
+1. fetches **every** `mvn` artifact through `fetch.GetNew`, in parallel —
    computing the sha256 over the exact bytes;
-3. stamps the shas into the lock;
-4. runs `Validate` before writing `deps.lock`.
+2. stamps the shas into the lock;
+3. runs `Validate` before writing `deps.lock`.
 
 From then on, the `sha256` in the lock is a fact about bytes the Go
 binary held — not an assertion from a repository, a POM, or a pre-existing

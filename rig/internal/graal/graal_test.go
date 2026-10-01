@@ -13,7 +13,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync/atomic"
 	"testing"
 )
 
@@ -164,17 +163,9 @@ func makeTargz(t *testing.T, version string) (string, string) {
 	return src, hex.EncodeToString(sum[:])
 }
 
-// testServer wraps an httptest server with a counter for requests on the
-// releases API (the exact-version path must never use it).
-type testServer struct {
-	*httptest.Server
-	apiCalls atomic.Int32
-}
-
-// apiServer serves the GitHub releases list (newest first, as the API does),
-// the archive/sha256 downloads for the given version, and the direct
-// release-asset download URLs for it (the exact-version path).
-func apiServer(t *testing.T, version, archive, sum string, code int) *testServer {
+// apiServer serves the GitHub releases list (newest first, as the API does)
+// and the archive/sha256 downloads for the given version.
+func apiServer(t *testing.T, version, archive, sum string, code int) *httptest.Server {
 	t.Helper()
 	osN, archN, ok := platform()
 	if !ok {
@@ -193,10 +184,8 @@ func apiServer(t *testing.T, version, archive, sum string, code int) *testServer
 			{Name: want + ".tar.gz.sha256", BrowserDownloadURL: ""},
 		}},
 	}
-	srv := &testServer{}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/repos/"+repo+"/releases", func(w http.ResponseWriter, r *http.Request) {
-		srv.apiCalls.Add(1)
 		if code != http.StatusOK {
 			w.WriteHeader(code)
 			return
@@ -204,37 +193,17 @@ func apiServer(t *testing.T, version, archive, sum string, code int) *testServer
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(rels)
 	})
-	mux.HandleFunc("/"+repo+"/releases/download/jdk-"+version+"/", func(w http.ResponseWriter, r *http.Request) {
-		name := strings.TrimPrefix(r.URL.Path, "/"+repo+"/releases/download/jdk-"+version+"/")
-		switch name {
-		case want + ".tar.gz", want + ".zip":
-			http.ServeFile(w, r, archive)
-		case want + ".tar.gz.sha256", want + ".zip.sha256":
-			w.Write([]byte(sum + "\n"))
-		default:
-			w.WriteHeader(http.StatusNotFound)
-		}
-	})
 	mux.HandleFunc("/dl", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, archive)
 	})
 	mux.HandleFunc("/sha", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(sum + "\n"))
 	})
-	srv.Server = httptest.NewServer(mux)
+	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	rels[1].Assets[0].BrowserDownloadURL = srv.URL + "/dl"
 	rels[1].Assets[1].BrowserDownloadURL = srv.URL + "/sha"
 	return srv
-}
-
-// withDownloadBase points the release asset download host at base for the
-// test.
-func withDownloadBase(t *testing.T, base string) {
-	t.Helper()
-	old := DownloadBase
-	DownloadBase = base
-	t.Cleanup(func() { DownloadBase = old })
 }
 
 func TestResolve(t *testing.T) {
@@ -254,40 +223,6 @@ func TestResolve(t *testing.T) {
 	}
 	if _, err := api.Resolve(context.Background(), "24"); err == nil {
 		t.Error("resolve of an unserved feature version should fail")
-	}
-}
-
-func TestResolveExact(t *testing.T) {
-	archive, sum := makeTargz(t, "21.0.2")
-	srv := apiServer(t, "21.0.2", archive, sum, http.StatusOK)
-	withDownloadBase(t, srv.URL)
-	a, err := NewAPI(srv.URL).Resolve(context.Background(), "21.0.2")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if a.Version != "21.0.2" || a.SHA256 != sum {
-		t.Errorf("asset = %+v", a)
-	}
-	if a.Archive != "graalvm-community-jdk-21.0.2_"+a.OS+"-"+a.Arch+"_bin.tar.gz" {
-		t.Errorf("archive name = %q", a.Archive)
-	}
-	if !strings.HasSuffix(a.URL, "/"+repo+"/releases/download/jdk-21.0.2/"+a.Archive) {
-		t.Errorf("url = %q", a.URL)
-	}
-	if n := srv.apiCalls.Load(); n != 0 {
-		t.Errorf("releases API called %d times; an exact version must not use it", n)
-	}
-}
-
-func TestResolveExactMissing(t *testing.T) {
-	// A fully-specified version with no such release: the sidecar 404s and
-	// the error names the version.
-	srv := httptest.NewServer(http.NotFoundHandler())
-	t.Cleanup(srv.Close)
-	withDownloadBase(t, srv.URL)
-	_, err := NewAPI(srv.URL).Resolve(context.Background(), "21.0.99")
-	if err == nil || !strings.Contains(err.Error(), "no graalvm") {
-		t.Errorf("err = %v", err)
 	}
 }
 
@@ -366,29 +301,16 @@ func TestInstallChecksumMismatch(t *testing.T) {
 
 func TestEnsureMissing(t *testing.T) {
 	st := NewStoreAt(t.TempDir())
-	_, err := Ensure(st, "25", "")
+	_, err := Ensure(st, "25")
 	if err == nil || !strings.Contains(err.Error(), "graalvm 25 not installed (run 'rig graalvm install 25')") {
 		t.Errorf("err = %v", err)
-	}
-	_, err = Ensure(st, "25", "25.0.2")
-	if err == nil || !strings.Contains(err.Error(), "graalvm 25.0.2 not installed (run 'rig graalvm install 25.0.2')") {
-		t.Errorf("err = %v", err)
-	}
-}
-
-func TestEnsureNoFallback(t *testing.T) {
-	root := t.TempDir()
-	fakeInstall(t, root, "25.0.1")
-	// An exact pin is never satisfied by another installed version.
-	if _, err := Ensure(NewStoreAt(root), "25", "25.0.2"); err == nil {
-		t.Error("expected an error: 25.0.2 is not installed")
 	}
 }
 
 func TestEnsureUsesInstalled(t *testing.T) {
 	root := t.TempDir()
 	fakeInstall(t, root, "25.0.2")
-	inst, err := Ensure(NewStoreAt(root), "25", "")
+	inst, err := Ensure(NewStoreAt(root), "25")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -407,7 +329,7 @@ func TestEnsureOverride(t *testing.T) {
 	}
 	t.Setenv("RIG_GRAALVM_HOME", home)
 
-	inst, err := Ensure(NewStoreAt(t.TempDir()), "25", "25.0.2")
+	inst, err := Ensure(NewStoreAt(t.TempDir()), "25")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -421,7 +343,7 @@ func TestEnsureOverride(t *testing.T) {
 	// A home without native-image is refused.
 	empty := t.TempDir()
 	t.Setenv("RIG_GRAALVM_HOME", empty)
-	if _, err := Ensure(NewStoreAt(t.TempDir()), "25", "25.0.2"); err == nil {
+	if _, err := Ensure(NewStoreAt(t.TempDir()), "25"); err == nil {
 		t.Error("expected an error for an override home without native-image")
 	}
 }

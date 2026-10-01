@@ -23,10 +23,10 @@ import (
 )
 
 // launchDefaults is rig's production JVM flag set, applied by `rig launch`
-// before the module's :rig/launch-opts. The module opts come last, so for
-// repeated flags the JVM applies the module's value; collectors are the
-// exception — selecting two is a fatal VM error, so a collector in
-// :rig/launch-opts replaces the G1 default (launchFlags). JMX is
+// before the module's :rig/launch-opts and the RIG_LAUNCH_OPTS override.
+// The later stages come last, so for repeated flags the JVM applies their
+// value; collectors are the exception — selecting two is a fatal VM error,
+// so only the last collector selection survives (launchFlags). JMX is
 // loopback-only by design (same-host monitoring) on a single fixed port.
 var launchDefaults = []string{
 	"-XX:+UseG1GC",
@@ -68,10 +68,12 @@ func newLaunchCmd(o *opts) *cobra.Command {
 
 JVM flags, in order: rig's production defaults (G1 GC with AlwaysPreTouch,
 exit on OOM, loopback-only JMX on port 10101), then the module's
-:rig/launch-opts, which override the defaults (the last JVM flag wins; a
-:rig/launch-opts garbage collector replaces the G1 default, since the JVM
-refuses two collectors), then -jar or -cp and the main. The launch JVM's
-major version must exactly match the one the artifact was built with.
+:rig/launch-opts, then RIG_LAUNCH_OPTS (env var, whitespace-separated) —
+each stage overrides the earlier ones (the last JVM flag wins), except
+collectors: the JVM refuses two, so the last collector selection replaces
+all earlier ones (including the G1 default). Then -jar or -cp and the
+main. The launch JVM's major version must exactly match the one the
+artifact was built with.
 
 The first positional is the jar to launch, when it names an existing file.
 Otherwise, in a workspace, all positionals are passed to the main and the
@@ -82,7 +84,12 @@ needed.
 
 rig launch never re-locks and never hits the network: the lock is inert data
 for it, a stale lock is ignored, and missing pieces (JDK, classpath
-artifacts) are errors pointing at the command that prepares them.`,
+artifacts) are errors pointing at the command that prepares them.
+
+rig launch replaces its own process with the JVM (process exec): the
+launched app is the process — in a container, its PID 1. Signals reach the
+JVM directly and the JVM's exit code is the process's. (On platforms
+without process exec — Windows — rig forks the JVM and waits.)`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runLaunch(cmd.Context(), o, args)
 		},
@@ -186,9 +193,13 @@ func runLaunch(ctx context.Context, o *opts, args []string) error {
 		return err
 	}
 
+	// RIG_LAUNCH_OPTS: per-deployment JVM flags, appended after the module's
+	// :rig/launch-opts (JVM last-wins). Whitespace-separated; empty = unset.
+	override := strings.Fields(os.Getenv("RIG_LAUNCH_OPTS"))
+
 	var runArgs []string
 	if plan.uber {
-		runArgs = launchFlags(plan.jvmOpts)
+		runArgs = launchFlags(plan.jvmOpts, override)
 		runArgs = append(runArgs, "-jar", absJar)
 	} else {
 		if lock == nil {
@@ -210,7 +221,7 @@ func runLaunch(ctx context.Context, o *opts, args []string) error {
 		if err != nil {
 			return err
 		}
-		runArgs = launchFlags(plan.jvmOpts)
+		runArgs = launchFlags(plan.jvmOpts, override)
 		runArgs = append(runArgs, "-cp", cp, plan.main)
 	}
 	runArgs = append(runArgs, appArgs...)
@@ -219,35 +230,46 @@ func runLaunch(ctx context.Context, o *opts, args []string) error {
 	if root != nil {
 		dir = moduleDir(root, m)
 	}
-	return launch(jvm.Run{Java: java, Args: runArgs, Dir: dir, Env: javaEnv})
+	return launch(jvm.Run{Java: java, Args: runArgs, Dir: dir, Env: javaEnv, Exec: true})
 }
 
 // gcFlagRe matches a garbage-collector selection flag (-XX:+UseZGC,
 // -XX:-UseG1GC, …). Selecting two collectors at once is a fatal VM error,
-// so when the module's :rig/launch-opts selects a collector, rig's G1
-// default is dropped rather than appended.
-var gcFlagRe = regexp.MustCompile(`^-XX:[+-]Use[A-Za-z]*GC$`)
+// so only the last collector selection across rig's defaults, the module's
+// :rig/launch-opts, and the RIG_LAUNCH_OPTS override survives
+// (launchFlags).
+var gcFlagRe = regexp.MustCompile(`^-XX:[+-]Use[A-Za-z0-9]*GC$`)
 
 // launchFlags is the JVM flags of a launch: rig's production defaults, then
-// the module's :rig/launch-opts (the JVM applies repeated flags last-wins,
-// so the module opts override the defaults). The G1 default is dropped when
-// :rig/launch-opts selects a collector.
-func launchFlags(jvmOpts []string) []string {
-	dropG1 := false
-	for _, f := range jvmOpts {
-		if gcFlagRe.MatchString(f) {
-			dropG1 = true
-			break
+// the module's :rig/launch-opts, then the RIG_LAUNCH_OPTS override — the
+// JVM applies repeated flags last-wins, so each stage overrides the earlier
+// ones. Collectors are the exception: selecting two is a fatal VM error, so
+// only the last collector selection survives (for the default, that is the
+// G1 default).
+func launchFlags(jvmOpts, override []string) []string {
+	stages := [][]string{launchDefaults, jvmOpts, override}
+	lastGC := ""
+	for _, stage := range stages {
+		for _, f := range stage {
+			if gcFlagRe.MatchString(f) {
+				lastGC = f
+			}
 		}
 	}
+	gcEmitted := false
 	var flags []string
-	for _, f := range launchDefaults {
-		if dropG1 && f == "-XX:+UseG1GC" {
-			continue
+	for _, stage := range stages {
+		for _, f := range stage {
+			if gcFlagRe.MatchString(f) {
+				if f != lastGC || gcEmitted {
+					continue // not the last collector selection
+				}
+				gcEmitted = true
+			}
+			flags = append(flags, f)
 		}
-		flags = append(flags, f)
 	}
-	return append(flags, jvmOpts...)
+	return flags
 }
 
 // launchPlanFor resolves the launch plan of absJar: the descriptor the build
@@ -291,11 +313,7 @@ func launchPlanFor(o *opts, lock *lockfile.Document, root *workspace.Root, m, ab
 	}
 	java := 0
 	if lock.JVM != nil {
-		v := lock.JVM.Version
-		if v == "" {
-			v = lock.JVM.Requested
-		}
-		java = jdk.FeatureVersion(v)
+		java = jdk.FeatureVersion(lock.JVM.Requested)
 	}
 	return launchPlan{main: main, jvmOpts: mod.LaunchOpts, uber: isUber, java: java}, nil
 }

@@ -24,6 +24,7 @@ nav = [
     "workflows/dependencies.md",
     "workflows/pier.md",
     "workflows/build-publish.md",
+    "workflows/production-launch.md",
     "workflows/ci.md",
     "workflows/docker.md",
   ] },
@@ -42,6 +43,7 @@ nav = [
     "internals/resolution.md",
     "internals/closed-build.md",
   ] },
+  { "Releases" = "releases.md" },
 ]
 
 [project.theme]

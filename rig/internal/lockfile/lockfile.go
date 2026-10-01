@@ -63,23 +63,20 @@ type Cooldown struct {
 	Repos   map[string]string `json:"repos"`
 }
 
-// JVM is the workspace's pinned JVM, from :rig/jvm in the root manifest.
-// Requested is what the manifest asks for ("21"); Version is the exact
-// release resolved at lock time ("21.0.12.1+1"), "" until first resolved.
+// JVM is the workspace's pinned JVM, from :rig/jvm in the root manifest:
+// the major (feature) version the project runs on ("21"). Rig manages the
+// exact release: the newest installed matching it, or a download of the
+// newest matching release.
 type JVM struct {
 	Vendor    string `json:"vendor"`
 	Requested string `json:"requested"`
-	Version   string `json:"version,omitempty"`
 }
 
 // GraalVM is the workspace's pinned GraalVM (for native-image builds),
-// derived from the :rig/jvm pin. Requested is the JVM feature version
-// ("21"); Version is the exact community build resolved at lock time
-// ("21.0.2"), "" until first resolved.
+// derived from the :rig/jvm pin: the major (feature) version.
 type GraalVM struct {
 	Vendor    string `json:"vendor"`
 	Requested string `json:"requested"`
-	Version   string `json:"version,omitempty"`
 }
 
 type Artifact struct {
@@ -261,13 +258,10 @@ func (d *Document) Validate() error {
 			return fmt.Errorf("jvm: unsupported vendor %q", d.JVM.Vendor)
 		}
 		if !jdk.ValidRequested(d.JVM.Requested) {
-			return fmt.Errorf("jvm: bad requested %q", d.JVM.Requested)
+			return fmt.Errorf("jvm: bad requested %q (want a major version, e.g. \"21\" — fix the :rig/jvm pin in the manifest and re-lock)", d.JVM.Requested)
 		}
 		if n := jdk.FeatureVersion(d.JVM.Requested); n > 0 && n < JVMFloor {
 			return fmt.Errorf("jvm: requested %q is below the kernel floor: the kernel requires JVM %d or newer", d.JVM.Requested, JVMFloor)
-		}
-		if d.JVM.Version != "" && !jdk.Satisfies(d.JVM.Requested, d.JVM.Version) {
-			return fmt.Errorf("jvm: locked version %q does not satisfy requested %q", d.JVM.Version, d.JVM.Requested)
 		}
 	}
 	for _, f := range d.CompileJVMOpts {
@@ -280,10 +274,7 @@ func (d *Document) Validate() error {
 			return fmt.Errorf("graalvm: unsupported vendor %q", d.GraalVM.Vendor)
 		}
 		if !jdk.ValidRequested(d.GraalVM.Requested) {
-			return fmt.Errorf("graalvm: bad requested %q", d.GraalVM.Requested)
-		}
-		if d.GraalVM.Version != "" && !jdk.Satisfies(d.GraalVM.Requested, d.GraalVM.Version) {
-			return fmt.Errorf("graalvm: locked version %q does not satisfy requested %q", d.GraalVM.Version, d.GraalVM.Requested)
+			return fmt.Errorf("graalvm: bad requested %q (want a major version, e.g. \"21\")", d.GraalVM.Requested)
 		}
 	}
 	seen := make(map[string]bool, len(d.Artifacts))

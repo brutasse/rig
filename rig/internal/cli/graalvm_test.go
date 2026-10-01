@@ -146,9 +146,9 @@ func graalAPIServer(t *testing.T, version, archive, sum string) *httptest.Server
 func TestGraalVMInstallListUninstall(t *testing.T) {
 	archive, sum := makeFakeGraalTarball(t, "25.0.2")
 	srv := graalAPIServer(t, "25.0.2", archive, sum)
-	oldAPI, oldDL := graal.DefaultBase, graal.DownloadBase
-	graal.DefaultBase, graal.DownloadBase = srv.URL, srv.URL
-	t.Cleanup(func() { graal.DefaultBase, graal.DownloadBase = oldAPI, oldDL })
+	oldBase := graal.DefaultBase
+	graal.DefaultBase = srv.URL
+	t.Cleanup(func() { graal.DefaultBase = oldBase })
 
 	cacheDir := t.TempDir()
 	code, out := runCLI(t, "graalvm", "install", "25", "--cache-dir", cacheDir)
@@ -158,7 +158,9 @@ func TestGraalVMInstallListUninstall(t *testing.T) {
 	if !strings.Contains(out, "installed graalvm 25.0.2") {
 		t.Errorf("install out = %q", out)
 	}
-	code, out = runCLI(t, "graalvm", "install", "25.0.2", "--cache-dir", cacheDir)
+
+	// One GraalVM per major: reinstalling the same major does nothing.
+	code, out = runCLI(t, "graalvm", "install", "25", "--cache-dir", cacheDir)
 	if code != 0 || !strings.Contains(out, "already installed") {
 		t.Errorf("second install exit = %d; out: %s", code, out)
 	}
@@ -168,7 +170,7 @@ func TestGraalVMInstallListUninstall(t *testing.T) {
 		t.Errorf("list exit = %d; out: %s", code, out)
 	}
 
-	code, out = runCLI(t, "graalvm", "uninstall", "25.0.2", "--cache-dir", cacheDir)
+	code, out = runCLI(t, "graalvm", "uninstall", "25", "--cache-dir", cacheDir)
 	if code != 0 || !strings.Contains(out, "uninstalled graalvm 25.0.2") {
 		t.Errorf("uninstall exit = %d; out: %s", code, out)
 	}
@@ -193,7 +195,7 @@ func TestGraalVMUpdate(t *testing.T) {
 	t.Chdir(dir)
 	writeFile(t, "deps.edn", "{:rig/lib x/y}\n")
 	doc := lockfile.ForTest(".")
-	doc.GraalVM = &lockfile.GraalVM{Vendor: "graalvm", Requested: "21", Version: "21.0.2"}
+	doc.GraalVM = &lockfile.GraalVM{Vendor: "graalvm", Requested: "21"}
 	doc.FreshFor(map[string]string{".": "{:rig/lib x/y}\n"})
 	if err := doc.Save("deps.lock"); err != nil {
 		t.Fatal(err)
@@ -205,25 +207,72 @@ func TestGraalVMUpdate(t *testing.T) {
 	graal.DefaultBase = srv.URL
 	t.Cleanup(func() { graal.DefaultBase = oldBase })
 
-	code, out := runCLI(t, "graalvm", "update", "--cache-dir", t.TempDir())
+	// No GraalVM for the major installed: update installs the newest build.
+	cacheDir := t.TempDir()
+	code, out := runCLI(t, "graalvm", "update", "--cache-dir", cacheDir)
 	if code != 0 {
 		t.Fatalf("update exit = %d; out: %s", code, out)
 	}
-	if !strings.Contains(out, "21.0.3") {
+	if !strings.Contains(out, "installed graalvm 21.0.3") {
 		t.Errorf("update out = %q", out)
 	}
+
+	// Second update: the installed build is already the newest.
+	code, out = runCLI(t, "graalvm", "update", "--cache-dir", cacheDir)
+	if code != 0 || !strings.Contains(out, "up to date") {
+		t.Errorf("second update exit = %d; out: %s", code, out)
+	}
+
+	// An older build installed: update replaces it (one GraalVM per major).
+	oldCache := t.TempDir()
+	fakeGraalVM(t, oldCache, "21.0.2")
+	code, out = runCLI(t, "graalvm", "update", "--cache-dir", oldCache)
+	if code != 0 {
+		t.Fatalf("update exit = %d; out: %s", code, out)
+	}
+	if !strings.Contains(out, "graalvm updated: 21.0.2 → 21.0.3") {
+		t.Errorf("update out = %q", out)
+	}
+	if _, err := os.Stat(filepath.Join(oldCache, "graal", "graalvm-21.0.2")); !os.IsNotExist(err) {
+		t.Errorf("old install should be removed: %v", err)
+	}
+
+	// Update never writes the lock.
 	d2, err := lockfile.Load("deps.lock")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if d2.GraalVM == nil || d2.GraalVM.Version != "21.0.3" {
+	if d2.GraalVM == nil || d2.GraalVM.Requested != "21" {
 		t.Errorf("lock graalvm = %+v", d2.GraalVM)
 	}
+}
 
-	code, out = runCLI(t, "graalvm", "update", "--cache-dir", t.TempDir())
-	if code != 0 || !strings.Contains(out, "up to date") {
-		t.Errorf("second update exit = %d; out: %s", code, out)
+// fakeGraalVM plants a GraalVM install in the store at cacheDir.
+func fakeGraalVM(t *testing.T, cacheDir, version string) string {
+	t.Helper()
+	st := graal.NewStoreAt(cacheDir)
+	dir := st.Dir(version)
+	if err := os.MkdirAll(filepath.Join(dir, "graal", "bin"), 0o755); err != nil {
+		t.Fatal(err)
 	}
+	for _, b := range []string{"java", "native-image"} {
+		if err := os.WriteFile(filepath.Join(dir, "graal", "bin", b), []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m := map[string]string{
+		"vendor": "graalvm", "version": version, "os": "linux", "arch": "x64",
+		"archive": "a.tar.gz", "url": "u", "sha256": strings.Repeat("0", 64),
+		"installed_at": "2026-01-01T00:00:00Z",
+	}
+	b, err := json.Marshal(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "rig-graal.json"), b, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return dir
 }
 
 func TestGraalVMUpdateNoPin(t *testing.T) {

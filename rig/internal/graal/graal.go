@@ -30,10 +30,6 @@ const Vendor = "graalvm"
 // DefaultBase is the GitHub API used to resolve GraalVM community builds.
 var DefaultBase = "https://api.github.com"
 
-// DownloadBase is the host serving release asset downloads; it is separate
-// from the API and not subject to its rate limits.
-var DownloadBase = "https://github.com"
-
 // repo is the GraalVM community build releases rig installs from. Only
 // `jdk-*` tagged releases are considered: the "Innovation" releases
 // (graal-* tags) version their assets independently of the tag and are out
@@ -111,9 +107,6 @@ func (a *apiClient) Resolve(ctx context.Context, requested string) (Asset, error
 	if !ok {
 		return Asset{}, fmt.Errorf("graal: no graalvm build for %s/%s", runtime.GOOS, runtime.GOARCH)
 	}
-	if jdk.IsExact(requested) {
-		return a.resolveExact(ctx, requested, os, arch)
-	}
 	rels, err := a.releases(ctx)
 	if err != nil {
 		return Asset{}, err
@@ -156,42 +149,6 @@ func (a *apiClient) Resolve(ctx context.Context, requested string) (Asset, error
 		}, nil
 	}
 	return Asset{}, fmt.Errorf("graal: no graalvm %s/%s build satisfies %q", os, arch, requested)
-}
-
-// resolveExact fetches a fully-specified version straight from the release
-// asset host: the asset name and URL follow the release convention, so no
-// API lookup is needed and the unauthenticated API rate limit never
-// applies. A missing release or platform build 404s on the sidecar.
-func (a *apiClient) resolveExact(ctx context.Context, v, os, arch string) (Asset, error) {
-	archive := fmt.Sprintf("graalvm-community-jdk-%s_%s-%s_bin", v, os, arch)
-	if os == "windows" {
-		archive += ".zip"
-	} else {
-		archive += ".tar.gz"
-	}
-	sum, err := a.sha256(ctx, downloadURL(v, archive+".sha256"))
-	if err != nil {
-		var se *statusError
-		if errors.As(err, &se) && se.status == http.StatusNotFound {
-			return Asset{}, fmt.Errorf("graal: no graalvm %s/%s build %q", os, arch, v)
-		}
-		return Asset{}, err
-	}
-	return Asset{
-		Vendor:  Vendor,
-		Version: v,
-		OS:      os,
-		Arch:    arch,
-		Archive: archive,
-		URL:     downloadURL(v, archive),
-		SHA256:  sum,
-	}, nil
-}
-
-// downloadURL is the asset download URL for the jdk-<v> release on the
-// asset host (not the API: no /repos/ segment).
-func downloadURL(v, name string) string {
-	return DownloadBase + "/" + repo + "/releases/download/jdk-" + v + "/" + name
 }
 
 // statusError is a non-200 response from a graal endpoint, with the response
@@ -400,12 +357,11 @@ func (s *Store) Uninstall(requested string) (string, error) {
 	return v, nil
 }
 
-// Ensure returns an installed GraalVM for the pin: the exact version when
-// set, else the newest installed satisfying requested. It never downloads —
-// missing GraalVMs are installed with `rig graalvm install`. A
-// RIG_GRAALVM_HOME override is used as-is (trusted, like RIG_JAVA) and
-// never touches the store.
-func Ensure(st *Store, requested, version string) (*Inst, error) {
+// Ensure returns an installed GraalVM for the pin: the newest installed
+// release matching requested. It never downloads — missing GraalVMs are
+// installed with `rig graalvm install`. A RIG_GRAALVM_HOME override is used
+// as-is (trusted, like RIG_JAVA) and never touches the store.
+func Ensure(st *Store, requested string) (*Inst, error) {
 	if home := os.Getenv("RIG_GRAALVM_HOME"); home != "" {
 		native := filepath.Join(home, "bin", binName("native-image"))
 		if st, err := os.Stat(native); err != nil || st.IsDir() {
@@ -413,33 +369,17 @@ func Ensure(st *Store, requested, version string) (*Inst, error) {
 		}
 		return &Inst{
 			Vendor:          Vendor,
-			Version:         firstNonEmpty(version, requested),
+			Version:         requested,
 			Dir:             home,
 			Home:            home,
 			JavaPath:        filepath.Join(home, "bin", binName("java")),
 			NativeImagePath: native,
 		}, nil
 	}
-	var want string
-	if version != "" {
-		inst, err := st.Lookup(version)
-		if err == nil {
-			return inst, nil
-		}
-		want = version
-	} else if inst, err := st.Best(requested); err == nil {
+	if inst, err := st.Best(requested); err == nil {
 		return inst, nil
-	} else {
-		want = requested
 	}
-	return nil, fmt.Errorf("graalvm %s not installed (run 'rig graalvm install %s')", want, want)
-}
-
-func firstNonEmpty(a, b string) string {
-	if a != "" {
-		return a
-	}
-	return b
+	return nil, fmt.Errorf("graalvm %s not installed (run 'rig graalvm install %s')", requested, requested)
 }
 
 // Install downloads a, verifies its sha256, and extracts it under the store.

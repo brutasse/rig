@@ -7,10 +7,12 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -20,6 +22,48 @@ import (
 	"github.com/brutasse/rig/internal/kernel"
 	"github.com/brutasse/rig/internal/lockfile"
 )
+
+var rigTestBin string
+
+// TestMain builds the rig binary once: rig launch replaces its own process
+// with the JVM, so the launch tests must run it as a real subprocess — an
+// in-process run would exec the JVM into the test binary itself.
+func TestMain(m *testing.M) {
+	bin := filepath.Join(os.TempDir(), fmt.Sprintf("rig-test-bin-%d", os.Getpid()))
+	cmd := exec.Command("go", "build", "-o", bin, "github.com/brutasse/rig/cmd/rig")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		fmt.Fprintf(os.Stderr, "TestMain: cannot build the rig binary: %v\n%s\n", err, out)
+		os.Exit(1)
+	}
+	defer os.Remove(bin)
+	rigTestBin = bin
+	os.Exit(m.Run())
+}
+
+// runCLISubprocess runs the built rig binary as a real subprocess in the
+// test's working directory (runCLI cannot for launch: it execs the JVM into
+// its own process). The test environment (RIG_JAVA, RIG_LAUNCH_OPTS, …) is
+// inherited. It returns the exit code, combined output, and the process's
+// PID.
+func runCLISubprocess(t *testing.T, args ...string) (int, string, int) {
+	t.Helper()
+	dir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(rigTestBin, args...)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	code := 0
+	if err != nil {
+		var ee *exec.ExitError
+		if !errors.As(err, &ee) {
+			t.Fatalf("rig subprocess: %v; out: %s", err, out)
+		}
+		code = ee.ExitCode()
+	}
+	return code, string(out), cmd.Process.Pid
+}
 
 func runCLI(t *testing.T, args ...string) (int, string) {
 	t.Helper()

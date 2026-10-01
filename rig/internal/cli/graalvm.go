@@ -27,14 +27,16 @@ func newGraalVMCmd(o *opts) *cobra.Command {
 
 func newGraalVMInstallCmd(o *opts) *cobra.Command {
 	return &cobra.Command{
-		Use:   "install <version>",
+		Use:   "install <major>",
 		Short: "Install a GraalVM community JDK into the rig state dir",
-		Long: `Installs a GraalVM community JDK into the rig state dir, verifying the
-download against the sha256 sidecar published on the graalvm/graalvm-ce-builds
-GitHub release.
+		Long: `Installs the newest GraalVM community JDK for a major version into the rig
+state dir, verifying the download against the sha256 sidecar published on
+the graalvm/graalvm-ce-builds GitHub release. One GraalVM per major
+version: when a matching major is already installed, this exits without
+changing anything — use 'rig graalvm update' to move it to the newest
+build.
 
-<version> is a feature version ("21" — the newest 21.x build) or an exact
-version ("21.0.2").`,
+<major> is a major (feature) version: "21".`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runGraalVMInstall(cmd.Context(), o, args[0])
@@ -44,7 +46,7 @@ version ("21.0.2").`,
 
 func runGraalVMInstall(ctx context.Context, o *opts, requested string) error {
 	if !jdk.ValidRequested(requested) {
-		return exitf(2, "bad version %q (want e.g. \"21\" or \"21.0.2\")", requested)
+		return exitf(2, "bad version %q (want a major version, e.g. \"21\")", requested)
 	}
 	if o.offline {
 		return exitf(1, "offline: cannot install a GraalVM (run 'rig graalvm install %s' online)", requested)
@@ -54,13 +56,13 @@ func runGraalVMInstall(ctx context.Context, o *opts, requested string) error {
 		return err
 	}
 	st := graal.NewStoreAt(store.Root)
+	if inst, err := st.Best(requested); err == nil {
+		fmt.Printf("already installed: %s %s\n", inst.Vendor, inst.Version)
+		return nil
+	}
 	a, err := graal.NewAPI("").Resolve(ctx, requested)
 	if err != nil {
 		return err
-	}
-	if inst, err := st.Lookup(a.Version); err == nil {
-		fmt.Printf("already installed: %s %s\n", inst.Vendor, inst.Version)
-		return nil
 	}
 	size := ""
 	if a.Size > 0 {
@@ -108,7 +110,7 @@ func runGraalVMList(o *opts) error {
 func newGraalVMUninstallCmd(o *opts) *cobra.Command {
 	return &cobra.Command{
 		Use:   "uninstall <version>",
-		Short: "Remove an installed GraalVM (exact version or unique prefix)",
+		Short: "Remove an installed GraalVM (major version or unique prefix)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runGraalVMUninstall(o, args[0])
@@ -132,10 +134,11 @@ func runGraalVMUninstall(o *opts, requested string) error {
 func newGraalVMUpdateCmd(o *opts) *cobra.Command {
 	return &cobra.Command{
 		Use:   "update",
-		Short: "Bump the locked GraalVM to the newest build satisfying the manifest pin",
-		Long: `Updates the exact GraalVM version recorded in deps.lock to the newest
-community build satisfying the workspace's :rig/jvm pin. The manifest is
-untouched; a fresh machine following the new lock installs that exact version.`,
+		Short: "Update the rig-managed GraalVM for the pinned major to the newest build",
+		Long: `Updates the rig-managed GraalVM for the workspace's :rig/jvm pin to the
+newest community build for that major version, replacing the installed one
+(rig keeps one GraalVM per major version). When none is installed, the
+newest build is installed. The manifest and the lock are untouched.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runGraalVMUpdate(cmd.Context(), o)
@@ -155,22 +158,52 @@ func runGraalVMUpdate(ctx context.Context, o *opts) error {
 	if pin == nil {
 		return exitf(2, "no GraalVM in the lock (the workspace needs a :rig/jvm pin and a :rig/native? module — run 'rig lock')")
 	}
-	if o.frozen {
-		return exitf(3, "--frozen: the lock is read-only")
+	if o.offline {
+		return exitf(1, "offline: cannot update a GraalVM (run 'rig graalvm update' online)")
 	}
+	store, err := o.store()
+	if err != nil {
+		return err
+	}
+	st := graal.NewStoreAt(store.Root)
+	old, _ := st.Best(pin.Requested)
 	a, err := graal.NewAPI("").Resolve(ctx, pin.Requested)
 	if err != nil {
 		return err
 	}
-	if a.Version == pin.Version {
-		fmt.Printf("graalvm up to date: %s\n", pin.Version)
+	if old != nil && old.Version == a.Version {
+		fmt.Printf("graalvm up to date: %s\n", old.Version)
 		return nil
 	}
-	old := pin.Version
-	pin.Version = a.Version
-	if err := root.Lock.Save(root.LockPath()); err != nil {
+	size := ""
+	if a.Size > 0 {
+		size = fmt.Sprintf(", %d MB", a.Size/1024/1024)
+	}
+	if old != nil {
+		fmt.Printf("updating graalvm %s → %s (%s%s)…\n", old.Version, a.Version, a.OS+"/"+a.Arch, size)
+	} else {
+		fmt.Printf("installing %s %s (%s%s)…\n", a.Vendor, a.Version, a.OS+"/"+a.Arch, size)
+	}
+	inst, err := st.Install(ctx, a)
+	if err != nil {
 		return err
 	}
-	fmt.Printf("graalvm pin updated: %s → %s\n", displayOrNone(old), a.Version)
+	// One GraalVM per major: drop any other install matching the pin.
+	insts, err := st.List()
+	if err != nil {
+		return err
+	}
+	for _, i := range insts {
+		if i.Version != inst.Version && jdk.Satisfies(pin.Requested, i.Version) {
+			if _, err := st.Uninstall(i.Version); err != nil {
+				return err
+			}
+		}
+	}
+	if old != nil {
+		fmt.Printf("graalvm updated: %s → %s\n", old.Version, inst.Version)
+	} else {
+		fmt.Printf("installed %s %s to %s\n", inst.Vendor, inst.Version, inst.Home)
+	}
 	return nil
 }
