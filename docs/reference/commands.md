@@ -21,7 +21,6 @@ documentation of record; this page is the map.
 | `build [--uber \| --native]` | cold | Jar / uberjar / native-image binary via the locked classpath. |
 | `install` | cold | Install module jars into the local Maven repository. |
 | `publish` | cold | Deploy module jars to their remote repository. |
-| `release [--dry-run]` | cold+git | Strip-snapshot → publish → commit → tag → bump → commit → push. |
 | `outdated [--breaking]` | cold | Pinned vs available versions. |
 | `tree [--alias a]` | cold | Dependency tree for a module. |
 | `clean` | hot | Remove build-output directories. |
@@ -363,12 +362,6 @@ jar + POM uploaded with credentials from `~/.m2/settings.xml`; a repo
 marked `:auth :oidc` is uploaded with the bearer of the gate that
 fronts its `:url` (the gate's `RIG_TOKEN_<GATE>`, cached token, or
 negotiated) instead.
-
-### `rig release`
-
-The full release sequence (see [build/publish/release](../workflows/build-publish.md)):
-strip-snapshot → publish all → commit VERSION → tag → bump-and-snapshot →
-commit → push. `--dry-run` prints the plan without doing anything.
 
 ## Hygiene and scaffolding
 

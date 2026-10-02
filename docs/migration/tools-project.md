@@ -99,7 +99,7 @@ Full key reference: [configuration](../reference/config.md).
 | `outdated` | `rig outdated` |
 | `merge-deps` / `merge-aliases` | **gone** — `rig lock` / `rig update` |
 | `prep` | folded into `build`/`test`/`run`/`repl` (auto-run, staleness-checked) |
-| `release` | `rig release` |
+| `release` | `rig publish` + `git tag` — [Releasing](../workflows/build-publish.md#releasing) |
 | `task` | `rig exec` |
 | `test` | `rig test` |
 | `version` / `info` | `rig version` / `rig info` |
@@ -167,7 +167,8 @@ rig check
 rig test :kaocha.filter/focus '[:unit]'
 rig lint
 rig build --uber
-rig release
+rig publish
+git tag "v$(cat VERSION)"
 ```
 
 Rig is a native binary with the verbs — the Makefile wrapper that existed
@@ -261,7 +262,10 @@ Replace the old workflow steps with the frozen gate
   run: rig build --uber --frozen
 
 - name: Release
-  run: rig release
+  run: |
+    rig publish
+    git tag "v$(cat VERSION)"
+    git push origin HEAD --tags
 ```
 
 ## Step 5 — clean out
@@ -288,7 +292,7 @@ went through exactly these steps:
    coordinates → their intended versions);
 4. CI on the frozen gate: `rig verify --frozen &&
    rig check --frozen && rig test --frozen`, `rig build --uber --frozen`,
-   `rig release`;
+   `rig publish` + tag;
 5. legacy targets deleted.
 
 Result: `rig test` green, `rig build --uber` green, and the same

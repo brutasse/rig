@@ -66,43 +66,34 @@ error, not a silent no-op.
 
 ## Releasing
 
-`rig release` performs the full release sequence for the workspace in one
-go:
-
-```
-1. remove-snapshot: 1.2.3-snapshot -> 1.2.3 (VERSION)
-2. publish: 2 module(s)
-3. commit: VERSION ("Release v1.2.3")
-4. tag: v1.2.3
-5. bump-and-snapshot: 1.2.3 -> 1.2.4-snapshot (VERSION)
-6. commit: "Bump version to 1.2.4-snapshot"
-7. push: origin main + v1.2.3
-```
-
-Concretely:
-
-1. strip `-snapshot` from the `VERSION` file (and re-lock, since the
-   version is part of the lock);
-2. publish every `:rig/publish?` module at the release version;
-3. commit the `VERSION` change;
-4. tag `v<version>`;
-5. bump the patch and re-add `-snapshot`;
-6. commit `VERSION` + the refreshed `deps.lock`;
-7. push the branch and the tag.
+A release is a version commit plus a publish and a tag: Rig does the
+publish; the version history and the tag are yours.
 
 ```sh
-rig release --dry-run          # print the plan, change nothing
+# 1. the release version — commit it (the version is part of the lock)
+echo 1.2.3 > VERSION && rig lock
+git commit -am "Release v1.2.3"
+
+# 2. publish every :rig/publish? module at 1.2.3
+rig publish
+
+# 3. tag the release and push it
+git tag v1.2.3 && git push origin --tags
+
+# 4. start the next cycle
+echo 1.2.4-snapshot > VERSION && rig lock
+git commit -am "Bump version to 1.2.4-snapshot"
 ```
 
-The dry run is the way to sanity-check what a release will do — it shows
-the exact version transitions and which modules would be published where,
-and notes if the lock would first need re-locking.
+- Do not publish while `VERSION` still holds `-snapshot`: you would deploy
+  a snapshot version to your release repository, and Maven repositories do
+  not re-publish a version.
+- An existing tag makes the push fail rather than overwrite.
 
 Versioning conventions:
 
-- The `VERSION` file holds `X.Y.Z` or `X.Y.Z-snapshot`; `release` works on
-  the file, not on a config key.
+- The `VERSION` file holds `X.Y.Z` or `X.Y.Z-snapshot`; the release works
+  on the file, not on a config key.
 - Per-module versions come from the module's `:rig/version-file` (a path
   to the file — commonly `../../VERSION` in multi-module setups) or the
   workspace root's.
-- An existing tag makes the release fail rather than overwrite.

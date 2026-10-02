@@ -131,7 +131,6 @@ func Execute() int {
 		newBuildCmd(o),
 		newInstallCmd(o),
 		newPublishCmd(o),
-		newReleaseCmd(o),
 		newOutdatedCmd(o),
 		newTreeCmd(o),
 		newLintCmd(o),

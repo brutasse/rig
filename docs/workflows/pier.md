@@ -111,8 +111,7 @@ publishing goes through Pier with the same bearer — to the `central` id
 :rig/publish {:repo "central"}
 ```
 
-`rig release` (and `rig publish`) PUT the module's artifacts to the Pier
-URL. Pier accepts uploads only under the reserved groups — `com.acme`
+`rig publish` PUTs the module's artifacts to the Pier URL. Pier accepts uploads only under the reserved groups — `com.acme`
 here — and keeps every other path read-only.
 
 Pin corporate artifacts at explicit versions

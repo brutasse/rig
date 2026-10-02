@@ -37,7 +37,7 @@ Whatever you are coming from, the migration is the same five steps, and
    `rig update`.
 4. **Harden CI.** Replace the workflow steps with the frozen gate:
    `rig verify --frozen && rig check --frozen && rig test
-   --frozen`, `rig build --uber --frozen`, and `rig release`.
+   --frozen`, `rig build --uber --frozen`, and `rig publish` + tag.
 5. **Clean out.** Delete the Makefile targets that only wrapped the old
    tooling and drop the old tools from the toolchain entirely.
 

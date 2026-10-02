@@ -51,6 +51,6 @@ trick you reach for:
 - run tests → `rig test`
 - build the jar → `rig build`
 - change a dependency → `rig add` / `rig update` / `rig remove`
-- release → `rig release`
+- resolve → `rig lock`
 
 `rig <command> --help` is the documentation of record for that command.

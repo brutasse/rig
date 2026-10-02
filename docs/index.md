@@ -21,7 +21,7 @@ every project you touch.
   build, publish, release — has one implementation, maintained in one
   place and upgraded under you, instead of build code to write, defend,
   and keep current per project.
-- **A native CLI.** `rig test`, `rig build --uber`, `rig release` — plain
+- **A native CLI.** `rig test`, `rig build --uber`, `rig publish` — plain
   verbs with `--help` that tells the truth.
 - **A lockfile you can trust.** `deps.lock` pins every artifact in the
   resolved dependency tree by sha256. Your build is a pure function of the
