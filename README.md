@@ -54,20 +54,22 @@ GitHub release assets, and re-pins the install one-liner sha in this file.
 ## JVMs
 
 A project can pin its JVM with `:rig/jvm` in the root `deps.edn`
-(e.g. `{:rig/jvm "21"}`). Rig then manages the JDK: `rig jvm
-install 21`, the lock records the exact Temurin release, and missing JDKs
-are auto-installed into the Rig state dir (hash-verified via the Adoptium
-API). `rig new` scaffolds projects with the current LTS pin. Without the
-pin, Rig uses `JAVA_HOME`/`PATH`; when no JVM is found, it suggests the
-current LTS to install (it never installs on its own).
+(e.g. `{:rig/jvm "21"}` — the major version). Rig then manages the JDK:
+`rig jvm install 21` installs the newest Temurin 21.x into the Rig state
+dir, the rig-managed JDK takes precedence over the system `java`, and a
+machine with neither gets the newest matching release auto-installed
+(hash-verified via the Adoptium API); `rig jvm update` moves the
+installed JDK to its newest release. `rig new` scaffolds projects with
+the current LTS pin. Without the pin, Rig uses `JAVA_HOME`/`PATH`; when
+no JVM is found, it suggests the current LTS to install (it never
+installs on its own).
 
 Native-image builds (`rig build --native`) work off the same pin: the
-GraalVM version is derived from `:rig/jvm`, recorded in the lock as an
-exact GraalVM CE release. The build never downloads: `rig build --native`
-requires the GraalVM installed and fails with a hint otherwise —
-`rig graalvm install 21` downloads it from the
-`graalvm/graalvm-ce-builds` GitHub releases (hash-verified) into the
-state dir. A native build also needs a C
+GraalVM major is derived from `:rig/jvm`. The build never downloads:
+`rig build --native` requires the GraalVM installed and fails with a
+hint otherwise — `rig graalvm install 21` downloads the newest 21.x CE
+build from the `graalvm/graalvm-ce-builds` GitHub releases (hash-verified)
+into the state dir. A native build also needs a C
 compiler and a few GB of RAM, and takes minutes.
 
 ## Docker

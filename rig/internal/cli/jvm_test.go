@@ -3,6 +3,7 @@ package cli
 import (
 	"archive/tar"
 	"compress/gzip"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -14,11 +15,13 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/brutasse/rig/internal/cache"
 	"github.com/brutasse/rig/internal/digest"
 	"github.com/brutasse/rig/internal/jdk"
 	"github.com/brutasse/rig/internal/jvm"
 	"github.com/brutasse/rig/internal/kernel"
 	"github.com/brutasse/rig/internal/lockfile"
+	"github.com/brutasse/rig/internal/workspace"
 )
 
 // makeFakeJDKTarball builds a JDK-shaped tarball and returns its path and sha256.
@@ -160,12 +163,18 @@ func TestJVMInstallListUninstall(t *testing.T) {
 		t.Errorf("install out = %q", out)
 	}
 
+	// One JDK per major: reinstalling the same major does nothing.
+	code, out = runCLI(t, "jvm", "install", "21", "--cache-dir", cacheDir)
+	if code != 0 || !strings.Contains(out, "already installed") {
+		t.Errorf("second install exit = %d; out: %s", code, out)
+	}
+
 	code, out = runCLI(t, "jvm", "list", "--cache-dir", cacheDir)
 	if code != 0 || !strings.Contains(out, "temurin 21.0.10+7") {
 		t.Errorf("list exit = %d; out: %s", code, out)
 	}
 
-	code, out = runCLI(t, "jvm", "uninstall", "21.0.10+7", "--cache-dir", cacheDir)
+	code, out = runCLI(t, "jvm", "uninstall", "21", "--cache-dir", cacheDir)
 	if code != 0 || !strings.Contains(out, "uninstalled temurin 21.0.10+7") {
 		t.Errorf("uninstall exit = %d; out: %s", code, out)
 	}
@@ -190,7 +199,7 @@ func TestJVMUpdate(t *testing.T) {
 	t.Chdir(dir)
 	writeFile(t, "deps.edn", "{:rig/lib x/y}\n")
 	doc := lockfile.ForTest(".")
-	doc.JVM = &lockfile.JVM{Vendor: "temurin", Requested: "21", Version: "21.0.10+7"}
+	doc.JVM = &lockfile.JVM{Vendor: "temurin", Requested: "21"}
 	doc.FreshFor(map[string]string{".": "{:rig/lib x/y}\n"})
 	if err := doc.Save("deps.lock"); err != nil {
 		t.Fatal(err)
@@ -202,24 +211,43 @@ func TestJVMUpdate(t *testing.T) {
 	jdk.DefaultBase = srv.URL
 	t.Cleanup(func() { jdk.DefaultBase = oldBase })
 
-	code, out := runCLI(t, "jvm", "update", "--cache-dir", t.TempDir())
+	// No JDK for the major installed: update installs the newest release.
+	cacheDir := t.TempDir()
+	code, out := runCLI(t, "jvm", "update", "--cache-dir", cacheDir)
 	if code != 0 {
 		t.Fatalf("update exit = %d; out: %s", code, out)
 	}
-	if !strings.Contains(out, "21.0.11+9") {
+	if !strings.Contains(out, "installed temurin 21.0.11+9") {
 		t.Errorf("update out = %q", out)
 	}
+
+	// Second update: the installed release is already the newest.
+	code, out = runCLI(t, "jvm", "update", "--cache-dir", cacheDir)
+	if code != 0 || !strings.Contains(out, "up to date") {
+		t.Errorf("second update exit = %d; out: %s", code, out)
+	}
+
+	// An older patch installed: update replaces it (one JDK per major).
+	oldCache := t.TempDir()
+	fakeJDK(t, oldCache, "21.0.10+7")
+	code, out = runCLI(t, "jvm", "update", "--cache-dir", oldCache)
+	if code != 0 {
+		t.Fatalf("update exit = %d; out: %s", code, out)
+	}
+	if !strings.Contains(out, "jvm updated: 21.0.10+7 → 21.0.11+9") {
+		t.Errorf("update out = %q", out)
+	}
+	if _, err := os.Stat(filepath.Join(oldCache, "jdks", "temurin-21.0.10+7")); !os.IsNotExist(err) {
+		t.Errorf("old install should be removed: %v", err)
+	}
+
+	// Update never writes the lock.
 	d2, err := lockfile.Load("deps.lock")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if d2.JVM == nil || d2.JVM.Version != "21.0.11+9" {
+	if d2.JVM == nil || d2.JVM.Requested != "21" {
 		t.Errorf("lock jvm = %+v", d2.JVM)
-	}
-
-	code, out = runCLI(t, "jvm", "update", "--cache-dir", t.TempDir())
-	if code != 0 || !strings.Contains(out, "up to date") {
-		t.Errorf("second update exit = %d; out: %s", code, out)
 	}
 }
 
@@ -246,7 +274,7 @@ func TestInfoPinnedJVM(t *testing.T) {
 	t.Chdir(dir)
 	writeFile(t, "deps.edn", "{:rig/lib x/y}\n")
 	doc := lockfile.ForTest(".")
-	doc.JVM = &lockfile.JVM{Vendor: "temurin", Requested: "21", Version: "21.0.10+7"}
+	doc.JVM = &lockfile.JVM{Vendor: "temurin", Requested: "21"}
 	doc.FreshFor(map[string]string{".": "{:rig/lib x/y}\n"})
 	if err := doc.Save("deps.lock"); err != nil {
 		t.Fatal(err)
@@ -292,23 +320,30 @@ func TestInfoJAVAOverride(t *testing.T) {
 
 // TestHotRunPinnedJVM pins the fixture workspace to a managed JDK (installed
 // as a wrapper around the real java) and checks the hot path selects it and
-// exports JAVA_HOME.
+// exports JAVA_HOME. The pin's major deliberately matches the system java's:
+// the managed JDK must win over a matching system java.
 func TestHotRunPinnedJVM(t *testing.T) {
 	hotSetup(t)
 	realJava, err := jvm.Find()
 	if err != nil {
 		t.Skipf("no java available: %v", err)
 	}
+	realV, err := jvm.Version(realJava)
+	if err != nil {
+		t.Fatal(err)
+	}
+	feat := jdk.FeatureVersion(realV)
+	pinReq := fmt.Sprintf("%d", feat)
 	doc, err := lockfile.Load("deps.lock")
 	if err != nil {
 		t.Fatal(err)
 	}
-	doc.JVM = &lockfile.JVM{Vendor: "temurin", Requested: "21", Version: "21.0.10+7"}
+	doc.JVM = &lockfile.JVM{Vendor: "temurin", Requested: pinReq}
 	if err := doc.Save("deps.lock"); err != nil {
 		t.Fatal(err)
 	}
 	cacheDir := t.TempDir()
-	jdkDir := fakeJDK(t, cacheDir, "21.0.10+7")
+	jdkDir := fakeJDK(t, cacheDir, pinReq+".0.10+7")
 	marker := filepath.Join(t.TempDir(), "java-home")
 	wrapper := filepath.Join(jdkDir, "jdk", "bin", "java")
 	script := "#!/bin/sh\necho \"$JAVA_HOME\" > " + marker + "\nexec " + realJava + " \"$@\"\n"
@@ -329,6 +364,103 @@ func TestHotRunPinnedJVM(t *testing.T) {
 	}
 	if want := filepath.Join(jdkDir, "jdk"); strings.TrimSpace(string(got)) != want {
 		t.Errorf("JAVA_HOME = %q, want %q", got, want)
+	}
+}
+
+// TestPinSatisfied covers the pin's match rule: same feature version, patch
+// releases irrelevant — the same rule launch enforces.
+func TestPinSatisfied(t *testing.T) {
+	cases := []struct {
+		v, requested string
+		want         bool
+	}{
+		{"21.0.9", "21", true},
+		{"21.0.10+7", "21", true},
+		{"21.0.9", "21.0.10+7", true},
+		{"17.0.9", "21", false},
+		{"25.0.1", "21", false},
+		{"1.8.0_392", "8", true},
+		{"11.0.21", "17", false},
+	}
+	for _, c := range cases {
+		if got := pinSatisfied(c.v, c.requested); got != c.want {
+			t.Errorf("pinSatisfied(%q, %q) = %v, want %v", c.v, c.requested, got, c.want)
+		}
+	}
+}
+
+// TestPickJavaPinResolution covers the pin's resolution order: a system JDK
+// whose feature version matches the pin is used as-is — even offline, even
+// when the lock's exact release is not installed; only a machine without a
+// matching JDK falls back to the managed JDK.
+func TestPickJavaPinResolution(t *testing.T) {
+	real, err := jvm.Find()
+	if err != nil {
+		t.Skipf("no java available: %v", err)
+	}
+	v, err := jvm.Version(real)
+	if err != nil {
+		t.Fatal(err)
+	}
+	feat := jdk.FeatureVersion(v)
+
+	ws := func(t *testing.T, requested string) (*workspace.Root, *opts, *cache.Store) {
+		t.Helper()
+		t.Chdir(t.TempDir())
+		writeFile(t, "deps.edn", "{:rig/lib x/y}\n")
+		doc := lockfile.ForTest(".")
+		doc.JVM = &lockfile.JVM{Vendor: "temurin", Requested: requested}
+		doc.FreshFor(map[string]string{".": "{:rig/lib x/y}\n"})
+		if err := doc.Save("deps.lock"); err != nil {
+			t.Fatal(err)
+		}
+		root, err := workspace.Find(".")
+		if err != nil {
+			t.Fatal(err)
+		}
+		o := &opts{offline: true, cacheDir: t.TempDir()}
+		st, err := o.store()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return root, o, st
+	}
+
+	// A managed JDK for the pin's major is installed, and the system
+	// java's major matches too: the managed JDK wins, with JAVA_HOME
+	// exported.
+	root, o, st := ws(t, fmt.Sprintf("%d", feat))
+	home := fakeJDK(t, o.cacheDir, fmt.Sprintf("%d.0.10+7", feat))
+	java, env, err := o.pickJava(context.Background(), st, root)
+	if err != nil {
+		t.Fatalf("pickJava = %v", err)
+	}
+	if want := filepath.Join(home, "jdk", "bin", "java"); java != want {
+		t.Errorf("java = %q, want %q", java, want)
+	}
+	if len(env) != 1 || env[0] != "JAVA_HOME="+filepath.Join(home, "jdk") {
+		t.Errorf("env = %v", env)
+	}
+
+	// No managed JDK installed, the system java's major matches: the system
+	// java is used as-is, offline.
+	root, o, st = ws(t, fmt.Sprintf("%d", feat))
+	java, env, err = o.pickJava(context.Background(), st, root)
+	if err != nil {
+		t.Fatalf("pickJava = %v (want the system java %s)", err, real)
+	}
+	if java != real {
+		t.Errorf("java = %q, want %q", java, real)
+	}
+	if len(env) != 0 {
+		t.Errorf("env = %v, want none (the system java needs no JAVA_HOME)", env)
+	}
+
+	// No matching JDK anywhere: the managed JDK is required, and offline
+	// that fails until it is installed.
+	root, o, st = ws(t, fmt.Sprintf("%d", feat+10))
+	if _, _, err := o.pickJava(context.Background(), st, root); err == nil || !strings.Contains(err.Error(), "not installed") {
+		t.Errorf("pickJava err = %v, want the offline managed-JDK failure", err)
 	}
 }
 

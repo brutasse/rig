@@ -14,7 +14,7 @@ import (
 
 func TestJavacOptsOf(t *testing.T) {
 	pin := func(requested string) *lockfile.JVM {
-		return &lockfile.JVM{Vendor: "temurin", Requested: requested, Version: requested}
+		return &lockfile.JVM{Vendor: "temurin", Requested: requested}
 	}
 	tests := []struct {
 		name string
@@ -26,8 +26,6 @@ func TestJavacOptsOf(t *testing.T) {
 		{"no pin, opts pass through", "", nil, []string{"-encoding", "UTF-8"}, []string{"-encoding", "UTF-8"}},
 		{"no pin, no opts", "", nil, nil, nil},
 		{"pin, no opts", "21.0.5", pin("17"), nil, []string{"--release", "17"}},
-		{"pin with full version request", "21.0.5", pin("17.0.13+9"), nil, []string{"--release", "17"}},
-		{"pin with legacy 1.x request", "21.0.5", pin("1.8"), nil, []string{"--release", "8"}},
 		{"pin, module opts kept after injection", "21.0.5", pin("11"), []string{"-Dfoo=bar", "-encoding", "UTF-8"}, []string{"--release", "11", "-Dfoo=bar", "-encoding", "UTF-8"}},
 		{"pin, user --release wins", "21.0.5", pin("11"), []string{"--release", "17"}, []string{"--release", "17"}},
 		{"pin, user --release= wins", "21.0.5", pin("11"), []string{"--release=17"}, []string{"--release=17"}},
@@ -49,7 +47,7 @@ func TestJavacOptsOf(t *testing.T) {
 
 func TestFloorOf(t *testing.T) {
 	pin := func(requested string) *lockfile.JVM {
-		return &lockfile.JVM{Vendor: "temurin", Requested: requested, Version: requested}
+		return &lockfile.JVM{Vendor: "temurin", Requested: requested}
 	}
 	tests := []struct {
 		name string
@@ -58,10 +56,7 @@ func TestFloorOf(t *testing.T) {
 	}{
 		{"no pin", nil, 0},
 		{"plain feature version", pin("21"), 21},
-		{"full version request", pin("17.0.13+9"), 17},
-		{"legacy 1.x request", pin("1.8"), 8},
-		{"legacy 1.x full version", pin("1.8.0_422"), 8},
-		{"unparseable request", pin("garbage"), 0},
+		{"floor major", pin("8"), 8},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

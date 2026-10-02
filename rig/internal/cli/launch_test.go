@@ -4,9 +4,12 @@ import (
 	"archive/zip"
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -16,9 +19,9 @@ import (
 )
 
 func TestLaunchFlagsOrder(t *testing.T) {
-	// No GC in :rig/launch-opts: all defaults first, module opts last (JVM
-	// last-wins).
-	flags := launchFlags([]string{"-Xmx2g"})
+	// No collector in :rig/launch-opts: all defaults first, module opts
+	// last (JVM last-wins).
+	flags := launchFlags([]string{"-Xmx2g"}, nil)
 	if len(flags) != len(launchDefaults)+1 {
 		t.Fatalf("len(flags) = %d, want %d", len(flags), len(launchDefaults)+1)
 	}
@@ -28,9 +31,9 @@ func TestLaunchFlagsOrder(t *testing.T) {
 	if last := flags[len(flags)-1]; last != "-Xmx2g" {
 		t.Errorf("last flag = %q, want the module :rig/launch-opts last (JVM last-wins)", last)
 	}
-	// A GC in :rig/launch-opts replaces the G1 default — the JVM refuses two
-	// collectors.
-	flags = launchFlags([]string{"-XX:+UseZGC"})
+	// A GC in :rig/launch-opts replaces the G1 default — the JVM refuses
+	// two collectors.
+	flags = launchFlags([]string{"-XX:+UseZGC"}, nil)
 	if len(flags) != len(launchDefaults) {
 		t.Fatalf("len(flags) = %d, want %d (G1 dropped, ZGC added)", len(flags), len(launchDefaults))
 	}
@@ -41,6 +44,51 @@ func TestLaunchFlagsOrder(t *testing.T) {
 	}
 	if last := flags[len(flags)-1]; last != "-XX:+UseZGC" {
 		t.Errorf("last flag = %q, want the module :rig/launch-opts last", last)
+	}
+	// RIG_LAUNCH_OPTS appends after :rig/launch-opts — the JVM applies
+	// repeated flags last-wins.
+	flags = launchFlags([]string{"-Xmx1g"}, []string{"-Xmx2g"})
+	if len(flags) != len(launchDefaults)+2 {
+		t.Fatalf("len(flags) = %d, want %d", len(flags), len(launchDefaults)+2)
+	}
+	if last := flags[len(flags)-1]; last != "-Xmx2g" {
+		t.Errorf("last flag = %q, want the RIG_LAUNCH_OPTS override last", last)
+	}
+	// A collector in the override replaces the G1 default.
+	flags = launchFlags(nil, []string{"-XX:+UseZGC"})
+	if len(flags) != len(launchDefaults) {
+		t.Fatalf("len(flags) = %d, want %d (G1 dropped, ZGC added)", len(flags), len(launchDefaults))
+	}
+	for _, f := range flags {
+		if f == "-XX:+UseG1GC" {
+			t.Error("G1 default must be dropped when RIG_LAUNCH_OPTS selects a collector")
+		}
+	}
+	// A collector in the override replaces a collector in
+	// :rig/launch-opts — the last selection wins, and a repeated selection
+	// is not passed twice.
+	flags = launchFlags([]string{"-XX:+UseZGC"}, []string{"-XX:+UseShenandoahGC"})
+	gc := 0
+	for _, f := range flags {
+		if gcFlagRe.MatchString(f) {
+			gc++
+			if f != "-XX:+UseShenandoahGC" {
+				t.Errorf("flag set still has %q, want only the last collector selection", f)
+			}
+		}
+	}
+	if gc != 1 {
+		t.Errorf("collector flags = %d, want 1; flags: %v", gc, flags)
+	}
+	flags = launchFlags([]string{"-XX:+UseZGC"}, []string{"-XX:+UseZGC"})
+	gc = 0
+	for _, f := range flags {
+		if gcFlagRe.MatchString(f) {
+			gc++
+		}
+	}
+	if gc != 1 {
+		t.Errorf("collector flags = %d, want 1 (no duplicates); flags: %v", gc, flags)
 	}
 }
 
@@ -102,7 +150,7 @@ func TestLaunchPlanFallbackToLock(t *testing.T) {
 	mod.LaunchOpts = []string{"-Xmx1g"}
 	mod.Build = lockfile.Build{Jar: true, ClassDir: "target/classes", Uberjar: &lockfile.Uberjar{File: "target/x.jar", Main: "a.b"}}
 	lock.Modules["."] = mod
-	lock.JVM = &lockfile.JVM{Vendor: "temurin", Requested: "21", Version: "21.0.12.1+9"}
+	lock.JVM = &lockfile.JVM{Vendor: "temurin", Requested: "21"}
 
 	jar := filepath.Join(dir, "target", "x.jar")
 	writeZip(t, jar, map[string]string{"a.class": ""})
@@ -173,7 +221,7 @@ func TestHotLaunchUber(t *testing.T) {
 	}
 	// No jar argument: the lock's build output, main args after the first
 	// positional.
-	code, out := runCLI(t, "launch", "-p", "modules/app", "--cache-dir", cacheDir, "world")
+	code, out, _ := runCLISubprocess(t, "launch", "-p", "modules/app", "--cache-dir", cacheDir, "world")
 	if code != 0 {
 		t.Fatalf("launch exit = %d; out: %s", code, out)
 	}
@@ -192,7 +240,7 @@ func TestHotLaunchJVMOverride(t *testing.T) {
 	// print the effective flags: the override must win over rig's G1 default
 	// (the JVM refuses two collectors, so a clean start is itself proof)
 	// and the rest of the default set must still be applied.
-	code, out := runCLI(t, "launch", "-p", "modules/app", "--cache-dir", cacheDir)
+	code, out, _ := runCLISubprocess(t, "launch", "-p", "modules/app", "--cache-dir", cacheDir)
 	if code != 0 {
 		t.Fatalf("launch exit = %d; out: %s", code, out)
 	}
@@ -205,6 +253,82 @@ func TestHotLaunchJVMOverride(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("launch out missing %q:\n%s", want, out)
 		}
+	}
+}
+
+func TestHotLaunchEnvOverride(t *testing.T) {
+	hotSetup(t)
+	cacheDir := t.TempDir()
+	if code, out := runCLI(t, "build", "-p", "modules/app", "--cache-dir", cacheDir, "--uber"); code != 0 {
+		t.Fatalf("build exit = %d; out: %s", code, out)
+	}
+	// RIG_LAUNCH_OPTS appends per-deployment flags after the module's
+	// :rig/launch-opts: the fixture's ZGC selection must be replaced (the
+	// JVM refuses two collectors — a clean start is itself proof), the
+	// rest of rig's default set must still be applied, and the app must run.
+	t.Setenv("RIG_LAUNCH_OPTS", "-XX:+UseSerialGC")
+	code, out, _ := runCLISubprocess(t, "launch", "-p", "modules/app", "--cache-dir", cacheDir, "world")
+	if code != 0 {
+		t.Fatalf("launch exit = %d; out: %s", code, out)
+	}
+	if !strings.Contains(out, "hello world") {
+		t.Errorf("launch out = %q", out)
+	}
+	for _, want := range []string{
+		"-XX:+UseSerialGC",
+		"-XX:+AlwaysPreTouch",
+		"-XX:+ExitOnOutOfMemoryError",
+		"-XX:+HeapDumpOnOutOfMemoryError",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("launch out missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "-XX:+UseZGC") {
+		t.Errorf("launch out still has the launch-opts ZGC:\n%s", out)
+	}
+}
+
+func TestHotLaunchExecsJVM(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("process exec is unix-only")
+	}
+	hotSetup(t)
+	cacheDir := t.TempDir()
+	if code, out := runCLI(t, "build", "-p", "modules/app", "--cache-dir", cacheDir, "--uber"); code != 0 {
+		t.Fatalf("build exit = %d; out: %s", code, out)
+	}
+	// RIG_JAVA points at a wrapper that records its own PID before exec'ing
+	// the real java. With process exec the recorded PID is the rig launch
+	// process's own (exec keeps the PID); forking would give the wrapper a
+	// new one.
+	real, err := jvm.Find()
+	if err != nil {
+		t.Skipf("no java available: %v", err)
+	}
+	absReal, err := filepath.Abs(real)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pidFile := filepath.Join(t.TempDir(), "pid")
+	wrap := filepath.Join(t.TempDir(), "java")
+	script := "#!/bin/sh\n" +
+		fmt.Sprintf("echo \"$$\" > %q\n", pidFile) +
+		fmt.Sprintf("exec %q \"$@\"\n", absReal)
+	if err := os.WriteFile(wrap, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("RIG_JAVA", wrap)
+	code, out, pid := runCLISubprocess(t, "launch", "-p", "modules/app", "--cache-dir", cacheDir, "world")
+	if code != 0 {
+		t.Fatalf("launch exit = %d; out: %s", code, out)
+	}
+	b, err := os.ReadFile(pidFile)
+	if err != nil {
+		t.Fatalf("read the wrapper's recorded PID: %v", err)
+	}
+	if recorded := strings.TrimSpace(string(b)); recorded != strconv.Itoa(pid) {
+		t.Errorf("wrapper PID = %s, want the rig launch PID %d (the JVM must replace rig's process, not be forked)", recorded, pid)
 	}
 }
 
@@ -245,7 +369,7 @@ func TestHotLaunchJar(t *testing.T) {
 	if code, out := runCLI(t, "build", "-p", "modules/app", "--cache-dir", cacheDir); code != 0 {
 		t.Fatalf("build exit = %d; out: %s", code, out)
 	}
-	code, out := runCLI(t, "launch", "--cache-dir", cacheDir, "modules/app/target/app-0.1.0.jar", "hello")
+	code, out, _ := runCLISubprocess(t, "launch", "--cache-dir", cacheDir, "modules/app/target/app-0.1.0.jar", "hello")
 	if code != 0 {
 		t.Fatalf("launch exit = %d; out: %s", code, out)
 	}
@@ -268,7 +392,7 @@ func TestHotLaunchStandalone(t *testing.T) {
 	// descriptor, the java from the environment.
 	out := t.TempDir()
 	t.Chdir(out)
-	code, o := runCLI(t, "launch", "--cache-dir", cacheDir, uber, "there")
+	code, o, _ := runCLISubprocess(t, "launch", "--cache-dir", cacheDir, uber, "there")
 	if code != 0 {
 		t.Fatalf("launch exit = %d; out: %s", code, o)
 	}

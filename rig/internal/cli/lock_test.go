@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/brutasse/rig/internal/digest"
-	"github.com/brutasse/rig/internal/jdk"
 	"github.com/brutasse/rig/internal/jvm"
 	"github.com/brutasse/rig/internal/kernel"
 	"github.com/brutasse/rig/internal/lockfile"
@@ -173,9 +172,8 @@ func TestLockNamespacedMapDeps(t *testing.T) {
 	}
 }
 
-// TestLockRecordsJVM checks the full :rig/jvm flow end to end: the kernel
-// copies the pin into the lock and Go resolves the exact version through the
-// Adoptium API.
+// TestLockRecordsJVM checks the :rig/jvm flow end to end: the kernel copies
+// the major-version pin into the lock.
 func TestLockRecordsJVM(t *testing.T) {
 	jar := kernelJarPath(t)
 	if _, err := jvm.Find(); err != nil {
@@ -216,12 +214,9 @@ func TestLockRecordsJVM(t *testing.T) {
 	if doc.JVM.Vendor != "temurin" || doc.JVM.Requested != "21" {
 		t.Errorf("jvm = %+v", doc.JVM)
 	}
-	if doc.JVM.Version == "" || !jdk.Satisfies(doc.JVM.Requested, doc.JVM.Version) {
-		t.Errorf("jvm version = %q (should be resolved from the Adoptium API)", doc.JVM.Version)
-	}
 
-	// Re-locking keeps the exact pinned version (no re-resolution drift).
-	// RIG_JAVA sidesteps the managed-JDK ensure (no 200 MB download in tests).
+	// Re-locking keeps the pin.
+	// RIG_JAVA sidesteps the managed-JDK pick (no 200 MB download in tests).
 	if real, err := jvm.Find(); err == nil {
 		t.Setenv("RIG_JAVA", real)
 	}
@@ -233,13 +228,7 @@ func TestLockRecordsJVM(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if doc2.JVM == nil || doc2.JVM.Version != doc.JVM.Version {
-		t.Errorf("relock changed the pinned version: %q -> %q",
-			doc.JVM.Version, func() string {
-				if doc2.JVM == nil {
-					return "<nil>"
-				}
-				return doc2.JVM.Version
-			}())
+	if doc2.JVM == nil || doc2.JVM.Requested != "21" {
+		t.Errorf("relock jvm = %+v, want pin 21", doc2.JVM)
 	}
 }

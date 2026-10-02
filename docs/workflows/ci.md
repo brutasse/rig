@@ -105,18 +105,20 @@ run where they are pre-populated.
 
 ## Managed JVMs
 
-When the workspace pins a JVM (`:rig/jvm` in the root `deps.edn`), the lock
-records the exact JDK version and `rig` installs it into the state dir on
-first use. For CI that means:
+When the workspace pins a JVM (`:rig/jvm` in the root `deps.edn`), Rig
+uses the rig-managed JDK for the major in the state dir — a matching
+system JDK serves only when no managed JDK is installed. For CI that
+means:
 
-- Do not rely on the runner's system JDK: the pinned JDK is used
+- Do not rely on the runner's system JDK: the managed JDK is used
   automatically, downloading on the first run (~200 MB) and hitting the
   state dir afterwards. Cache `~/.local/share/rig` (it contains `jdks/`)
-  or pre-install with `rig jvm install <version>`.
+  or pre-install with `rig jvm install <major>`.
 - Hermetic `--offline` builds need the pinned JDK already installed in the
   state dir, or they fail with a hint.
-- Bumping the JDK is a lock change: run `rig jvm update` locally and commit
-  the updated `deps.lock` — the same review flow as a dependency bump.
+- Moving the pinned major to its newest release is a store-level change:
+  `rig jvm update` replaces the rig-managed JDK; `deps.lock` is not
+  written, so there is nothing to commit.
 
 ## Per-PR testing
 

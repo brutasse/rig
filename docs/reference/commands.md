@@ -15,7 +15,7 @@ documentation of record; this page is the map.
 | `check` | cold+hot | Lock-vs-manifest consistency + namespace load and AOT-compile per module. Never re-locks. |
 | `test [opt value…]` | hot | Run the modules' test exec-fns on locked classpaths. |
 | `run [args…]` | hot | Run the module's `:rig/main` on the (alias) classpath. |
-| `launch [jar] [args…]` | hot | Launch the built artifact with Rig's production JVM flags (G1 + AlwaysPreTouch, exit-on-OOM, loopback JMX on 10101), overridable via `:rig/launch-opts`. The jar's baked launch plan, or the lock, supplies the main. Never re-locks, never uses the network. |
+| `launch [jar] [args…]` | hot | Launch the built artifact with Rig's production JVM flags (G1 + AlwaysPreTouch, exit-on-OOM, loopback JMX on 10101), overridable via `:rig/launch-opts` and the `RIG_LAUNCH_OPTS` env var. Replaces its own process with the JVM (process exec) — the app is the container's PID 1. The jar's baked launch plan, or the lock, supplies the main. Never re-locks, never uses the network. |
 | `repl` | hot | `clojure.main` REPL on the (alias) classpath. |
 | `exec <cmd> [args…]` | hot | Run a command with the locked classpath as `CLASSPATH`. |
 | `build [--uber \| --native]` | cold | Jar / uberjar / native-image binary via the locked classpath. |
@@ -30,14 +30,14 @@ documentation of record; this page is the map.
 | `new <group/name>` | — | Scaffold a new project. |
 | `new-module <name>` | cold | Scaffold a module in the workspace, add it, re-lock. |
 | `migrate [--dry-run]` | cold | Convert a legacy (`:exoscale.*` / `:slipset.*`) workspace to `:rig/*` in place. |
-| `jvm install <version>` | — | Install a Temurin JDK into the Rig state dir. |
+| `jvm install <major>` | — | Install the newest Temurin JDK for a major version into the Rig state dir. |
 | `jvm list` | — | Installed JDKs + the system `java`. |
 | `jvm uninstall <version>` | — | Remove an installed JDK. |
-| `jvm update` | — | Bump the locked JVM to the newest release satisfying `:rig/jvm`. |
-| `graalvm install <version>` | — | Install a GraalVM community JDK into the Rig state dir. |
+| `jvm update` | — | Update the rig-managed JDK for the pinned major to the newest release. |
+| `graalvm install <major>` | — | Install the newest GraalVM community JDK for a major version into the Rig state dir. |
 | `graalvm list` | — | Installed GraalVMs. |
 | `graalvm uninstall <version>` | — | Remove an installed GraalVM. |
-| `graalvm update` | — | Bump the locked GraalVM to the newest build satisfying `:rig/jvm`. |
+| `graalvm update` | — | Update the rig-managed GraalVM for the pinned major to the newest build. |
 | `self-update [--check]` | — | Update the Rig binary from the GitHub releases. |
 | `auth get [gate\|url]` | — | Print the bearer token of an OIDC gate (env, cache, or negotiated). |
 | `version` | hot | Print the project version. |
@@ -258,7 +258,11 @@ rig launch [jar] [args…]
 ```
 
 Launch the built artifact with Rig's production JVM flags — the entrypoint
-for a deployed app. Flags, in order:
+for a deployed app. `rig launch` replaces its own process with the JVM
+(process exec): the app is the process itself — in a container, its PID 1
+— signals reach the JVM directly, and its exit code is the process's (on
+Windows, where there is no process exec, rig forks the JVM and waits).
+Flags, in order:
 
 1. **Rig's production defaults**: G1 garbage collection
    (`-XX:+UseG1GC`, with `-XX:+AlwaysPreTouch`), exit on out-of-memory
@@ -272,7 +276,10 @@ for a deployed app. Flags, in order:
    (last JVM flag wins). A garbage collector in `:rig/launch-opts` (e.g.
    `-XX:+UseZGC`) *replaces* the G1 default: the JVM refuses to start with
    two collectors selected, so Rig drops its own rather than pass both.
-3. `-jar <uberjar>`, or `-cp <locked classpath> <main>` for the plain jar.
+3. **`RIG_LAUNCH_OPTS` (env var)** — per-deployment JVM flags,
+   whitespace-separated, appended last; the same rules apply (last JVM
+   flag wins; a collector in it replaces any earlier selection).
+4. `-jar <uberjar>`, or `-cp <locked classpath> <main>` for the plain jar.
 
 The first positional is the jar, when it names an existing file; otherwise
 (in a workspace) all positionals go to the main and the jar is the target
@@ -283,12 +290,11 @@ The launch plan (main, `:rig/launch-opts`, build JVM) comes from
 jar — so `rig launch <jar>` works outside the workspace (a standalone
 container). Without the descriptor, the lock is the plan.
 
-`rig launch` never re-locks and never uses the network: the lock is inert
-data for it (a stale lock is ignored, `--frozen` is a no-op), JDKs are
-never auto-installed, and classpath artifacts must already be cached. The
+`rig launch` is offline by definition: it runs what is already built and
+cached. The lock is inert data for it (a stale lock is ignored,
+`--frozen` is a no-op), and classpath artifacts must already be cached. The
 launch JVM's major version must exactly match the build JVM's (a different
-major fails in both directions) — exit 2, as is a missing artifact. The
-child's exit code is Rig's.
+major fails in both directions) — exit 2, as is a missing artifact.
 
 ### `rig repl`
 
@@ -341,7 +347,7 @@ point is `:rig/main`) — always on the locked classpath. With the
 workspace's `:rig/jvm` pin, every jar the build produces is scanned
 against it as the bytecode floor: a class that would not load on the
 pinned JVM fails the build (see [JVMs](config.md#jvms-rigjvm)).
-`built <path>` on success. See [Native images](config.md#native-images-rig-build---native).
+`built <path>` on success. See [Native images](config.md#native-images-rig-build-native).
 
 ### `rig install`
 
@@ -402,22 +408,26 @@ release `SHA256SUMS`, atomic replace). `--check` reports only;
 
 ## JVM management
 
-`rig` manages local Temurin (Eclipse Adoptium) JDKs.
-The project's requirement lives in `:rig/jvm` (root `deps.edn`); the lock
-records the exact version; missing JDKs are installed on demand.
+`rig` manages local Temurin (Eclipse Adoptium) JDKs, one per major
+version. The project's requirement is `:rig/jvm` in the root `deps.edn` —
+a major (feature) version, e.g. `21`. The rig-managed JDK takes precedence
+over the system `java`; a system JDK whose feature version matches the pin
+serves only when no managed JDK is installed, and online `rig` installs
+the newest matching release on demand when neither is present.
 
 ### `rig jvm install`
 
 ```
-rig jvm install 21           # newest 21.x
-rig jvm install 21.0.10+7    # exact release
+rig jvm install 21        # newest 21.x
 ```
 
-Resolves the release through the Adoptium API, downloads the archive for
-the current platform, verifies its sha256 against the API's published
-checksum, and extracts it to the state dir
-(`~/.local/share/rig/jdks/temurin-<version>/`). A no-op when the version is
-already installed. `--offline` refuses (installing needs the network).
+`<major>` is a major (feature) version. Resolves the release through the
+Adoptium API, downloads the archive for the current platform, verifies its
+sha256 against the API's published checksum, and extracts it to the state
+dir (`~/.local/share/rig/jdks/temurin-<version>/`). One JDK per major
+version: when a JDK for the major is already installed, this exits without
+changing anything — use `rig jvm update` to move it to the newest release.
+`--offline` refuses (installing needs the network).
 
 ### `rig jvm list`
 
@@ -434,36 +444,41 @@ system:
 ### `rig jvm uninstall`
 
 ```
-rig jvm uninstall 21.0.12.1+1   # exact, or unique prefix (rig jvm uninstall 21.0.12)
+rig jvm uninstall 21              # the installed 21.x
+rig jvm uninstall 21.0.12.1+1     # exact, or unique prefix (rig jvm uninstall 21.0.12)
 ```
 
 ### `rig jvm update`
 
-Workspace command: bumps the exact `jvm.version` recorded in `deps.lock` to
-the newest release satisfying the manifest's `:rig/jvm` pin, and saves the
-lock. The manifest is untouched. Refused under `--frozen`.
+Workspace command (needs a `:rig/jvm` pin in the lock): updates the
+rig-managed JDK for the pinned major to the newest release for it,
+replacing the installed one — rig keeps one JDK per major version. When no
+JDK for the major is installed, the newest release is installed. The
+manifest and the lock are untouched. `--offline` refuses (updating needs
+the network).
 
 ## GraalVM management
 
-`rig` manages GraalVM community JDKs, for native-image builds
-(`rig build --native`). The project's requirement is derived from the
-`:rig/jvm` pin; the lock records the exact build; missing GraalVMs are
-installed explicitly — `rig build --native` never downloads, it fails
-with a hint until `rig graalvm install` has run.
+`rig` manages GraalVM community JDKs, one per major version, for
+native-image builds (`rig build --native`). The project's requirement is
+derived from the `:rig/jvm` pin; missing GraalVMs are installed
+explicitly — `rig build --native` never downloads, it fails with a hint
+until `rig graalvm install` has run.
 
 ### `rig graalvm install`
 
 ```
-rig graalvm install 21           # newest 21.x build
-rig graalvm install 21.0.2       # exact build
+rig graalvm install 21        # newest 21.x build
 ```
 
-Resolves the build through the `graalvm/graalvm-ce-builds` GitHub releases,
-downloads the archive for the current platform, verifies its sha256 against
-the release's `.sha256` sidecar, and extracts it to the state dir
-(`~/.local/share/rig/graal/graalvm-<version>/graal`). A no-op when the
-version is already installed. `--offline` refuses (installing needs the
-network).
+`<major>` is a major (feature) version. Resolves the build through the
+`graalvm/graalvm-ce-builds` GitHub releases, downloads the archive for the
+current platform, verifies its sha256 against the release's `.sha256`
+sidecar, and extracts it to the state dir
+(`~/.local/share/rig/graal/graalvm-<version>/graal`). One GraalVM per major
+version: when a GraalVM for the major is already installed, this exits
+without changing anything — use `rig graalvm update` to move it to the
+newest build. `--offline` refuses (installing needs the network).
 
 ### `rig graalvm list`
 
@@ -477,16 +492,18 @@ installed:
 ### `rig graalvm uninstall`
 
 ```
-rig graalvm uninstall 21.0.2     # exact, or unique prefix (rig graalvm uninstall 21.0)
+rig graalvm uninstall 21             # the installed 21.x
+rig graalvm uninstall 21.0.2         # exact, or unique prefix (rig graalvm uninstall 21.0)
 ```
 
 ### `rig graalvm update`
 
-Workspace command: bumps the exact `graalvm.version` recorded in `deps.lock`
-to the newest community build satisfying the manifest's `:rig/jvm` pin, and
-saves the lock. The manifest is untouched. Refused under `--frozen`, and
-with no `graalvm` block in the lock (the workspace needs a `:rig/jvm` pin
-and a `:rig/native?` module).
+Workspace command (needs a `graalvm` block in the lock — the workspace
+needs a `:rig/jvm` pin and a `:rig/native?` module): updates the
+rig-managed GraalVM for the pinned major to the newest community build for
+it, replacing the installed one — rig keeps one GraalVM per major version.
+When none is installed, the newest build is installed. The manifest and the
+lock are untouched. `--offline` refuses (updating needs the network).
 
 ## Global flags
 
@@ -522,5 +539,6 @@ rig --autocomplete | Invoke-Expression  # PowerShell
 | 5 | cooldown refused — retry with `--force` |
 
 Commands that launch a child process (`test`, `run`, `repl`, `exec`,
-`launch`, `lint`, `fmt`) propagate the child's exit code verbatim, above
-these.
+`lint`, `fmt`) propagate the child's exit code verbatim, above these
+(`launch` is the exception: it execs the JVM, so the JVM's exit code is
+the process's).

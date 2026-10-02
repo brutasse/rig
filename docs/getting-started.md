@@ -39,9 +39,11 @@ exists; the check is skipped under `--offline` and on local/dev builds.
 ## Prerequisites
 
 - **A JDK on `PATH` or in `JAVA_HOME`** — or let Rig install one: a
-  `:rig/jvm` pin (or `rig jvm install <version>`) fetches a hash-verified
-  Temurin into the Rig state dir. When no JVM is found at all, the error
-  tells you which version to install (the current LTS).
+  `:rig/jvm` pin fetches the newest hash-verified Temurin for the major
+  into the Rig state dir when no rig-managed JDK and no matching system
+  JDK are present (same for `rig jvm install <major>`). When no JVM is
+  found at all, the error tells you which version to install (the
+  current LTS).
 - **`clj-kondo` on `PATH`**, only for `rig lint`.
 - **`~/.m2/settings.xml`** with credentials for your private Maven
   repositories, if you use them (same file Maven and tools.deps use today).
@@ -63,8 +65,8 @@ next: cd demo && rig lock && rig test
 ```
 
 The root manifest pins the current LTS JVM (`:rig/jvm "25"` — omitted under
-`--offline`, or when the Adoptium lookup fails); `rig lock` installs it into
-the Rig state dir on first use, so the JDK prerequisite above is optional
+`--offline`, or when the Adoptium lookup fails); on first use Rig installs
+it into the Rig state dir, so the JDK prerequisite above is optional
 for new projects.
 
 The layout:

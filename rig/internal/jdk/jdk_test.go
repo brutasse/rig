@@ -16,13 +16,14 @@ import (
 )
 
 func TestValidRequested(t *testing.T) {
-	good := []string{"21", "17", "21.0", "21.0.10", "21.0.10+7", "21.0.12.1+1", "21.0.12.1"}
+	good := []string{"8", "11", "17", "21", "25"}
 	for _, s := range good {
 		if !ValidRequested(s) {
 			t.Errorf("ValidRequested(%q) = false, want true", s)
 		}
 	}
-	bad := []string{"", "v21", "21.0.10.1.2", "+7", "21.", "2a", "21.0.10+", "999", " 21"}
+	bad := []string{"", "v21", "1.8", "21.0", "21.0.10", "21.0.10+7", "21.0.12.1+1",
+		"21.0.12.1", "21.0.10.1.2", "+7", "21.", "2a", "21.0.10+", "999", " 21"}
 	for _, s := range bad {
 		if ValidRequested(s) {
 			t.Errorf("ValidRequested(%q) = true, want false", s)
@@ -286,14 +287,6 @@ func TestResolve(t *testing.T) {
 	if a.Version != "21.0.10+7" || a.SHA256 != sum || !strings.HasSuffix(a.URL, "/dl") {
 		t.Errorf("asset = %+v", a)
 	}
-	a, err = api.Resolve(context.Background(), "21.0.10")
-	if err != nil || a.Version != "21.0.10+7" {
-		t.Errorf("resolve 21.0.10 = %q, %v", a.Version, err)
-	}
-	a, err = api.Resolve(context.Background(), "21.0.10+7")
-	if err != nil || a.Version != "21.0.10+7" {
-		t.Errorf("resolve exact = %q, %v", a.Version, err)
-	}
 	if _, err = api.Resolve(context.Background(), "21.0.11+9"); err == nil {
 		t.Error("resolve of an unknown release should fail")
 	}
@@ -387,12 +380,8 @@ func TestInstallUnsafePath(t *testing.T) {
 
 func TestEnsureOffline(t *testing.T) {
 	st := NewStoreAt(t.TempDir())
-	_, err := Ensure(context.Background(), st, "21", "", true)
-	if err == nil || !strings.Contains(err.Error(), "offline") {
-		t.Errorf("err = %v", err)
-	}
-	_, err = Ensure(context.Background(), st, "21", "21.0.10+7", true)
-	if err == nil || !strings.Contains(err.Error(), "21.0.10+7") {
+	_, err := Ensure(context.Background(), st, "21", true)
+	if err == nil || !strings.Contains(err.Error(), "offline: temurin 21 not installed") {
 		t.Errorf("err = %v", err)
 	}
 }
@@ -401,7 +390,7 @@ func TestEnsureUsesInstalled(t *testing.T) {
 	root := t.TempDir()
 	st := NewStoreAt(root)
 	fakeInstall(t, root, "21.0.11+9")
-	inst, err := Ensure(context.Background(), st, "21", "", false)
+	inst, err := Ensure(context.Background(), st, "21", false)
 	if err != nil {
 		t.Fatal(err)
 	}

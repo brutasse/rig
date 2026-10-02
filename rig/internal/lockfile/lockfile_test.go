@@ -157,6 +157,12 @@ func TestValidateCorruption(t *testing.T) {
 			m.Aliases["test"] = a
 			d.Modules["modules/orchestrator"] = m
 		}},
+		{"jvm pin not a major version", func(d *Document) {
+			d.JVM = &JVM{Vendor: "temurin", Requested: "21.0.10"}
+		}},
+		{"graalvm pin not a major version", func(d *Document) {
+			d.GraalVM = &GraalVM{Vendor: "graalvm", Requested: "21.0.2"}
+		}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -174,12 +180,11 @@ func TestValidateCorruption(t *testing.T) {
 
 func TestJVMFloor(t *testing.T) {
 	for requested, wantErr := range map[string]bool{
-		"7":   true,
-		"8":   false,
-		"1.8": false,
-		"10":  false,
-		"11":  false,
-		"21":  false,
+		"7":  true,
+		"8":  false,
+		"10": false,
+		"11": false,
+		"21": false,
 	} {
 		t.Run(requested, func(t *testing.T) {
 			d, err := Load(fixturePath)

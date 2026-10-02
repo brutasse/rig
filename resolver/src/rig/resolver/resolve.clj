@@ -103,7 +103,7 @@
                 :let [cn (str c)
                       [g n] (str/split cn #"/" 2)]]
             [(str g "/" n "/" (:git/sha s))
-              {:url (:git/url s) :deps/root (get s :deps/root)}]))))
+             {:url (:git/url s) :deps/root (get s :deps/root)}]))))
 
 (defn- build-artifact-dirs
   "The module's artifact dirs: :rig/artifact-dirs when declared; else the
@@ -136,9 +136,9 @@
              :class-dir (str target "/classes")
              :jar true
              :uberjar (when (manifest/uberjar? data)
-                       {"file" (or (manifest/uberjar-file data) default)
-                        "main" (manifest/main-ns data)
-                        "opts" (or (manifest/uber-opts data) {})})}
+                        {"file" (or (manifest/uberjar-file data) default)
+                         "main" (manifest/main-ns data)
+                         "opts" (or (manifest/uber-opts data) {})})}
       (seq ns-compile) (assoc :ns-compile ns-compile)
       (seq (manifest/javac-opts data)) (assoc :javac-opts (manifest/javac-opts data))
       (manifest/timestamp-string data) (assoc :timestamp-string (manifest/timestamp-string data))
@@ -199,11 +199,11 @@
               (try (str (.relativize ws-path (.toPath (io/file abs))))
                    (catch IllegalArgumentException _ nil)))
         refs (concat (keep (fn [[_ spec]] (get spec :local/root))
-                          (get data :deps {}))
-                    (mapcat (fn [al]
-                              (keep (fn [[_ spec]] (get spec :local/root))
-                                    (get-in al [:extra-deps] {})))
-                            (vals (get data :aliases {}))))]
+                           (get data :deps {}))
+                     (mapcat (fn [al]
+                               (keep (fn [[_ spec]] (get spec :local/root))
+                                     (get-in al [:extra-deps] {})))
+                             (vals (get data :aliases {}))))]
     (for [r refs]
       (let [abs (some-> (io/file mdir r) (.getCanonicalPath) str)]
         [(rel abs) abs]))))
@@ -231,10 +231,10 @@
                                         (.exists (io/file abs "deps.edn")))]
                          [rel abs]))]
         (if (empty? news)
-            (recur dirs extra (pop pending))
-            (recur (into dirs news)
-                   (merge extra news)
-                   (vec (concat (pop pending) (keys news)))))))))
+          (recur dirs extra (pop pending))
+          (recur (into dirs news)
+                 (merge extra news)
+                 (vec (concat (pop pending) (keys news)))))))))
 
 (defn resolve-lock
   [request]
@@ -274,12 +274,12 @@
                                         (keys local-mods))]
                           [(get modules-abs m) (manifest/read-manifest (get modules-abs m))]))
         git-deps (apply merge (map (fn [man] (git-deps-of (or (:data man) {}))) (vals manifests)))
-         all-repos (let [extra (distinct (mapcat (fn [man]
-                                                   (for [[id sp] (get-in (or (:data man) {}) [:mvn/repos] {})]
-                                                     [id sp]))
-                                                 (vals manifests)))]
-                     (into (vec (versions/standard-repos-of (into #{} (map first extra))))
-                           (sort-by first extra)))
+        all-repos (let [extra (distinct (mapcat (fn [man]
+                                                  (for [[id sp] (get-in (or (:data man) {}) [:mvn/repos] {})]
+                                                    [id sp]))
+                                                (vals manifests)))]
+                    (into (vec (versions/standard-repos-of (into #{} (map first extra))))
+                          (sort-by first extra)))
         state (atom {:skipped [] :refused []})
         modules (into {}
                       (for [m (concat module-dirs (keys local-mods))]
@@ -296,53 +296,39 @@
                                                             now-ms)
                               _ (swap! state update :skipped into (:skipped sel))
                               _ (swap! state update :refused into (:refused sel))
-                               proj (let [base (or (when (:changed? sel)
+                              proj (let [base (or (when (:changed? sel)
                                                     (versions/apply-versions data (:selected sel) overrides))
                                                   data)]
-                                      (when (or (:changed? sel)
+                                     (when (or (:changed? sel)
                                                (seq (versions/proxy-map)))
-                                        (versions/with-proxy-repos base)))
+                                       (versions/with-proxy-repos base)))
                               base-basis (resolve-basis mdir [] proj)
                               base-mapped (plan/map-classpath (:classpath-roots base-basis) modules-abs m2 gl)
                               alias-maps (into {}
                                                (for [al (manifest/aliases-of data)]
                                                  [al (plan/map-classpath
-                                                     (:classpath-roots (resolve-basis mdir [al] proj))
-                                                     modules-abs m2 gl)]))]
-                            [m (module-plan ws mdir man base-mapped alias-maps m2 gl modules-abs)])))
-         artifacts (into []
-                         (pmap (fn [a]
-                                 (if (= "mvn" (:kind a))
-                                   (let [[id url] (versions/resolve-repo m2 all-repos a)]
-                                     (assoc a :repository id :url url))
-                                   a))
-                               (plan/merge-artifacts (mapcat :raw-artifacts (vals modules)) git-deps)))
+                                                      (:classpath-roots (resolve-basis mdir [al] proj))
+                                                      modules-abs m2 gl)]))]
+                          [m (module-plan ws mdir man base-mapped alias-maps m2 gl modules-abs)])))
+        artifacts (into []
+                        (pmap (fn [a]
+                                (if (= "mvn" (:kind a))
+                                  (let [[id url] (versions/resolve-repo m2 all-repos a)]
+                                    (assoc a :repository id :url url))
+                                  a))
+                              (plan/merge-artifacts (mapcat :raw-artifacts (vals modules)) git-deps)))
         lock-doc {"version" 2
                   "workspace" {"modules" module-dirs
                                "manifest_sha256" (some-> root-man :sha256)}
                   "cooldown" {"default" (or (get cooldown :default) "48h")
                               "repos" (or (get cooldown :repos) {})}
                   "jvm" (when-let [r (get root-data :rig/jvm)]
-                          (let [requested (str r)
-                                old (get lock :jvm)
-                                old-version (when (and (map? old)
-                                                       (= requested (get old :requested))
-                                                       (get old :version))
-                                              (get old :version))]
-                            {"vendor" "temurin"
-                             "requested" requested
-                             "version" old-version}))
+                          {"vendor" "temurin"
+                           "requested" (str r)})
                   "graalvm" (when (and (get root-data :rig/jvm)
                                        (some :native (map :build (vals modules))))
-                              (let [requested (str (get root-data :rig/jvm))
-                                    old (get lock :graalvm)
-                                    old-version (when (and (map? old)
-                                                           (= requested (get old :requested))
-                                                           (get old :version))
-                                                  (get old :version))]
-                                {"vendor" "graalvm"
-                                 "requested" requested
-                                 "version" old-version}))
+                              {"vendor" "graalvm"
+                               "requested" (str (get root-data :rig/jvm))})
                   "compile-jvm-opts" (when-let [o (get root-data :rig/compile-jvm-opts)]
                                        (vec o))
                   "artifacts" artifacts

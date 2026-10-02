@@ -142,7 +142,7 @@ func TestHotLaunchOptsSeparation(t *testing.T) {
 	if code, out := runCLI(t, "build", "-p", "modules/app", "--cache-dir", cacheDir, "--uber"); code != 0 {
 		t.Fatalf("build exit = %d; out: %s", code, out)
 	}
-	if code, out := runCLI(t, "launch", "-p", "modules/app", "--cache-dir", cacheDir); code != 0 {
+	if code, out, _ := runCLISubprocess(t, "launch", "-p", "modules/app", "--cache-dir", cacheDir); code != 0 {
 		t.Fatalf("launch exit = %d; out: %s", code, out)
 	}
 	if code, out := runCLI(t, "run", "-p", "modules/app", "--cache-dir", cacheDir); code != 0 {
