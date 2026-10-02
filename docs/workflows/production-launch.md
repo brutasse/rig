@@ -134,13 +134,23 @@ process — in a container, its PID 1:
 - on the terminal, Ctrl+C (`SIGINT`) reaches the JVM and runs its
   shutdown hooks.
 
-The container caveat: runtimes terminate with `SIGTERM`, and the JVM's
-default action for `SIGTERM` is to terminate — it does **not** run
-shutdown hooks on it (verified: a hook installed with
-`Runtime.addShutdownHook` does not fire). So an in-container stop is a
-hard kill of the JVM; size the termination grace period accordingly,
-rather than expecting hook-driven cleanup. (Windows has no process
-`exec`: rig forks the JVM and waits, propagating its exit code.)
+In a container, the stop path is hook-driven, not a hard kill. The
+JVM *does* run shutdown hooks on `SIGTERM`: HotSpot installs handlers
+for `SIGTERM` (and `SIGINT`, `SIGHUP`) and triggers the
+`Runtime.addShutdownHook` hooks when they arrive (verified on Temurin
+21). `docker stop` and k8s termination deliver `SIGTERM` to the JVM as
+PID 1, so the app's hooks run. The caveats:
+
+- the hooks must finish before the termination grace period expires,
+  or the runtime escalates to `SIGKILL`; `SIGKILL` — expired grace or
+  `docker kill` — kills the JVM with nothing running. Size k8s
+  `terminationGracePeriodSeconds` (or `docker stop -t`) to the app's
+  cleanup time.
+- `-Xrs`, if the app opts in via `RIG_LAUNCH_OPTS`, disables this
+  mechanism; a stop then becomes a hard kill.
+
+(Windows has no process `exec`: rig forks the JVM and waits,
+propagating its exit code.)
 
 ## Config & logging
 
