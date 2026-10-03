@@ -10,7 +10,6 @@
                        (into-array java.nio.file.attribute.FileAttribute []))))
     (.deleteOnExit)))
 
-<<<<<<< HEAD
 (deftest plan-skips-data-sources-and-reports-them
   "A .clj under :paths without a readable ns form is data (a config map
   file, a deps-new template), not a namespace: the plan leaves it out
@@ -34,7 +33,7 @@
     (io/make-parents (io/file src "a" "core.clj"))
     (spit (io/file src "a" "core.clj") "(ns a.core)\n")
     (is (empty? (:skipped (aot/plan [(.getPath src)] []))))))
-=======
+
 (defn- spit-clj
   [root rel text]
   (let [f (io/file root rel)]
@@ -53,4 +52,3 @@
     (let [plan (aot/plan [(.getPath src)] [])]
       (is (= ["a.util" "a.core"] (:compile plan)))
       (is (empty? (:preload plan))))))
->>>>>>> origin/main

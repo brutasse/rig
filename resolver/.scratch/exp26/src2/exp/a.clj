@@ -1,1 +1,0 @@
-(ns exp.a (:require [exp.b :as b] [clojure.tools.logging :as log]) (def x 1))
