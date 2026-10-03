@@ -53,18 +53,20 @@
   (= (path-stem root f)
      (-> (name ns) (str/replace "." "/") (str/replace "-" "_"))))
 
+(def ^:private unreadable (keyword "rig.resolver.aot" "unreadable"))
+
 (defn- read-decl
   "The (ns ...) declaration of f: nil when the file declares no
-  namespace, an exception naming f on a read failure. A file the
-  module cannot load is a plan failure, not something to skip — the
-  check must not turn green because a broken source was left out of
-  the plan."
+  namespace, `unreadable` when it does not even parse. A .clj under
+  :paths that is not a readable ns form is data by definition —
+  tools.deps puts config files on the classpath precisely as resources
+  (a bare migratus map, say) and deps-new templates carry {{vars}} no
+  reader gets past — the plan skips such files instead of dying on
+  them."
   [^java.io.File f]
   (try
     (file/read-file-ns-decl f parse/clj-read-opts)
-    (catch Exception e
-      (throw (ex-info (str "cannot read the ns declaration of " (.getPath f))
-                      {:file (.getPath f)} e)))))
+    (catch Exception _ unreadable)))
 
 (defn plan
   "The AOT plan for the sources under src-dirs, with the declared entry
@@ -78,21 +80,40 @@
                            (topo order — a require cycle in the module
                            is a plan error, as in tools.build), then
                            the entry points not found among the
-                           sources.}"
+                           sources.
+     :skipped [{:file p :reason r} ...]
+                           sources left out as data or because their
+                           namespaces do not resolve from their paths}"
   [src-dirs extra]
-  (let [decls (for [[root f] (ns-files src-dirs)]
-                (let [d (read-decl f)]
-                  (when-not d
-                    (throw (ex-info (str "no ns declaration in " (.getPath f))
-                                    {:file (.getPath f)})))
-                  [(parse/name-from-ns-decl d) (parse/deps-from-ns-decl d)
-                   [root f]]))
-        ;; Only loadable files name namespaces the module can compile: a
-        ;; nested .clj the classpath cannot resolve (exported hooks and
-        ;; templates under a resources root) would fail the compile with
-        ;; "Could not locate ... on classpath".
-        decls (filter (fn [[ns _ pf]] (loadable? pf ns)) decls)
-        ns->deps (into {} (for [[ns deps _] decls] [ns deps]))
+  (let [parsed (for [[root f] (ns-files src-dirs)]
+                 [[root f] (read-decl f)])
+        skipped (vec
+                 (mapcat (fn [[[root f] d]]
+                           (cond
+                             (nil? d)
+                             [{:file (.getPath f) :reason "no ns declaration"}]
+
+                             (= d unreadable)
+                             [{:file (.getPath f) :reason "unreadable ns declaration"}]
+
+                             (not (loadable? [root f]
+                                             (parse/name-from-ns-decl d)))
+                             [{:file (.getPath f)
+                               :reason "namespace does not match classpath path"}]
+
+                             :else []))
+                         parsed))
+        ;; A nested .clj whose namespace does not map to its classpath path
+        ;; (exported hooks and templates under a resources root) is data,
+        ;; not a compilable namespace.
+        decls (for [[[root f] d] parsed
+                    :when (and d
+                               (not= d unreadable)
+                               (loadable? [root f]
+                                          (parse/name-from-ns-decl d)))]
+                (let [ns (parse/name-from-ns-decl d)]
+                  [ns (parse/deps-from-ns-decl d)]))
+        ns->deps (into {} decls)
         project (set (keys ns->deps))
         preload (vec (map str
                           (sort
@@ -119,7 +140,7 @@
         compile (vec (map str
                           (distinct
                            (concat ordered stragglers (map symbol extra)))))]
-    {:preload preload :compile compile}))
+    {:preload preload :compile compile :skipped skipped}))
 
 (defn aot-plan
   "Kernel op: the AOT plan of the request's sources (:args :src-dirs,
