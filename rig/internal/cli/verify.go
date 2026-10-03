@@ -36,7 +36,7 @@ func newVerifyCmd(o *opts) *cobra.Command {
 				switch a.Kind {
 				case "mvn":
 					if a.URL != "" {
-						items = append(items, fetch.Item{URL: a.URL, Repo: a.Repository, Local: classpath.M2Path(m2, a), SHA: a.SHA256})
+						items = append(items, fetch.Item{URL: a.URL, Repo: a.Repository, Ext: a.Extension, Local: classpath.M2Path(m2, a), SHA: a.SHA256})
 					}
 				case "git":
 					gitCount++

@@ -822,3 +822,138 @@
         (rm! m2p)
         (rm! m2i)
         (rm! (str root))))))
+
+(defn- repo-pom-deps!
+  "repo-artifacts!, but the pom declares the given [group name version]
+  dependencies."
+  [root group name v deps]
+  (let [base (io/file root (str/replace group "." "/") name v)]
+    (.mkdirs base)
+    (let [pom (io/file base (str name "-" v ".pom"))
+          jar (io/file base (str name "-" v ".jar"))]
+      (spit pom (str "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+                     "<project xmlns=\"http://maven.apache.org/POM/4.0.0\">\n"
+                     "  <modelVersion>4.0.0</modelVersion>\n"
+                     "  <groupId>" group "</groupId>\n"
+                     "  <artifactId>" name "</artifactId>\n"
+                     "  <version>" v "</version>\n"
+                     "  <packaging>jar</packaging>\n"
+                     (when (seq deps)
+                       (str "  <dependencies>\n"
+                            (apply str (for [[dg dn dv] deps]
+                                         (str "    <dependency><groupId>" dg "</groupId>"
+                                              "<artifactId>" dn "</artifactId>"
+                                              "<version>" dv "</version></dependency>\n")))
+                            "  </dependencies>\n"))
+                     "</project>\n"))
+      (with-open [zos (java.util.zip.ZipOutputStream. (io/output-stream jar))]
+        (.putNextEntry zos (doto (java.util.zip.ZipEntry. "META-INF/MANIFEST.MF")
+                             (.setTime 0)))
+        (.write zos (.getBytes "Manifest-Version: 1.0\n" "UTF-8"))
+        (.closeEntry zos))
+      (spit (io/file base (str name "-" v ".pom.sha1")) (sha1-hex pom))
+      (spit (io/file base (str name "-" v ".jar.sha1")) (sha1-hex jar)))
+    nil))
+
+(defn- pool-lock
+  "A single-module workspace whose dep (served with a pom requiring
+  rig.ktest.pool/lib at v-new) is locked against a root :rig/deps pin of
+  lib at v-old, from a fake repo serving every version. declare-lib? adds
+  a direct declaration of lib at v-own. Returns the {:arts :v-new :v-old
+  :v-own :v-dep} map (arts is {name version} for the rig.ktest.pool group)."
+  [declare-lib?]
+  (let [ts (mod (System/currentTimeMillis) 10000000)
+        v-new (str "1.0." ts)
+        v-old (str "0.9." ts)
+        v-own (str "1.1." ts)
+        v-dep (str "1.0." ts)
+        root (doto (java.io.File. (str (System/getProperty "java.io.tmpdir") "/"
+                                       (str "rig-pool-repo-" (java.util.UUID/randomUUID))))
+               (.mkdirs) (.deleteOnExit))
+        [base _ srv] (start-serving (str root) nil)
+        _ (repo-pom-deps! (str root) "rig.ktest.pool" "dep" v-dep
+                          [["rig.ktest.pool" "lib" v-new]])
+        _ (repo-artifacts! (str root) "rig.ktest.pool" "lib" v-new)
+        _ (repo-artifacts! (str root) "rig.ktest.pool" "lib" v-old)
+        _ (repo-artifacts! (str root) "rig.ktest.pool" "lib" v-own)
+        m2-lib (m2-dir-of "rig.ktest.pool" "lib")
+        m2-dep (m2-dir-of "rig.ktest.pool" "dep")
+        declared (str (when declare-lib?
+                        (str "rig.ktest.pool/lib {:mvn/version \"" v-own "\"}\n"
+                             "  "))
+                      "rig.ktest.pool/dep {:mvn/version \"" v-dep "\"}")
+        ws (temp-ws (str "{:rig/lib x/y\n"
+                         " :deps {" declared "}\n"
+                         " :rig/deps {rig.ktest.pool/lib {:mvn/version \"" v-old "\"}}\n"
+                         " :mvn/repos {\"central\" {:url \"" base "\"}}}\n"))]
+    (rm! m2-lib)
+    (rm! m2-dep)
+    (try
+      (let [lock (-> (resolve/resolve-lock {:workspace ws}) (get "lock"))]
+        {:arts (into {} (for [a (get lock "artifacts")
+                              :when (= "rig.ktest.pool" (:group a))]
+                          [(:name a) (:version a)]))
+         :v-new v-new :v-old v-old :v-own v-own :v-dep v-dep})
+      (finally
+        (.stop srv 0)
+        (rm! m2-lib)
+        (rm! m2-dep)
+        (rm! (str root))))))
+
+(deftest pool-pin-force-pins-an-undeclared-transitive
+  "A shared pool pin applies workspace-wide, transitive consumers included —
+  lein :managed-dependencies did exactly that. The module never declares
+  lib (its dep pulls it), and without a lock-side override nothing reaches
+  into the transitive graph to force the pool's version."
+  (let [{:keys [arts v-old v-dep]} (pool-lock false)]
+    (is (= v-dep (get arts "dep")))
+    (is (= v-old (get arts "lib"))
+        (str "the pool pin must beat the transitive version: " (pr-str arts)))))
+
+(deftest pool-pin-leaves-declared-coordinates-alone
+  "The module's own declarations stay its business: the pool does not
+  reach a coordinate the module declares — tools.deps' declared-over-
+  transitive resolves the declaration instead."
+  (let [{:keys [arts v-own]} (pool-lock true)]
+    (is (= v-own (get arts "lib"))
+        (str "the declared version must stand over the pool pin: " (pr-str arts)))))
+
+(deftest local-sibling-module-wins-over-its-published-version
+  "A workspace module enters a basis twice under the same lib: as the
+  :local/root sibling the module declares, and as the published
+  :mvn/version a transitive POM still references. tools.deps cannot order
+  the cross-type pair on its own, and rig's comparator must rank the
+  local module above the published coordinate (lein monorepo semantics)
+  instead of failing the resolution."
+  (let [ts (mod (System/currentTimeMillis) 10000000)
+        v-dep (str "1.0." ts)
+        v-lib (str "0.5." ts)
+        root (doto (java.io.File. (str (System/getProperty "java.io.tmpdir") "/rig-sib-repo-"
+                                       (java.util.UUID/randomUUID)))
+               (.mkdirs) (.deleteOnExit))
+        [base _ srv] (start-serving (str root) nil)
+        _ (repo-pom-deps! (str root) "rig.ktest.sib" "dep" v-dep
+                          [["rig.ktest.sib" "lib" v-lib]])
+        m2-dep (m2-dir-of "rig.ktest.sib" "dep")
+        ws (temp-ws (str "{:rig/lib x/root\n :rig/modules [\"app\" \"lib\"]\n"
+                         " :deps {rig.ktest.sib/app {:local/root \"app\"}\n"
+                         "         rig.ktest.sib/dep {:mvn/version \"" v-dep "\"}}\n"
+                         " :mvn/repos {\"central\" {:url \"" base "\"}}}\n"))
+        _ (do (.mkdirs (io/file ws "app"))
+              (spit (io/file ws "app" "deps.edn")
+                    (str "{:rig/lib rig.ktest.sib/app\n"
+                         " :deps {rig.ktest.sib/lib {:local/root \"../lib\"}}}\n")))
+        _ (do (.mkdirs (io/file ws "lib"))
+              (spit (io/file ws "lib" "deps.edn") "{:rig/lib rig.ktest.sib/lib}\n"))]
+    (rm! m2-dep)
+    (try
+      (let [lock (-> (resolve/resolve-lock {:workspace ws}) (get "lock"))
+            mvn-lib (some #(when (= "lib" (:name %)) %) (get lock "artifacts"))]
+        (is (nil? mvn-lib) "the published coordinate never enters the lock")
+        (is (some #(and (map? %) (contains? % "local"))
+                  (get-in lock ["modules" "." :classpath]))
+            "the classpath carries the local module in its place"))
+      (finally
+        (.stop srv 0)
+        (rm! m2-dep)
+        (rm! (str root))))))

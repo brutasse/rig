@@ -731,6 +731,21 @@
       (is (= {:mvn/version "4.5.6"} (get-in d [:deps 'foo/bar])))
       (is (= {:mvn/version "1.0"} (get-in d [:deps 'a/b]))))))
 
+(deftest lein-managed-pool-force-pins-a-declared-version
+  "lein's :managed-dependencies force-pin even a dep that declares its own
+  version — the managed version is the one the repo runs, so migrate
+  materializes it (with a warning): keeping the declared one would leave
+  the module's pin and the workspace requirement permanently apart."
+  (let [ws (temp-ws {"project.clj"
+                     "(defproject foo/bar \"1.0.0\"
+ :managed-dependencies [[\"a/b\" \"1.0.0\"]]
+ :dependencies [[a/b \"0.9.0\"]])\n"})
+        r (run ws)]
+    (is (empty? (problems r)))
+    (is (some #(re-find #"managed version wins" %) (warnings r)))
+    (is (= {:mvn/version "1.0.0"}
+           (get-in (file-edn ws "deps.edn") [:deps 'a/b])))))
+
 (deftest lein-versionless-dep-keeps-its-own-exclusions
   (let [ws (temp-ws {"project.clj"
                      "(defproject foo/bar \"1.0.0\"
@@ -750,6 +765,26 @@
     (is (empty? (problems r)))
     (is (= {:mvn/version "1.0.0" :exclusions '[x/y]}
            (get-in (file-edn ws "deps.edn") [:deps 'a/b])))))
+
+(deftest lein-bare-exclusion-symbols-get-qualified
+  "lein's bare exclusion X means X/X; tools.deps matches exclusions by
+  qualified lib, so copying the bare symbol verbatim made every such
+  exclusion a silent no-op: lock prints 'change foo => foo/foo' per
+  entry and excludes nothing."
+  (let [ws (temp-ws {"project.clj"
+                     "(defproject foo/bar \"1.0.0\"
+ :managed-dependencies [[\"a/b\" \"1.0.0\" :exclusions [manifold]]]
+ :dependencies [[a/b]
+                [c/d \"2.0\" :exclusions [exemplar io.netty/netty]]])\n"})
+        r (run ws)]
+    (is (empty? (problems r)))
+    (let [d (file-edn ws "deps.edn")]
+      (is (= {:mvn/version "1.0.0" :exclusions '[manifold/manifold]}
+             (get-in d [:deps 'a/b]))
+          "pool entry exclusion qualified")
+      (is (= {:mvn/version "2.0" :exclusions '[exemplar/exemplar io.netty/netty]}
+             (get-in d [:deps 'c/d]))
+          "declared exclusions qualified, already-qualified kept"))))
 
 (deftest lein-versionless-dep-without-pool-entry-is-a-problem
   (let [ws (temp-ws {"project.clj"

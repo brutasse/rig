@@ -177,7 +177,7 @@ func TestVerifyOK(t *testing.T) {
 	if !strings.Contains(out, "verified 1 artifacts") {
 		t.Errorf("out = %q", out)
 	}
-	cached := filepath.Join(cacheDir, "artifacts", shaOf(body))
+	cached := filepath.Join(cacheDir, "artifacts", shaOf(body)+".jar")
 	if _, err := os.Stat(cached); err != nil {
 		t.Errorf("artifact not cached: %v", err)
 	}
@@ -265,7 +265,7 @@ func TestLockFromResponse(t *testing.T) {
 	if lock.LockedAt.IsZero() {
 		t.Error("locked_at not set")
 	}
-	if _, err := store.Get(shaOf(body)); err != nil {
+	if _, err := store.Get(shaOf(body), "jar"); err != nil {
 		t.Errorf("artifact not cached: %v", err)
 	}
 }
@@ -309,7 +309,7 @@ func TestLockFromResponseUsesM2(t *testing.T) {
 	if n != 0 {
 		t.Errorf("requests = %d, want 0 (m2 hit must not touch the network)", n)
 	}
-	if _, err := store.Get(shaOf(body)); err != nil {
+	if _, err := store.Get(shaOf(body), "jar"); err != nil {
 		t.Errorf("artifact not cached: %v", err)
 	}
 }

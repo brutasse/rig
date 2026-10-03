@@ -66,6 +66,16 @@
           (pop-thread-bindings))))
     (f)))
 
+(defn aot-args
+  "Split the aot-mode argv into [preloads compiles]: the namespaces before
+  the first \"--\" preload, the ones after it compile. split-with returns
+  [taken dropped], so both halves come out of the same destructuring —
+  taking the tail with & would nest `dropped` in one element and leave the
+  compile list permanently nil."
+  [args]
+  (let [[preloads dropped] (split-with (complement #{"--"}) args)]
+    [preloads (next dropped)]))
+
 (defn- dispatch
   [mode rest]
   (case mode
@@ -132,8 +142,7 @@
 
     "aot"
     (let [[class-dir & args] rest
-          [preloads & rest2] (split-with (complement #{"--"}) args)
-          compiles (next rest2)
+          [preloads compiles] (aot-args args)
           fail (fn [op ns-str]
                  (try (op ns-str) nil
                       (catch Exception e
@@ -148,7 +157,7 @@
                      (or preload-fail
                          (some (fn [ns-str]
                                  (fail #(when-not (find-ns (symbol %))
-                                          (compile %))
+                                          (compile (symbol %)))
                                        ns-str))
                                compiles))))]
       (flush)
