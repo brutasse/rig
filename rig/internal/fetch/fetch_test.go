@@ -214,7 +214,7 @@ func TestGetNewComputesAndCaches(t *testing.T) {
 	if filepath.Base(p) != sha {
 		t.Errorf("cached path = %s", p)
 	}
-	if err := store.Verify(sha); err != nil {
+	if err := store.Verify(sha, ""); err != nil {
 		t.Errorf("cached artifact failed to verify: %v", err)
 	}
 }
@@ -342,7 +342,7 @@ func TestVerifyAllStopsOnCorruption(t *testing.T) {
 	if _, _, err := c.Get(context.Background(), store, it); err != nil {
 		t.Fatal(err)
 	}
-	p, _ := store.Get(sha)
+	p, _ := store.Get(sha, "")
 	if err := os.WriteFile(p, []byte("tampered"), 0o644); err != nil {
 		t.Fatal(err)
 	}
