@@ -75,6 +75,28 @@ func TestCheckDrift(t *testing.T) {
 	}
 }
 
+func TestCheckPoolUnpinnedWarns(t *testing.T) {
+	hotSetup(t)
+	cleanFixture(t)
+	// A shared pool entry nothing resolves — no module declares it and none
+	// pulls it transitively: no lock run can ever produce a pin for it, so
+	// demanding one was a permanent red. It is a warning naming the entry.
+	mutateFile(t, "deps.edn", func(s string) string {
+		return strings.Replace(s, `["modules/app"]}`,
+			`["modules/app"] :rig/deps {orphan/orphan {:mvn/version "9.9.9"}}}`, 1)
+	})
+	code, out := runCLI(t, "check", "--cache-dir", t.TempDir())
+	if code != 0 {
+		t.Fatalf("check exit = %d, want 0; out: %s", code, out)
+	}
+	if !strings.Contains(out, "pool-unpinned") {
+		t.Errorf("check out missing pool-unpinned warning: %q", out)
+	}
+	if !strings.Contains(out, "orphan/orphan") {
+		t.Errorf("check out must name the unconsumed coord: %q", out)
+	}
+}
+
 func TestCheckNoLock(t *testing.T) {
 	hotSetup(t)
 	if err := os.Remove("deps.lock"); err != nil {

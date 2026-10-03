@@ -28,10 +28,16 @@
 (defn- gitlibs-dir [] (str (io/file (home-dir) ".gitlibs" "libs")))
 
 (defn resolve-basis
-  [dir aliases project-config]
+  "The module's basis. project-config is the manifest map (or nil to read
+  the deps.edn file). override-deps are basis ARGS (:args, i.e. the
+  argmap), not deps.edn keys: tools.deps reads the resolve-time overrides
+  only from the argmap, and they force a lib's version wherever it sits
+  in the graph without adding it as a root."
+  [dir aliases project-config override-deps]
   (td/create-basis {:dir (io/file dir)
                     :project (or project-config "deps.edn")
-                    :aliases aliases}))
+                    :aliases aliases
+                    :args (when (seq override-deps) {:override-deps override-deps})}))
 
 (defn- repos-of
   "The module's repos: the standard repos (any redeclared id replaced by the
@@ -52,6 +58,34 @@
           {:default (or (some-> d str) "48h")
            :repos (or r {})}))
       {:default "48h"}))
+
+(defn- qualify-sym
+  [c]
+  (if (namespace c) c (symbol (name c) (name c))))
+
+(defn pool-overrides
+  "The root manifest's :rig/deps versions as basis :override-deps for one
+  module. A shared pool force-pins its version workspace-wide — lein
+  :managed-dependencies (what migrate materializes into :rig/deps)
+  applies to transitive consumers, not just declaring ones — and a pool
+  entry no module declares can only force-pin from the outside: the
+  module's own declared coordinates are left out, they stay the
+  module's business — declarations in its aliases (where a dev tool's
+  version lives) count as declared too. Entries that carry no
+  mvn/version (a module pinned by :local/root) are not force-pinning
+  anything: skipped."
+  [root-data data]
+  (let [declared (into #{} (map qualify-sym)
+                       (concat (keys (get data :deps {}))
+                               (mapcat (fn [al]
+                                         (concat (keys (:deps al {}))
+                                                 (keys (:extra-deps al {}))))
+                                       (vals (get data :aliases {})))))]
+    (into {}
+          (for [[c s] (get root-data :rig/deps {})
+                :let [v (if (map? s) (get s :mvn/version) (when (string? s) s))]
+                :when (and (string? v) (not (contains? declared (qualify-sym c))))]
+            [(qualify-sym c) {:mvn/version v}]))))
 
 (defn all-repos
   "Standard repos + every :mvn/repos entry of the workspace's manifests. An id
@@ -295,12 +329,13 @@
                                      (when (or (:changed? sel)
                                                (seq (versions/proxy-map)))
                                        (versions/with-proxy-repos base)))
-                              base-basis (resolve-basis mdir [] proj)
+                              pool-ov (pool-overrides root-data data)
+                              base-basis (resolve-basis mdir [] proj pool-ov)
                               base-mapped (plan/map-classpath (:classpath-roots base-basis) modules-abs m2 gl)
                               alias-maps (into {}
                                                (for [al (manifest/aliases-of data)]
                                                  [al (plan/map-classpath
-                                                      (:classpath-roots (resolve-basis mdir [al] proj))
+                                                      (:classpath-roots (resolve-basis mdir [al] proj pool-ov))
                                                       modules-abs m2 gl)]))]
                           [m {:plan (module-plan ws mdir man base-mapped alias-maps m2 gl modules-abs)
                               :skipped (:skipped sel)
