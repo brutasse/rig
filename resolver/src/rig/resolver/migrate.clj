@@ -440,9 +440,16 @@
 (def lein-dep-options #{:exclusions :local/root :git/url :git/sha})
 
 (defn- sym-exclusions
-  "Maven exclusion coords as symbols (rig's shape)."
+  "Maven exclusion coords as symbols (rig's shape), qualifying bare
+  symbols as lein expands dep coords: bare X is X/X. tools.deps matches
+  exclusions by qualified lib, so an unqualified entry is a silent
+  no-op (plus a DEPRECATED warning at lock time) — lein repos carry
+  them."
   [xs]
-  (vec (map (fn [x] (if (symbol? x) x (symbol x))) xs)))
+  (vec (map (fn [x]
+              (let [s (if (symbol? x) x (symbol x))]
+                (if (namespace s) s (symbol (name s) (name s)))))
+            xs)))
 
 (defn- unquote-var
   "The lein-replace var of a `~var` slot (the reader produces
@@ -646,8 +653,22 @@
                        (merge acc {:deps (assoc deps dep-sym {:local/root (get siblings dep-sym)})
                              :warnings (concat warnings warns)})
                        (string? ver)
-                       (merge acc {:deps (assoc deps dep-sym (mat ver excl))
-                             :warnings (concat warnings warns)})
+                       ;; The pool wins over a declared version: lein's
+                       ;; :managed-dependencies force-pin applies to the
+                       ;; declaring entries too, and the managed version
+                       ;; is the one the repo actually ran. Only a pool
+                       ;; version statically resolvable to a literal
+                       ;; overrides; otherwise the declared stands.
+                       (let [entry (get pool dep-sym)
+                             mv (when entry (get entry :version))
+                             pexcl (when entry (get entry :exclusions))
+                             pv (if (symbol? mv) (get vvars mv) mv)]
+                         (if (and (string? pv) (not= pv ver))
+                           (merge acc {:deps (assoc deps dep-sym (mat pv (or excl pexcl)))
+                                 :warnings (concat warnings warns
+                                        [(str "dep " coord " declares \"" ver "\"; :managed-dependencies pins \"" pv "\" — the managed version wins (lein force-pins it)")])})
+                           (merge acc {:deps (assoc deps dep-sym (mat ver excl))
+                                 :warnings (concat warnings warns)})))
                        (= ver :version)
                        (if (some? vversion)
                          (merge acc {:deps (assoc deps dep-sym (mat vversion excl))

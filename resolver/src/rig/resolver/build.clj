@@ -217,24 +217,32 @@
               {:stale stale})))))
 
 (defn- script-text
-  "The two-phase compile script: the preloads run under the AOT bindings,
-  so a dependency that requires the module's code AOTs it on load (parity
-  with tools.build's require side effects), then each module namespace
-  compiles — skipped when a preload already loaded it, so its top level
-  never runs twice."
-  [class-dir plan]
+  "The two-phase compile script: the preloads run under AOT bindings whose
+   *compile-path* is a scratch dir — classes emitted by loading a
+   dependency are the dependency's own bytecode, already on the classpath
+   in its jar, and emitting them where the jar step packages would make
+   library jars ship other projects' classes. Each module namespace then
+   compiles into the class-dir staging dir — skipped when a preload
+   already loaded it, so its top level never runs twice. A module's
+   compile loads nothing the preloads did not already load, so only
+   pathological dynamic requires can emit to the staging dir."
+  [class-dir scratch-dir plan]
   (str
    "(with-bindings\n"
    " {#'clojure.core/*compile-files* true\n"
-   "  #'clojure.core/*compile-path* " (pr-str class-dir) "}\n"
+   "  #'clojure.core/*compile-path* " (pr-str scratch-dir) "}\n"
    (when (seq (:preload plan))
      (str " (require "
           (str/join " " (map (fn [ns] (str "'" ns)) (:preload plan)))
           ")\n"))
+   ")\n"
+   "(with-bindings\n"
+   " {#'clojure.core/*compile-files* true\n"
+   "  #'clojure.core/*compile-path* " (pr-str class-dir) "}\n"
    (str/join "\n" (map (fn [ns]
-                         (str " (when-not (find-ns '" ns ")\n"
-                              "   (compile '" ns "))"))
-                       (:compile plan)))
+                          (str " (when-not (find-ns '" ns ")\n"
+                               "   (compile '" ns "))"))
+                        (:compile plan)))
    "\n (System/exit 0)\n)"))
 
 (defn- java-exe
@@ -267,9 +275,10 @@
       (let [working (.toFile (Files/createTempDirectory "rig-aot-"
                                                         (into-array FileAttribute [])))
             wdir (file/ensure-dir (io/file working "classes"))
+            pdir (file/ensure-dir (io/file working "preload-classes"))
             script (io/file working "compile.clj")
             _ (io/make-parents class-dir)
-            _ (spit script (script-text (.getPath wdir) plan))
+            _ (spit script (script-text (.getPath wdir) (.getPath pdir) plan))
             args (process/java-command {:java-cmd (java-exe)
                                         :cp [(.getPath wdir) (str class-dir)]
                                         :java-opts compile-jvm-opts

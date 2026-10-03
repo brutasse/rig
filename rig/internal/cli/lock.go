@@ -147,7 +147,7 @@ func completeLock(ctx context.Context, client *fetch.Client, store *cache.Store,
 		a := &lock.Artifacts[i]
 		if a.Kind == "mvn" && a.URL != "" {
 			idx[a.URL] = i
-			items = append(items, fetch.Item{URL: a.URL, Repo: a.Repository, Local: classpath.M2Path(m2root, *a)})
+			items = append(items, fetch.Item{URL: a.URL, Repo: a.Repository, Ext: a.Extension, Local: classpath.M2Path(m2root, *a)})
 		}
 	}
 	shas, err := fetch.FetchNewAll(ctx, client, store, items, 2)

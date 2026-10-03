@@ -286,3 +286,38 @@
                             :modules {"." {:classpath []}
                                       "modules/a" {:classpath []}}}})
                    :problems)))))
+
+(deftest unconsumed-pool-requirement-is-a-warn-not-a-hang-up
+  "A :rig/deps entry no module resolves (nothing declares it, nothing pulls
+  it transitively) can never be pinned by any lock run — rig update included.
+  Demanding a pin was a permanent red; it is now a warning naming the entry."
+  (let [ws (temp-ws
+            "{:rig/modules [\"modules/a\"]\n :rig/deps {orphan/orphan {:mvn/version \"9.9.9\"}}}\n"
+            {"modules/a" "{:deps {org.clojure/test.check {:mvn/version \"1.1.0\"}}}\n"})
+        res (check/check {:workspace ws
+                          :lock (lock-with
+                                 [{:kind "mvn" :group "org.clojure" :name "test.check"
+                                   :version "1.1.0"}]
+                                 {"modules/a" {"org.clojure/test.check" "1.1.0"}})})]
+    (is (true? (get res :ok)) "an unconsumed shared requirement is not an error")
+    (is (some #(and (= "pool-unpinned" (:kind %))
+                    (= "warn" (:severity %))
+                    (= "orphan/orphan" (:coord %)))
+              (get res :problems)))))
+
+(deftest pool-requirement-vs-pin-mismatch-still-errors
+  "A pool entry IS resolved — at a different version than the pool names —
+  is a real divergence: stale-lock stays an error."
+  (let [ws (temp-ws
+            "{:rig/modules [\"modules/a\"]\n :rig/deps {org.clojure/test.check {:mvn/version \"1.2.0\"}}}\n"
+            {"modules/a" "{:deps {org.clojure/test.check {:mvn/version \"1.1.0\"}}}\n"})
+        res (check/check {:workspace ws
+                          :lock (lock-with
+                                 [{:kind "mvn" :group "org.clojure" :name "test.check"
+                                   :version "1.1.0"}]
+                                 {"modules/a" {"org.clojure/test.check" "1.1.0"}})})]
+    (is (false? (get res :ok)))
+    (is (some #(and (= "stale-lock" (:kind %))
+                    (= "error" (:severity %))
+                    (= "org.clojure/test.check" (:coord %)))
+              (get res :problems)))))

@@ -48,6 +48,16 @@
         (throw (ex-info (str "exec-fn not found: " exec-fn) {:exec-fn exec-fn})))
       (apply @f [opts]))))
 
+(defn aot-args
+  "Split the aot-mode argv into [preloads compiles]: the namespaces before
+  the first \"--\" preload, the ones after it compile. split-with returns
+  [taken dropped], so both halves come out of the same destructuring —
+  taking the tail with & would nest `dropped` in one element and leave the
+  compile list permanently nil."
+  [args]
+  (let [[preloads dropped] (split-with (complement #{"--"}) args)]
+    [preloads (next dropped)]))
+
 (defn -main [mode & rest]
   (case mode
     "test"
@@ -72,7 +82,7 @@
                            (catch Exception e
                              (println (str "rig: failed to load " ns-str ": "
                                            (failure-message e)))
-                              ns-str)))
+                             ns-str)))
                        rest)]
       (flush)
       (System/exit (if (nil? failed) 0 1)))
@@ -92,13 +102,13 @@
                                         ;; e.g. mydata_readers is unaffected.
                                         (not (#{"data_readers.clj" "data_readers.cljc"}
                                               (.getName f))))]
-                        (str/join "."
-                                 (map #(str/replace % #"\.cljc?$" "")
-                                      (str/split (str (.relativize (.toPath (io/file d))
-                                                    (.toPath f)))
-                                                #"[\\/]"))))
-                  distinct
-                  sort)
+                         (str/join "."
+                                   (map #(str/replace % #"\.cljc?$" "")
+                                        (str/split (str (.relativize (.toPath (io/file d))
+                                                                     (.toPath f)))
+                                                   #"[\\/]"))))
+                       distinct
+                       sort)
           failed (some (fn [ns-str]
                          (try
                            (require (symbol ns-str) :reload)
@@ -106,15 +116,14 @@
                            (catch Exception e
                              (println (str "rig: failed to load " ns-str ": "
                                            (failure-message e)))
-                              ns-str)))
+                             ns-str)))
                        ns-strs)]
       (flush)
       (System/exit (if (nil? failed) 0 1)))
 
     "aot"
     (let [[class-dir & args] rest
-          [preloads & rest2] (split-with (complement #{"--"}) args)
-          compiles (next rest2)
+          [preloads compiles] (aot-args args)
           fail (fn [op ns-str]
                  (try (op ns-str) nil
                       (catch Exception e
@@ -129,11 +138,11 @@
                      (or preload-fail
                          (some (fn [ns-str]
                                  (fail #(when-not (find-ns (symbol %))
-                                          (compile %))
+                                          (compile (symbol %)))
                                        ns-str))
                                compiles))))]
-       (flush)
-       (System/exit (if (nil? failed) 0 1)))
+      (flush)
+      (System/exit (if (nil? failed) 0 1)))
 
     (do
       (binding [*out* *err*]

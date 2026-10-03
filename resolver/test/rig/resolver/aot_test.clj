@@ -31,6 +31,19 @@
       (is (= ["a.util" "a.core"] (:compile plan)))
       (is (empty? (:preload plan))))))
 
+(deftest plan-tolerates-self-requirement
+  "A namespace :requiring itself is legal: the JVM load/compile ignores
+  the edge, and call sites may qualify through the self-alias.
+  The dependency graph must not turn it into 'Circular
+  dependency between X and X'."
+  (let [src (temp-dir)]
+    (spit-clj src "a/util.clj" "(ns a.util)\n")
+    (spit-clj src "a/core.clj"
+              "(ns a.core\n  (:require [a.core :as self] [a.util :as u]))\n(defn f [x] (self/f x))\n")
+    (let [plan (aot/plan [(.getPath src)] [])]
+      (is (= ["a.util" "a.core"] (:compile plan)))
+      (is (empty? (:preload plan))))))
+
 (deftest plan-accepts-the-munged-file-name
   "load resolves my-ns.foo to my_ns/foo.clj: the underscored file IS
   loadable and must stay in the plan; the dashed file of the same

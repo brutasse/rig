@@ -150,7 +150,11 @@
     (some (fn [base]
             (when-let [f (io/file base (or (get data :rig/version-template-file) "VERSION_TEMPLATE"))]
               (when (.exists f)
-                (str/replace (slurp f) "GENERATED_VERSION" (b/git-count-revs {:dir base})))))
+                ;; trim-newline: a template is a text file, so its trailing
+                ;; LF is an artifact of editing, not part of the version —
+                ;; left in, it lands in the version string and the artifact
+                ;; filename ("built target/app-1.0.1\n.jar").
+                (str/trim-newline (str/replace (slurp f) "GENERATED_VERSION" (b/git-count-revs {:dir base}))))))
           [dir wsroot])
     (= vfn :epoch)
     (str (.getEpochSecond (java.time.Instant/now)))

@@ -153,6 +153,35 @@
          (finally
            (delete-tree ws-dir)))))
 
+(deftest lib-jar-carries-no-dependency-classes
+  "Loading the plan's preloads under AOT bindings emits the dependency's
+  classes. They are the dependency's own bytecode (already in its jar)
+  and must not land in the module's class-dir: a library jar shipping
+  other projects' classes breaks publishing."
+  (let [ws-dir (temp-dir)
+        ws (str ws-dir)
+        src-root (io/file ws-dir "src")
+        src-file (io/file src-root "example" "core.clj")
+        dep-root (io/file ws-dir "dep-src")
+        dep-file (io/file dep-root "dep" "util.clj")]
+    (io/make-parents dep-file)
+    (spit dep-file "(ns dep.util)\n(defn twice [x] (* 2 x))\n")
+    (io/make-parents src-file)
+    (spit src-file
+          "(ns example.core\n  (:gen-class)\n  (:require [dep.util :as u]))\n(defn -main [& args]\n  (println (u/twice 21)))\n")
+    (try
+      (let [c (assoc (cfg ws src-root src-root false)
+                     :classpath (concat [{:id "paths:." :paths [(str src-root) (str dep-root)]}]
+                                        (cp-entries)))]
+        (build/build {:args {:builds {"." c}}})
+        (let [names (zip-names (str ws "/target/fixture.jar"))]
+          (is (contains? names "example/core.class"))
+          (let [dep-classes (vec (filter #(str/starts-with? % "dep/") names))]
+            (is (empty? (filter #(str/starts-with? % "dep/") names))
+                (str "jar carries dependency classes: " dep-classes)))))
+      (finally
+        (delete-tree ws-dir)))))
+
 (deftest built-jars-carry-no-module-sources
   "The jar and the uber carry the module's classes and resources but no
   .clj/.cljc of the module's own: a source next to its AOT __init.class
