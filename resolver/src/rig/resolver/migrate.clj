@@ -646,8 +646,22 @@
                        (merge acc {:deps (assoc deps dep-sym {:local/root (get siblings dep-sym)})
                              :warnings (concat warnings warns)})
                        (string? ver)
-                       (merge acc {:deps (assoc deps dep-sym (mat ver excl))
-                             :warnings (concat warnings warns)})
+                       ;; The pool wins over a declared version: lein's
+                       ;; :managed-dependencies force-pin applies to the
+                       ;; declaring entries too, and the managed version
+                       ;; is the one the repo actually ran. Only a pool
+                       ;; version statically resolvable to a literal
+                       ;; overrides; otherwise the declared stands.
+                       (let [entry (get pool dep-sym)
+                             mv (when entry (get entry :version))
+                             pexcl (when entry (get entry :exclusions))
+                             pv (if (symbol? mv) (get vvars mv) mv)]
+                         (if (and (string? pv) (not= pv ver))
+                           (merge acc {:deps (assoc deps dep-sym (mat pv (or excl pexcl)))
+                                 :warnings (concat warnings warns
+                                        [(str "dep " coord " declares \"" ver "\"; :managed-dependencies pins \"" pv "\" — the managed version wins (lein force-pins it)")])})
+                           (merge acc {:deps (assoc deps dep-sym (mat ver excl))
+                                 :warnings (concat warnings warns)})))
                        (= ver :version)
                        (if (some? vversion)
                          (merge acc {:deps (assoc deps dep-sym (mat vversion excl))
