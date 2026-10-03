@@ -12,18 +12,19 @@ A module with Java sources declares the directories:
 {:rig/java-src-dirs ["java"]}
 ```
 
-`rig build` then javacs them into the module's class dir **before**
-compiling its Clojure, so Clojure code that references the module's own
-Java classes compiles. The classes land in the jar, the uberjar and the
-native image like anything else compiled into the class dir. Options go in
-`:rig/javac-opts`; when the workspace pins `:rig/jvm`, Rig prepends
-`--release <n>` unless your opts already set the source level.
+`rig build` first compiles them with javac into the module's class dir,
+then compiles its Clojure. This way, Clojure code that references the
+module's own Java classes compiles. The classes land in the jar, the
+uberjar, and the native image, like anything else compiled into the class
+dir. Set options in `:rig/javac-opts`. When the workspace pins `:rig/jvm`,
+Rig prepends `--release <n>`. Rig skips this when your opts already set the
+source level.
 
 ## Local dependency modules
 
-The situation this exists for: module `b` depends on module `a` by
-`:local/root`, and `a`'s usable output is compiled Java (generated protobuf
-classes, JNI bindings, …). The consumer cannot compile until `a`'s classes
+This feature exists for this situation: module `b` depends on module `a` by
+`:local/root`, and only compiled Java classes make `a` usable (generated
+protobuf classes, JNI bindings, …). `b` cannot compile until `a`'s classes
 exist.
 
 Two declarations make it work, both in `a`:
@@ -36,29 +37,29 @@ Two declarations make it work, both in `a`:
 ```
 
 1. `:paths` must include the class dir. Rig flows a local dependency's
-   `:paths` into every dependent's classpath — that is how `b` sees
-   `a/target/classes`. Without this entry the consumer compiles against an
+   `:paths` into every dependent's classpath. That is how `b` sees
+   `a/target/classes`. Without this entry, the consumer compiles against an
    empty (or absent) directory.
 2. `:rig/java-src-dirs` points at `a`'s Java sources.
 
-With that, `rig build` / `test` / `run` of `b` (or of anything downstream
-of `a`) javacs `a` automatically — on `a`'s **locked** base classpath,
-into `a`'s class dir — before `b` compiles. The javac is the same one a
-full build of `a` runs, and it carries the same staleness tracking as
-everything else in Rig: a stamp under `a/target/` records the manifest
-hash, a content digest of the sources and a digest of the locked
-dependencies; any of them changing (or a dependency of `a` being
-re-prepped) re-runs the javac. `rig clean` removes the output and the
-stamp.
+With that, `rig build`, `rig test`, and `rig run` of `b` (or of anything
+downstream of `a`) compile `a` with javac automatically before `b`
+compiles. Rig runs javac on `a`'s **locked** base classpath, into `a`'s
+class dir. This javac is the same one a full build of `a` runs. It carries
+the same staleness tracking as everything else in Rig. A stamp under
+`a/target/` records the manifest hash, a content digest of the sources, and
+a digest of the locked dependencies. If any of these three changes, or if
+Rig re-preps a dependency of `a`, the javac runs again. `rig clean` removes
+the output and the stamp.
 
-No re-resolution happens: the classpath the javac uses is the locked one
-Rig already fetched and hashed. There is no in-JVM Maven step, so a
-dependency's repository credentials are never needed at prep time.
+Rig does not re-resolve: the classpath javac uses is the locked one Rig
+already fetched and hashed. There is no in-JVM Maven step, so the prep
+never needs a dependency's repository credentials.
 
 ## Migrating away from `:deps/prep-lib`
 
-The common historical shape for "compile the generated Java before anyone
-else builds" is a tools.deps prep library:
+Before, the common shape for "compile the generated Java before anyone else
+builds" was a tools.deps prep library:
 
 ```edn
 ;; before — a/proto/deps.edn
@@ -76,8 +77,8 @@ else builds" is a tools.deps prep library:
             :basis (b/create-basis {:project "deps.edn"})}))
 ```
 
-If the prep function is just "javac my own sources into my class dir",
-Rig already does that natively. The migration:
+If the prep function only compiles the module's own Java sources into its
+own class dir, Rig already does that natively. How to migrate:
 
 1. add `:rig/java-src-dirs` to the proto module (point it at the Java
    sources);
@@ -87,30 +88,29 @@ Rig already does that natively. The migration:
 4. `rig lock` again (the lock records `java-src-dirs` and drops the
    `:prep` alias).
 
-Consumers change nothing — they still depend on the proto module by
-`:local/root`, and Rig prepares it for them. The manifest is
-self-contained afterwards: no build file Rig never reads, no second
-classpath, no separate function whose calling convention you have to
-know.
+Consumers change nothing. They still depend on the proto module by
+`:local/root`, and Rig prepares it for them. Afterwards, the manifest is
+self-contained: no build file that Rig does not read, no second classpath,
+no separate function whose calling convention you have to know.
 
-A module that declares **both** `:rig/java-src-dirs` and a prep function
-gets the javac first and then its prep function: the function's classpath
+If a module declares **both** `:rig/java-src-dirs` and a prep function, Rig
+runs the javac first and then the prep function. The function's classpath
 leads with the freshly compiled classes. The javac does not clear the
-prep's `:ensure` output — a clean wipes only the build's own previous
+prep's `:ensure` output. A clean wipes only the build's own previous
 output. Each keeps its own staleness stamp.
 
 ## When to keep `:deps/prep-lib`
 
-Keep the prep library when the preparation is not plain javac: AOT
-compiling the module's own Clojure for its dependents, code generation
-that must run inside the module's own classpath, anything else custom.
+Keep the prep library when the preparation is not plain javac. Examples:
+AOT compiling the module's own Clojure for its dependents, code generation
+that must run inside the module's own classpath, and anything else custom.
 Rig runs the function on the locked `:prep` alias classpath, verifies the
 declared `:ensure` output, and tracks staleness exactly as for the native
-javac. The function is called with a single `nil` argument — the way
+javac. Rig calls the function with a single `nil` argument. That is the way
 tools.deps' `exec-prep!` invokes it when the alias declares no
-`:exec-args` — so declare it `[f]` or `[& _]`, not `[]`.
+`:exec-args`. So declare it `[f]` or `[& _]`, not `[]`.
 
-Building the prep module itself does not destroy the prep's output: the
-build's clean step wipes only the build's own previous output, so the
-declared `:ensure` content — including a class dir the prep owns —
-survives and lands in the jar.
+Building the prep module itself does not destroy the prep's output. The
+build's clean step wipes only the build's own previous output. The declared
+`:ensure` content — including a class dir the prep owns — survives and
+lands in the jar.

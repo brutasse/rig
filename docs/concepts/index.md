@@ -1,56 +1,60 @@
 # Concepts
 
-Two files describe a Rig project, and they have strictly separated jobs:
+Two files describe a Rig project. Each file has a different job:
 
 | File | Format | Who writes it | What it says |
 |---|---|---|---|
 | `deps.edn` | EDN (the standard tools.deps manifest) | You, by hand | what the project *requires* and how it is laid out |
 | `deps.lock` | JSON | Rig, only | what the project *builds against*: exact artifacts, hashes, classpaths |
 
-The manifest expresses requirements; the lock records the resolved outcome.
-A build never looks at both at once — the hot path reads only the lock.
+The manifest states the requirements. The lockfile records the resolved
+result. A build never uses both at once: the hot path reads only the
+lockfile.
 
 ## `deps.edn` keeps its job
 
-`deps.edn` is still a standard tools.deps file. `:paths`, `:deps`,
-`:aliases`, `:mvn/repos` behave exactly as with the Clojure CLI. Editors
-(CIDER, clojure-lsp), `clj -Sdeps`-style one-offs, and any other tooling
-keep working on every module without knowing Rig exists.
+The `deps.edn` file remains a standard tools.deps file. The `:paths`,
+`:deps`, `:aliases`, and `:mvn/repos` keys behave exactly as they do with
+the Clojure CLI. Editors (CIDER, clojure-lsp), one-off `clj -Sdeps`
+commands, and other tools keep working on every module. They do not need to
+know that Rig exists.
 
-What Rig adds is one namespace of keys, `:rig/*`, that carries project
-tooling configuration — the library coordinate, the main namespace, build
-and publish settings. See [the config reference](../reference/config.md)
-for the full table.
+Rig adds one namespace of keys: `:rig/*`. This namespace holds the tooling
+configuration of the project: the library coordinate, the main namespace,
+and the build and publish settings. See [the config
+reference](../reference/config.md) for the full table.
 
 ## `deps.lock` is the build plan
 
-`deps.lock` is the complete, hashed plan for every module: the deduplicated
-artifact list with a sha256 per artifact, each module's ordered classpath,
-its resolved aliases (including how to launch tests), and its
-build/publish/test parameters. It is JSON, it is written only by Rig, and
-**you commit it**.
+The `deps.lock` file is the complete, hashed plan for every module. It
+contains the deduplicated artifact list, with a sha256 hash per artifact.
+For each module, it contains the ordered classpath, the resolved aliases,
+and the build, publish, and test parameters. The resolved aliases include
+how to launch the tests. The file is JSON. Only Rig writes it, and **you
+commit it**.
 
 The consequences:
 
-- **No hidden re-resolution.** `rig test` does not ask Maven what
-  `RELEASE` means today; it runs the classpath the lock records.
-- **Reproducible builds.** Same source + same lock + same cache → same
-  bytes, on your laptop or in CI.
-- **Stale locks are loud, not silent.** Rig detects the moment a manifest
-  changes after the lock was written (by re-hashing the file bytes — no
-  EDN parsing) and either refreshes the lock in development or fails fast
-  under `--frozen`. See [the lockfile page](lockfile.md) for the full
-  mechanics.
+- **No hidden re-resolution.** `rig test` does not ask Maven what `RELEASE`
+  means today. It runs the classpath that the lockfile records.
+- **Reproducible builds.** The same source, the same lockfile, and the same
+  cache produce the same bytes, on your laptop or in CI.
+- **A stale lock does not pass silently.** Rig detects when you change a
+  manifest after Rig wrote the lock. Rig re-hashes the file bytes; it does
+  not parse the EDN. In development, Rig refreshes the lock. Under
+  `--frozen`, Rig fails immediately. See [the lockfile
+  page](lockfile.md) for the full mechanics.
 
 ## One obvious way to do things
 
-Every operation has exactly one command, and the command's behavior does
-not depend on which shell alias, Makefile target, or tool-invocation
-trick you reach for:
+Every operation has exactly one command. The behavior of the command does
+not depend on which shell alias, Makefile target, or other tool-invocation
+shortcut you use:
 
 - run tests → `rig test`
 - build the jar → `rig build`
 - change a dependency → `rig add` / `rig update` / `rig remove`
 - resolve → `rig lock`
 
-`rig <command> --help` is the documentation of record for that command.
+`rig <command> --help` gives the authoritative documentation for that
+command.

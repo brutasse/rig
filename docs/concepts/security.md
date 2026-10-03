@@ -1,41 +1,43 @@
 # Security model
 
-Rig's supply-chain story has three parts: **pin** what you use, **verify**
-what you run, and **cool down** what you adopt.
+Rig protects the software supply chain in three ways. It **pins** what you
+use. It **verifies** what you run. It applies a **cooldown** to what you
+adopt.
 
 ## Every artifact is hash-pinned
 
-`deps.lock` records a sha256 for every Maven artifact in the resolved
-tree. The hash is computed by the Rig binary itself, over the exact bytes
-it stores — never trusted from a repository, a POM, or a pre-existing
+`deps.lock` records a sha256 hash for every Maven artifact in the resolved
+tree. The Rig binary itself computes each hash over the exact bytes it
+stores. Rig never trusts a hash from a repository, a POM, or an existing
 `~/.m2`.
 
-Before any JVM launch, Rig checks each classpath artifact against the
-lock:
+Before each JVM launch, Rig checks every classpath artifact against the
+lockfile:
 
-- present in the content-addressed cache or in a checksum-checked
-  `~/.m2` copy and matching → used;
-- missing → downloaded and hashed (unless `--offline`);
-- **mismatch → the command aborts with exit 4.** There is no self-heal:
-  `verify` and the hot commands fail the build, because a byte difference
-  in a pinned artifact is a supply-chain incident, not an inconvenience.
+- the hash matches an entry in the content-addressed cache, or in a
+  checksum-checked `~/.m2` copy → Rig uses it;
+- missing → Rig downloads it and hashes it (unless `--offline`);
+- **mismatch → the command aborts with exit code 4.** There is no
+  automatic repair: `verify` and the hot commands fail the build. A byte
+  difference in a pinned artifact is a supply-chain incident, not an
+  inconvenience.
 
-An artifact that is not in the lock cannot enter a classpath. The build
-classpath is closed.
+An artifact that is not in the lockfile cannot enter a classpath. The
+build classpath stays closed.
 
 ### Where bytes come from
 
-When Rig needs an artifact it is not caching, sources are tried in order:
+When the cache does not hold an artifact, Rig tries these sources in order:
 
 1. the Rig cache (`~/.local/share/rig` by default);
-2. the local `~/.m2/repository` copy — accepted only when it is
+2. the local `~/.m2/repository` copy. Rig accepts it only when the copy is
    self-consistent (its Maven `.sha1` matches its own content) or when it
-   hashes to the sha the lock already pins. A poisoned m2 copy is skipped,
-   never used;
+   hashes to the sha the lockfile already pins. Rig skips a poisoned m2
+   copy. It never uses one;
 3. a download from the repository URL, over HTTPS.
 
-Credentials for private repositories come from `~/.m2/settings.xml`, the
-same file Maven and tools.deps use.
+Credentials for private repositories come from `~/.m2/settings.xml`. Maven
+and tools.deps use the same file.
 
 ## `verify`: the CI security gate
 
@@ -47,15 +49,16 @@ rig verify --frozen
 verified 528 artifacts (510 cached, 18 fetched, 2 git deps pinned by commit sha)
 ```
 
-`verify` re-checks every lock artifact against the pinned hashes: from
-local, hash-checked sources on a warm cache, or fetched and hash-checked on
-a cold one. With `--frozen` it refuses to modify the lock. A green
-`verify --frozen` means "these exact bytes, that we pinned, are what will
-run." Add `--offline` to also prove the build needs no network — that form
-needs a warm cache and is the one used by air-gapped CI. It is the first
-gate in a CI pipeline (see [CI](../workflows/ci.md)).
+`verify` re-checks every artifact in the lockfile against the pinned
+hashes. On a warm cache it uses local sources and checks their hashes. On a
+cold cache it fetches each artifact and checks its hash. With `--frozen`,
+`verify` refuses to change the lockfile. A green `verify --frozen` means:
+"Rig pinned these exact bytes, and they are what will run." Add `--offline`
+to also prove that the build needs no network. That form needs a warm
+cache, and air-gapped CI uses it. Place it as the first gate in a CI
+pipeline (see [CI](../workflows/ci.md)).
 
-Exit codes that matter here:
+The exit codes that matter here:
 
 | Code | Meaning |
 |---|---|
@@ -67,36 +70,39 @@ Exit codes that matter here:
 ## Cooldowns: the adoption window
 
 Hashing protects the versions you already use. It says nothing about a
-version you are about to adopt — a compromised release is dangerous
-precisely in the first hours, before it is detected, yanked, or written
-up.
+version you are about to adopt. A compromised release is dangerous in the
+first hours after publication, before someone detects it, yanks it, or
+writes about it.
 
-Rig therefore refuses to *select* a version that was published less than
-the cooldown window before resolve time:
+Rig therefore refuses to *select* a version published less than the
+cooldown window before the resolve time:
 
-- the default window is **48 hours**, set per workspace with
-  `:rig/cooldown` (e.g. `"48h"`, `"72h"`, `"0s"` to disable);
-- per-repository overrides go in `:rig/cooldown-repos`, e.g.
+- the default window is **48 hours**. Set it per workspace with
+  `:rig/cooldown`, for example `"48h"`, `"72h"`, or `"0s"` to disable.
+- set per-repository overrides in `:rig/cooldown-repos`, for example
   `{"corp" "72h"}`;
-- version age comes from repository metadata / `Last-Modified`.
+- Rig takes the version age from repository metadata (`Last-Modified`).
 
-When a fresh version is refused, Rig says so and picks the newest
+When Rig refuses a fresh version, Rig reports it and picks the newest
 *older* eligible version:
 
 ```
 skipped org.clojure/test.check 1.1.5 (published 26h ago, cooldown 48h); using 1.1.0
 ```
 
-Every decision is recorded in the lock's `skipped` list and printed:
+Rig records every decision in the `skipped` list of the lockfile, and
+prints it:
 
-- `skipped …` — refused by cooldown, older version selected;
+- `skipped …` — a cooldown refused the version, and Rig selected an older
+  version;
 - `forced …` — `--force` bypassed the cooldown;
 - `pinned … (explicit)` — you named the version yourself
-  (`rig update <coord> <version>`); that is your judgment and it always
+  (`rig update <coord> <version>`). That is your judgment, and it always
   wins.
 
-Already-locked versions are never re-aged: cooldowns apply at selection
-time only. `rig update` with no changes keeps existing pins.
+Rig never re-applies a cooldown to an already-locked version: cooldowns
+apply at selection time only. `rig update` with no changes keeps the
+existing pins.
 
 ## Reproducibility
 
@@ -107,51 +113,53 @@ the artifact cache. CI runs the frozen form of that function:
 rig verify --frozen && rig check --frozen && rig test --frozen
 ```
 
-The gate may use the network to fill a cold cache; every byte is
-hash-checked against the lock either way. For the strongest claim —
-hermeticity, or an air-gapped build — add `--offline` to the trio (needs a
-warm cache):
+The gate can use the network to fill a cold cache. Either way, Rig
+hash-checks every byte against the lockfile. For the strongest claim — a
+hermetic or air-gapped build — add `--offline` to the three commands. That
+needs a warm cache:
 
 ```sh
 rig verify --frozen --offline && rig check --frozen --offline && rig test --frozen --offline
 ```
 
-If that passes on a machine with no network access, the bytes that ran
-are exactly the bytes your lock pinned, and getting them needed no network.
+If that passes on a machine with no network access, the bytes that ran are
+exactly the bytes your lockfile pinned. Getting them needed no network.
 
 ## Managed JVMs
 
-When a workspace pins a JVM (`:rig/jvm`), the lock records the major
-(feature) version the project runs on — what matters for compatibility.
-Every machine runs that major: the rig-managed JDK for it when one is
-installed in the state dir (it takes precedence over the system `java`),
-a matching system JDK when none is installed, and the newest matching
-release when a machine has neither and is online — offline fails with a
-hint instead. The exact patch release can differ between machines
-(21.0.10 vs 21.0.11); the major never does.
+When a workspace pins a JVM (`:rig/jvm`), the lockfile records the major
+(feature) version the project runs on. That is what matters for
+compatibility. Every machine runs that major. A machine uses the
+rig-managed JDK for that major when the state dir has one. The managed JDK
+takes precedence over the system `java`. When the state dir has no managed
+JDK, the machine uses a matching system JDK. When a machine has neither and
+has
+network access, Rig installs the newest matching release; an offline
+machine fails with a hint instead. The exact patch release can differ
+between machines (21.0.10 vs 21.0.11). The major never differs.
 
-When Rig installs a managed JDK, the archive is downloaded from the
-vendor's release assets and verified against the sha256 published by the
-Adoptium API for that exact build, before it is extracted — the same
-trust class as a Maven repository checksum. Rig never launches a
+When Rig installs a managed JDK, Rig downloads the archive from the release
+assets of the vendor. Before Rig extracts the archive, it verifies it
+against the sha256 the Adoptium API publishes for that exact build. This is
+the same trust class as a Maven repository checksum. Rig never launches a
 managed JDK it has not verified.
 
 ## Residual trust
 
-Be honest about the boundaries:
+The boundaries of this model:
 
-- The resolver kernel Rig invokes is a pinned jar (version + git sha +
-  jar sha256), trusted like any tool on your machine.
-- Graph integrity above the artifact bytes (POMs, repository metadata)
-  relies on the repositories. The final bytes of every jar are always
-  hash-pinned by Rig itself.
-- Managed JDKs are verified against the checksum the Adoptium API
-  publishes for the exact release Rig installs; the API is a trust
+- The resolver kernel Rig invokes is a pinned jar (version, git sha, and
+  jar sha256). You trust it like any tool on your machine.
+- The integrity of the graph above the artifact bytes (POMs, repository
+  metadata) relies on the repositories. Rig itself always hash-pins the
+  final bytes of every jar.
+- Rig verifies each managed JDK against the checksum the Adoptium API
+  publishes for the exact release Rig installs. The API is a trust
   boundary, like a Maven repository.
-- `--force` and explicit version pins are escape hatches you own; the lock
-  records that you used them.
-- You can collapse the repository trust boundary to a single
-  [Pier](https://brutasse.github.io/pier/) instance — one OIDC-gated URL
-  for the public world and the corporate jars
-  ([all artifacts through one repository](../workflows/pier.md)). Rig's
-  per-artifact hash pins are unchanged.
+- `--force` and explicit version pins are escape hatches you own. The
+  lockfile records that you used them.
+- You can collapse the repository trust boundary into a single
+  [Pier](https://brutasse.github.io/pier/) instance: one OIDC-gated URL for
+  the public world and for the corporate jars
+  ([all artifacts through one repository](../workflows/pier.md)). The
+  per-artifact hash pins of Rig do not change.

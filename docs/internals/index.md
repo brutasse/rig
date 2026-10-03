@@ -33,16 +33,16 @@ Rig is a Go binary driving a pinned Clojure kernel:
   one JSON document out.
 
 The rule that separates the two: **the kernel resolves, Go pins.** The
-kernel's `resolve` response contains no `sha256` at all — Go fetches (or
-imports) every artifact, hashes the exact bytes it stores, and writes the
-finished lock. The kernel never writes a hash, and never the lock
+`resolve` response of the kernel contains no `sha256` at all. Go fetches
+(or imports) every artifact, hashes the exact bytes it stores, and writes
+the finished lock. The kernel never writes a hash, and never the lock
 ([the closed build](closed-build.md)).
 
 ## The kernel protocol
 
-Go launches the pinned kernel jar with the request JSON on stdin and
-reads one JSON document — the last line of stdout (ops that spawn
-subprocesses may print noise before it). Diagnostics go to stderr:
+Go launches the pinned kernel jar with the request JSON on stdin. It
+reads one JSON document: the last line of stdout. Ops that spawn
+subprocesses can print noise before it. Diagnostics go to stderr:
 
 ```json
 // request
@@ -66,15 +66,16 @@ fallback, so an un-migrated workspace cannot resolve, build, or publish;
 
 Go also sets a small environment for the kernel JVM:
 
-- `CLOJURE_CLI_ALLOW_HTTP_REPO=1` — so `:mvn/repos` may be plain
-  `http://` (local dev servers, tests);
+- `CLOJURE_CLI_ALLOW_HTTP_REPO=1` — this lets `:mvn/repos` use plain
+  `http://` URLs (local dev servers, tests).
 - `RIG_REPO_TOKENS` — an EDN `{repo-id bearer}` map for `:auth :oidc`
-  repositories, used by the kernel's own metadata probes;
-- `RIG_PROXY_REPOS` — for the same repositories, the base URL of Rig's
-  local loopback auth proxy. `tools.deps` cannot be given a bearer token
-  of its own, so resolution traffic for those repos is rewritten to the
-  proxy, which forwards to the real URL with the bearer attached. Repo
-  ids are kept, so lock attribution is unchanged.
+  repositories. The kernel uses it for its own metadata probes.
+- `RIG_PROXY_REPOS` — for the same repositories, the base URL of the
+  local loopback auth proxy of Rig. `tools.deps` cannot receive a bearer
+  token of its own. So Rig rewrites the resolution traffic for those
+  repos to the proxy, and the proxy forwards to the real URL with the
+  bearer attached. Rig keeps the repo ids, so the lock attribution does
+  not change.
 
 ## Hot vs cold paths
 
@@ -108,31 +109,31 @@ lock already pins ([the closed build](closed-build.md)).
 
 ## The kernel is pinned too
 
-The kernel jar is itself a supply-chain item. Its pin — library
-coordinate, version, git sha, download URL, and the jar's own sha256 — is
-stamped into the Go binary at release time (`make pin`). Before any use,
-Go verifies the jar's sha256, whether it is freshly downloaded or already
-in the cache (`~/.local/share/rig/kernel/<git-sha>/`); a mismatch is a
-hard error. The lock records the kernel that produced it in its
-`resolver` block — the pin plus the sha256 of the jar that actually ran,
-stamped by Go at lock time, not by the kernel — so a lock always says who
-resolved it.
+The kernel jar is itself a supply-chain item. The pin holds the library
+coordinate, the version, the git sha, the download URL, and the sha256 of
+the jar. Go stamps the pin into the Go binary at release time
+(`make pin`). Before any use, Go verifies the sha256 of the jar, whether
+Go downloaded it freshly or found it already in the cache
+(`~/.local/share/rig/kernel/<git-sha>/`). A mismatch is a hard error. The
+lock records the kernel that produced it in its `resolver` block: the pin
+plus the sha256 of the jar that actually ran. Go stamps it at lock time;
+the kernel does not. So a lock always says who resolved it.
 
 The jar is not byte-reproducible by default, and nothing in the flow
-needs it to be: the pin's sha256 is stamped from the artifact as built
-(`make pin`), and every other hash in the system — the lock's,
-`SHA256SUMS`, the Docker build args — the same way. A workspace that
-wants byte-reproducible builds opts in with `:rig/timestamp-string`;
-with it set, every entry of the built jar and uberjar carries the
-pinned timestamp and is written in name-sorted order, so the same
-sources, lock and build JVM (`:rig/jvm`) produce a byte-identical jar,
-and the pin's sha256 becomes a stable fingerprint of sources, lock and
-build config (zip timestamps have a 2-second resolution — the format's
-limit). The runner jar (rig.runner's class files only) is pinned the
-same way and is an install-time artifact: the Docker image pre-seeds it
-into the store, local runs point at it with `RIG_RUNNER_JAR`, and Rig
-never extracts or writes it at runtime — hot commands run on stores that
-may be read-only.
+needs it to be. Go stamps the sha256 of the pin from the artifact as
+built (`make pin`). Go stamps every other hash in the system the same
+way: the hash in the lock, the `SHA256SUMS` entries, the Docker build
+args. A workspace that wants byte-reproducible builds opts in with
+`:rig/timestamp-string`. With it set, every entry of the built jar and
+uberjar carries the pinned timestamp, and Go writes the entries in
+name-sorted order. So the same sources, lock and build JVM (`:rig/jvm`)
+produce a byte-identical jar. The sha256 of the pin then becomes a stable
+fingerprint of the sources, lock and build config. Zip timestamps have a
+2-second resolution — the limit of the format. Rig pins the runner jar
+(the rig.runner class files only) the same way, and it is an install-time
+artifact. The Docker image pre-seeds it into the store, local runs point
+at it with `RIG_RUNNER_JAR`, and Rig never extracts or writes it at
+runtime. Hot commands run on stores that can be read-only.
 
 ## Code map
 
@@ -180,21 +181,21 @@ may be read-only.
 ## Where the guarantees live
 
 - **Ecosystem-consistent version resolution** — the kernel delegates
-  graph resolution to `clojure.tools.deps`, adding a selection layer
-  for floating requirements and a local-beats-published coordinate
-  comparison: [version resolution](resolution.md).
+  graph resolution to `clojure.tools.deps`. It adds a selection layer for
+  floating requirements and a comparison where a local coordinate beats a
+  published one: [version resolution](resolution.md).
 - **A build closed to the lockfile** — no EDN on the hot path, a
   validated lock, Go-computed hashes, gated sources:
   [the closed build](closed-build.md).
 - **No source next to its class** — every jar the build produces drops
-  the bundled `.clj`/`.cljc` that sit next to their AOT
-  `__init.class`: `RT.load` loads the source instead of the class
-  whenever the source is not strictly older, and sources exploded from
-  dependency jars carry no such ordering (equal timestamps would make
-  the runtime recompile the namespace from the bundled source — two
-  class identities). A source with no base `__init` is the namespace's
-  only payload and is kept, as is a source whose only `__init` lives
-  under `META-INF/versions/` (the floor's fallback). A dependency that
-  ships a source *strictly newer* than its class is refused at build
-  time: in that jar the source is what the runtime loads, and the
-  build refuses to guess which of the two is the payload.
+  the bundled `.clj`/`.cljc` that sit next to their AOT `__init.class`.
+  `RT.load` loads the source instead of the class whenever the source is
+  not strictly older. Sources exploded from dependency jars carry no such
+  ordering. Equal timestamps would make the runtime recompile the
+  namespace from the bundled source — two class identities. A source with
+  no base `__init` is the only payload of the namespace, so the build
+  keeps it. The same holds for a source whose only `__init` lives under
+  `META-INF/versions/` (the fallback of the floor). The build refuses a
+  dependency that ships a source *strictly newer* than its class. In
+  that jar the source is what the runtime loads, and the build refuses to
+  guess which of the two is the payload.

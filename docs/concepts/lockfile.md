@@ -1,15 +1,15 @@
 # The lockfile
 
 `deps.lock` is the complete, hashed build plan for the workspace. It lives
-at the workspace root (next to the manifest for single-module projects),
-it is JSON, and it is **always committed**.
+at the workspace root, or next to the manifest for single-module projects.
+The file is JSON. **Always commit it**.
 
-You never edit it by hand. Rig writes it; you read it to understand what a
-build will do, and you diff it in code review.
+You never edit it by hand. Rig writes the file. You read it to understand
+what a build will do. You diff it in code review.
 
 ## Anatomy
 
-A real lock (trimmed) from a multi-module workspace:
+A real lockfile from a multi-module workspace, trimmed:
 
 ```jsonc
 {
@@ -113,50 +113,53 @@ A real lock (trimmed) from a multi-module workspace:
 
 ### The important fields
 
-- **`artifacts[].sha256`** — computed by the Rig binary over the exact bytes
-  it pins. Only the binary ever writes a hash into the lock.
+- **`artifacts[].sha256`** — the hash the Rig binary computes over the
+  exact bytes it pins. Only the Rig binary writes a hash into the lockfile.
 - **`modules[].classpath`** — an ordered list. Every string entry resolves
-  to an `artifacts` id; a `{"local": …}` entry expands to that module's
-  source/resource directories. Rig rejects a lock that violates this.
+  to an `artifacts` id. A `{"local": …}` entry expands to the source and
+  resource directories of that module. Rig rejects a lockfile that breaks
+  this rule.
 - **`modules[].aliases`** — the resolved form of your `:aliases`: classpath,
-  jvm-opts, env, and `exec` (how to launch it: an `exec-fn`, a main, or
-  plain). `rig test` reads this; it does not parse the manifest.
-- **`manifest_sha256`** — sha256 of the raw `deps.edn` bytes of each module
-  (and the root) at lock time. This is how staleness is detected: a
-  cheap file hash, no EDN parsing.
-- **`skipped`** — the audit trail of version-selection decisions: what was
-  refused by a cooldown, what was forced past one, what was pinned
-  explicitly.
+  jvm-opts, env, and `exec`. The `exec` key says how to launch the alias:
+  an `exec-fn`, a main, or plain. `rig test` reads this key. It does not
+  parse the manifest.
+- **`manifest_sha256`** — the sha256 hash of the raw `deps.edn` bytes of
+  each module (and of the root) at lock time. Rig detects staleness with
+  this cheap file hash. It does not parse the EDN.
+- **`skipped`** — the audit trail of the version-selection decisions: which
+  versions a cooldown refused, which versions you forced past a cooldown,
+  and which versions you pinned explicitly.
 
 ## Staleness and the hot path
 
 Every command that builds a classpath (`test`, `run`, `repl`, `exec`,
-`build`, …) starts by checking the lock:
+`build`, …) first checks the lockfile:
 
-1. **No lock** → exit 3, hint: `run 'rig lock'`.
-2. **Lock of an unsupported schema version** (written by an older Rig) →
-   exit, hint: `run 'rig lock'`. The re-lock reads the old lock, keeps its
-   pins, and writes the current schema.
-3. **A manifest changed** (its `manifest_sha256` no longer matches) →
-   - default (development): Rig re-resolves, refreshes the lock, prints one
-     line — `relocked (stale: modules/orchestrator)` — and continues.
-   - with `--frozen`: exit 3, lock untouched. This is the CI mode.
-4. **Lock is current** → proceed. No resolution, no network (unless an
-   artifact still has to be secured from the local sources or downloaded),
-   straight to the JVM.
+1. **No lockfile** → Rig exits with code 3 and hints: `run 'rig lock'`.
+2. **Lockfile with an unsupported schema version** (an older Rig wrote it) →
+   Rig exits and hints: `run 'rig lock'`. When you re-lock, Rig reads the
+   old lockfile, keeps its pins, and writes the current schema.
+3. **A manifest changed** (its `manifest_sha256` no longer matches):
+   - Default (development): Rig re-resolves, refreshes the lockfile, prints
+     one line — `relocked (stale: modules/orchestrator)` — and continues.
+   - With `--frozen`: Rig exits with code 3. Rig does not touch the
+     lockfile. This is the CI mode.
+4. **Lockfile is current** → Rig proceeds. No resolution, no network,
+   unless Rig must first secure an artifact from the local sources or
+   download it. Rig goes straight to the JVM.
 
-`rig check` follows the same staleness detection but never re-locks; it
-reports. `rig lock` is always an explicit, user-initiated re-resolve.
+`rig check` uses the same staleness detection, but it never re-locks. It
+only reports. `rig lock` is always an explicit re-resolve that you start.
 
 ## What a lock diff means in review
 
-A `deps.lock` change is a build change. Review it the way you review a
-lockfile in any other ecosystem:
+A `deps.lock` change is a build change. Review it like you review a
+lockfile change in any other ecosystem:
 
-- New/removed `artifacts` entries → a dependency was added, removed, or
-  bumped; the version jumps should match the `deps.edn` diff.
-- Changed `sha256` for the same version → the artifact's bytes changed.
-  That is either an upstream re-publish or something wrong; treat it as a
-  security review item.
-- `skipped` entries appearing → a fresh release was refused by cooldown (or
-  forced). The reason is recorded.
+- New or removed `artifacts` entries → someone added, removed, or bumped a
+  dependency. The version jumps should match the `deps.edn` diff.
+- Changed `sha256` for the same version → the bytes of the artifact
+  changed. That is either an upstream re-publish or something wrong. Treat
+  it as a security review item.
+- `skipped` entries appear → a cooldown refused a fresh release, or someone
+  forced a release past a cooldown. The lockfile records the reason.
