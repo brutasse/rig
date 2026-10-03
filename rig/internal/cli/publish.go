@@ -170,7 +170,7 @@ func (e *hotEnv) publishOne(ctx context.Context, m string, remote bool) error {
 		Modules:   []string{m},
 		Lock:      filepath.Base(e.root.LockPath()),
 		Args:      map[string]any{"module": m},
-	})
+	}, e.javaEnv...)
 	if err != nil {
 		var oe *kernel.OpError
 		if errors.As(err, &oe) {

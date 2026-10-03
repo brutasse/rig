@@ -78,7 +78,7 @@ func runCheck(ctx context.Context, o *opts) error {
 		Lock:      filepath.Base(root.LockPath()),
 		Args:      map[string]any{},
 	}
-	out, err := kernel.Call(ctx, jar, java, req)
+	out, err := kernel.Call(ctx, jar, java, req, javaEnv...)
 	if err != nil {
 		var oe *kernel.OpError
 		if errors.As(err, &oe) {
@@ -211,7 +211,7 @@ func checkModuleLoads(ctx context.Context, e *hotEnv, m string) (*checkProblem, 
 			"src-dirs":   srcDirs,
 			"ns-compile": mod.Build.NsCompile,
 		},
-	})
+	}, e.javaEnv...)
 	if err != nil {
 		var oe *kernel.OpError
 		if errors.As(err, &oe) {

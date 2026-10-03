@@ -3,6 +3,7 @@
             [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.test :refer :all]
+            [clojure.tools.build.tasks.process :as process]
             [rig.resolver.build :as build]))
 
 (defn- dep-jars
@@ -552,6 +553,34 @@
                                                    (assoc cfg :compile-jvm-opts
                                                           ["--definitely-not-a-jvm-flag"])}}}))
             "bogus jvm opt must reach the fork and fail the build"))
+      (finally
+        (delete-tree ws-dir)))))
+
+(deftest aot-fork-runs-on-the-kernels-jvm
+  "The AOT fork is the kernel's own JVM: rig launches the kernel with the
+  workspace's picked JDK, so the compile must not resolve its java from the
+  environment ($JAVA_CMD, PATH, $JAVA_HOME) — that is the host's JVM, and a
+  green build would say nothing about the pinned one. The environment lookup
+  is stubbed to a host JVM and the fork's command line captured, so the
+  assertion does not depend on how this machine happens to link its java."
+  (let [ws-dir (temp-dir)
+        ws (str ws-dir)
+        src-root (io/file ws-dir "src")
+        seen (atom nil)]
+    (io/make-parents (io/file src-root "example" "core.clj"))
+    (spit (io/file src-root "example" "core.clj") "(ns example.core)\n(def x 1)\n")
+    (try
+      (with-redefs [process/java-executable (fn [] "/host/jvm/bin/java")
+                    process/process (fn [args]
+                                      (reset! seen (:command-args args))
+                                      {:exit 0})]
+        (build/build {:args {:builds {"." (assoc (cfg ws src-root (io/file ws-dir "resources") false)
+                                                 :compile-jvm-opts ["-Drig.aot.opt=1"])}}}))
+      (is (= (.getPath (io/file (System/getProperty "java.home") "bin" "java"))
+             (first @seen))
+          (str "the AOT fork runs on: " (pr-str (first @seen))))
+      (is (= "-Drig.aot.opt=1" (second @seen))
+          (str "the fork's first flag: " (pr-str (second @seen))))
       (finally
         (delete-tree ws-dir)))))
 

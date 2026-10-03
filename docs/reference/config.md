@@ -256,8 +256,9 @@ artifacts themselves always come through the proxy.
   JDK for the pinned major to the newest release, and replaces it.
 - Managed JDKs live in the state dir
   (`~/.local/share/rig/jdks/temurin-<version>/`); `rig jvm list` shows them
-  alongside the system `java`. Every process Rig launches gets
-  `JAVA_HOME` set to the managed JDK.
+  alongside the system `java`. Every JVM Rig launches to run your code
+  gets `JAVA_HOME` set to the managed JDK. The native-image build is the
+  exception: Rig runs it on the managed GraalVM.
 - Projects that `rig new` scaffolds start with the current LTS pin (Rig
   omits it under `--offline`, or when the Adoptium lookup fails).
 - Without the pin, `rig` uses `JAVA_HOME`, then `java` on `PATH`. When
@@ -265,6 +266,9 @@ artifacts themselves always come through the proxy.
   Rig looks the LTS feature up from the Adoptium info endpoint, but Rig
   installs nothing automatically. `RIG_JAVA=<path>` overrides everything
   (dev override, like `RIG_KERNEL_JAR`).
+- Rig compiles the module's Clojure code on the JVM it uses for the
+  workspace. `rig build` runs that compile in a second process, on the
+  same JVM as the kernel.
 - The pin is also the **bytecode floor** of the build output of the
   module. Every class in the jar or uberjar `rig build` produces
   (dependency classes included, for the uberjar) must load on the pinned
