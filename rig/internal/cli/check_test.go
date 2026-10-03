@@ -75,6 +75,28 @@ func TestCheckDrift(t *testing.T) {
 	}
 }
 
+func TestCheckPoolUnpinnedWarns(t *testing.T) {
+	hotSetup(t)
+	cleanFixture(t)
+	// A shared pool entry nothing resolves — no module declares it and none
+	// pulls it transitively: no lock run can ever produce a pin for it, so
+	// demanding one was a permanent red. It is a warning naming the entry.
+	mutateFile(t, "deps.edn", func(s string) string {
+		return strings.Replace(s, `["modules/app"]}`,
+			`["modules/app"] :rig/deps {orphan/orphan {:mvn/version "9.9.9"}}}`, 1)
+	})
+	code, out := runCLI(t, "check", "--cache-dir", t.TempDir())
+	if code != 0 {
+		t.Fatalf("check exit = %d, want 0; out: %s", code, out)
+	}
+	if !strings.Contains(out, "pool-unpinned") {
+		t.Errorf("check out missing pool-unpinned warning: %q", out)
+	}
+	if !strings.Contains(out, "orphan/orphan") {
+		t.Errorf("check out must name the unconsumed coord: %q", out)
+	}
+}
+
 func TestCheckNoLock(t *testing.T) {
 	hotSetup(t)
 	if err := os.Remove("deps.lock"); err != nil {
@@ -200,5 +222,23 @@ func TestCheckCljcLoads(t *testing.T) {
 	}
 	if !strings.Contains(out, "check: ok") {
 		t.Errorf("check out = %q", out)
+	}
+}
+
+func TestCheckCompileFail(t *testing.T) {
+	hotSetup(t)
+	cleanFixture(t)
+	// A namespace that loads its requires fine but throws at the top level
+	// must be flagged: it contributes nothing to the preload list, so only
+	// the compile phase (the runner's argv after "--") can catch it. A
+	// runner that silently drops the compile list reports vacuous ok here.
+	writeFile(t, "modules/app/src/app/poison.cljc",
+		"(ns app.poison)\n(throw (RuntimeException. \"poison-compiles\"))\n")
+	code, out := runCLI(t, "check", "--cache-dir", t.TempDir())
+	if code != 1 {
+		t.Fatalf("check exit = %d, want 1; out: %s", code, out)
+	}
+	if !strings.Contains(out, "failed to load app.poison") {
+		t.Errorf("check out missing the compile error: %q", out)
 	}
 }

@@ -39,7 +39,10 @@ func runLint(o *opts) error {
 		return exitf(2, "clj-kondo not found on PATH")
 	}
 	dir := moduleDir(root, m)
-	return launch(jvm.Run{Java: bin, Args: []string{dir}, Dir: dir})
+	// --lint, not a positional: clj-kondo ≥ 2025.x lints paths only when
+	// named by --lint and otherwise prints its help and exits 0 — a bare
+	// positional made rig lint a green no-op.
+	return launch(jvm.Run{Java: bin, Args: []string{"--lint", dir}, Dir: dir})
 }
 
 func newFmtCmd(o *opts) *cobra.Command {

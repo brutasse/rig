@@ -149,7 +149,12 @@
                     :when (not (versions/floating? v))
                     :let [p (get (if (= scope :workspace) all-pins
                                    (get per-pins m {})) c)]
-                    :when (not (and (seq p) (some #(satisfied? v %) p)))]
+                    :when (not (and (seq p) (some #(satisfied? v %) p)))
+                    ;; A shared requirement no module resolves is vacuous,
+                    ;; not stale: no lock run can ever pin a lib nothing
+                    ;; consumes (rig update included), so demanding it is
+                    ;; a permanent red — see unpinned below.
+                    :when (not (and (= scope :workspace) (empty? p)))]
                   {:severity "error"
                    :kind "stale-lock"
                    :module m
@@ -164,6 +169,16 @@
                                      "\"; no module pins it — run rig update")
                                 (str "manifest requires \"" v
                                      "\"; lock has no pin — run rig lock")))})
+        unpinned (for [[m c v scope] sites
+                       :when (and (= scope :workspace) (not (versions/floating? v)))
+                       :when (empty? (get all-pins c))]
+                     {:severity "warn"
+                      :kind "pool-unpinned"
+                      :module m
+                      :coord c
+                      :message (str "workspace requires \"" v
+                                    "\"; no module resolves " c
+                                    " — the shared requirement is consumed by nothing")})
         drift (for [m module-dirs
                     [c v] (get module-reqs m [])
                     :let [w (get managed c)]
@@ -222,6 +237,6 @@
                    :message (str "lock pins artifacts via repo \"" r
                                  "\" which no manifest declares under :mvn/repos")})]
     (let [problems (distinct (sort-by (juxt :module :coord :kind)
-                                      (concat floating stale drift conflicts no-lib unknown)))]
+                                      (concat floating stale unpinned drift conflicts no-lib unknown)))]
       {:ok (every? #(= "warn" (:severity %)) problems)
        :problems (vec problems)})))

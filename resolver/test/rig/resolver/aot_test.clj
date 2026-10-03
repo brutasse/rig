@@ -10,6 +10,7 @@
                        (into-array java.nio.file.attribute.FileAttribute []))))
     (.deleteOnExit)))
 
+<<<<<<< HEAD
 (deftest plan-skips-data-sources-and-reports-them
   "A .clj under :paths without a readable ns form is data (a config map
   file, a deps-new template), not a namespace: the plan leaves it out
@@ -33,3 +34,23 @@
     (io/make-parents (io/file src "a" "core.clj"))
     (spit (io/file src "a" "core.clj") "(ns a.core)\n")
     (is (empty? (:skipped (aot/plan [(.getPath src)] []))))))
+=======
+(defn- spit-clj
+  [root rel text]
+  (let [f (io/file root rel)]
+    (io/make-parents f)
+    (spit f text)))
+
+(deftest plan-tolerates-self-requirement
+  "A namespace :requiring itself is legal: the JVM load/compile ignores
+  the edge, and call sites may qualify through the self-alias.
+  The dependency graph must not turn it into 'Circular
+  dependency between X and X'."
+  (let [src (temp-src)]
+    (spit-clj src "a/util.clj" "(ns a.util)\n")
+    (spit-clj src "a/core.clj"
+              "(ns a.core\n  (:require [a.core :as self] [a.util :as u]))\n(defn f [x] (self/f x))\n")
+    (let [plan (aot/plan [(.getPath src)] [])]
+      (is (= ["a.util" "a.core"] (:compile plan)))
+      (is (empty? (:preload plan))))))
+>>>>>>> origin/main

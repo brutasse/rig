@@ -17,3 +17,13 @@
   (is (thrown-with-msg? Exception
                         #"exec-fn not found"
                         (runner/apply-exec-fn "no.such/thing" {}))))
+
+(deftest aot-args-splits-at-separator
+  (let [[preloads compiles] (runner/aot-args ["dep.a" "dep.b" "--" "app.core" "app.util"])]
+    (is (= ["dep.a" "dep.b"] preloads))
+    (is (= ["app.core" "app.util"] compiles))))
+
+(deftest aot-args-empty-sides
+  (is (= [[] ["app.core"]] (runner/aot-args ["--" "app.core"])))
+  (is (= [["dep.a"] nil] (runner/aot-args ["dep.a"])))
+  (is (= [[] nil] (runner/aot-args []))))

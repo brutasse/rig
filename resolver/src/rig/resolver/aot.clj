@@ -89,7 +89,12 @@
         graph (reduce (fn [g [ns deps]]
                         (reduce (fn [g d] (dep/depend g ns d))
                                 g
-                                (clojure.set/intersection deps project)))
+                                ;; A namespace :requiring itself is legal —
+                                ;; the JVM loads and compiles it with the
+                                ;; edge ignored — but a self-edge in the
+                                ;; graph is "Circular dependency between X
+                                ;; and X". Drop it.
+                                (disj (clojure.set/intersection deps project) ns)))
                       (dep/graph)
                       ns->deps)
         ordered (vec (dep/topo-sort graph))
