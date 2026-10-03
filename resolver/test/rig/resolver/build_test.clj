@@ -229,6 +229,31 @@
       (finally
         (delete-tree ws-dir)))))
 
+(deftest jar-ships-unreachable-source-payload
+  "A .clj below the resources root that the classpath cannot resolve
+  (exported clj-kondo hooks) is jar payload: the build must neither fail
+  on it in the AOT plan nor drop it from the jar."
+  (let [ws-dir (temp-dir)
+        ws (str ws-dir)
+        src-root (io/file ws-dir "src")
+        res-root (io/file ws-dir "resources")
+        hook (io/file res-root "clj-kondo.exports" "acme" "hooks.clj")]
+    (io/make-parents (io/file src-root "example" "core.clj"))
+    (spit (io/file src-root "example" "core.clj")
+          "(ns example.core\n  (:gen-class))\n(defn -main [& args]\n  (println \"hi\"))\n")
+    (io/make-parents hook)
+    (spit hook "(ns acme.hooks)\n")
+    (try
+      (build/build {:args {:builds {"." (cfg ws src-root res-root false)}}})
+      (let [names (zip-names (str ws "/target/fixture.jar"))]
+        (is (contains? names "example/core__init.class") names)
+        (is (contains? names "clj-kondo.exports/acme/hooks.clj")
+            "the unreachable source is the payload and survives")
+        (is (not (contains? names "example/core.clj"))
+            "the compiled module's source is still dropped"))
+      (finally
+        (delete-tree ws-dir)))))
+
 (deftest jars-drop-sources-paired-with-their-aot-class
   "A .clj/.cljc next to its AOT __init.class is redundant and an RT.load
   recompile hazard (RT.load loads the source unless the class is strictly

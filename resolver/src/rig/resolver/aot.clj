@@ -17,22 +17,41 @@
             [clojure.tools.namespace.parse :as parse]))
 
 (defn- ns-files
-  "The module's .clj/.cljc sources under src-dirs, with the runner's
-  load-all skip set (the Go-side walk of rig check keeps the same
-  set): no *_init.clj, no data-readables files. Missing dirs are
-  skipped."
+  "The module's .clj/.cljc sources under src-dirs, as [root file] pairs,
+  with the runner's load-all skip set (the Go-side walk of rig check
+  keeps the same set): no *_init.clj, no data-readables files. Missing
+  dirs are skipped."
   [src-dirs]
   (->> (mapcat (fn [d]
-                 (when-let [f (io/file d)]
-                   (when (.isDirectory f) (file-seq f))))
+                 (when-let [root (io/file d)]
+                   (when (.isDirectory root)
+                     (map (partial vector root) (file-seq root)))))
                src-dirs)
-       (filter (fn [^java.io.File f]
+       (filter (fn [[_ ^java.io.File f]]
                  (let [n (.getName f)]
                    (and (.isFile f)
                         (or (str/ends-with? n ".clj") (str/ends-with? n ".cljc"))
                         (not (str/ends-with? n "_init.clj"))
                         (not (#{"data_readers.clj" "data_readers.cljc"} n))))))
-       (sort-by str)))
+       (sort-by (fn [[_ ^java.io.File f]] (.getPath f)))))
+
+(defn- path-stem
+  "f's loadable path under root: relative to root, extension dropped —
+  what clojure.core/load looks a namespace up by."
+  [^java.io.File root ^java.io.File f]
+  (-> (.getPath f)
+      (.substring (inc (.length (.getPath root))))
+      (.replaceAll "\\.cljc?$" "")))
+
+(defn- loadable?
+  "Whether the classpath resolves ns to f: load munges the namespace
+  symbol (dots to slashes, dashes to underscores) and looks for that
+  path. A file below a resources root — exported clj-kondo hooks,
+  templates — declares a namespace that resolves elsewhere, so it is
+  jar payload, not a compilable namespace of the module."
+  [[root f] ns]
+  (= (path-stem root f)
+     (-> (name ns) (str/replace "." "/") (str/replace "-" "_"))))
 
 (def ^:private unreadable (keyword "rig.resolver.aot" "unreadable"))
 
@@ -63,19 +82,38 @@
                            the entry points not found among the
                            sources.
      :skipped [{:file p :reason r} ...]
-                           the .clj/.cljc left out as data: no ns
-                           declaration, or one that does not parse}"
+                           sources left out as data or because their
+                           namespaces do not resolve from their paths}"
   [src-dirs extra]
-  (let [parsed (for [f (ns-files src-dirs)] [f (read-decl f)])
-        skipped (vec (for [[f d] parsed :when (or (nil? d) (= d unreadable))]
-                       {:file (.getPath f)
-                        :reason (if (= d unreadable)
-                                  "unreadable ns declaration"
-                                  "no ns declaration")}))
-        decls (for [[f d] parsed :when (and d (not= d unreadable))] [f d])
-        ns->deps (into {} (for [[_ d] decls]
-                            [(parse/name-from-ns-decl d)
-                             (parse/deps-from-ns-decl d)]))
+  (let [parsed (for [[root f] (ns-files src-dirs)]
+                 [[root f] (read-decl f)])
+        skipped (vec
+                 (mapcat (fn [[[root f] d]]
+                           (cond
+                             (nil? d)
+                             [{:file (.getPath f) :reason "no ns declaration"}]
+
+                             (= d unreadable)
+                             [{:file (.getPath f) :reason "unreadable ns declaration"}]
+
+                             (not (loadable? [root f]
+                                             (parse/name-from-ns-decl d)))
+                             [{:file (.getPath f)
+                               :reason "namespace does not match classpath path"}]
+
+                             :else []))
+                         parsed))
+        ;; A nested .clj whose namespace does not map to its classpath path
+        ;; (exported hooks and templates under a resources root) is data,
+        ;; not a compilable namespace.
+        decls (for [[[root f] d] parsed
+                    :when (and d
+                               (not= d unreadable)
+                               (loadable? [root f]
+                                          (parse/name-from-ns-decl d)))]
+                (let [ns (parse/name-from-ns-decl d)]
+                  [ns (parse/deps-from-ns-decl d)]))
+        ns->deps (into {} decls)
         project (set (keys ns->deps))
         preload (vec (map str
                           (sort
