@@ -6,9 +6,9 @@ The difference is one key in the root `deps.edn`.
 ## Single module
 
 A directory with a `deps.edn` and no `:rig/modules` key is a single-module
-project. The directory is the module; `deps.lock` is written next to the
-manifest. This is the shape of most libraries and services, and it is
-what `rig new` scaffolds (as a one-module workspace, see below).
+project. The directory is the module, and `deps.lock` lives next to the
+manifest. Most libraries and services take this form. `rig new` also
+scaffolds this form, as a one-module workspace (see below).
 
 ## Workspace
 
@@ -23,38 +23,39 @@ A `deps.edn` containing `:rig/modules` declares a workspace:
 ```
 
 - Each listed directory is a **module**: it has its own `deps.edn`, its
-  own source, its own `:rig/lib` coordinate.
-- The root `deps.edn` additionally acts as the **workspace manifest**:
-  shared requirements under `:rig/deps`, cooldowns, the version file.
-- The root is also a module (`"."`) when it has `:deps`/`:paths` of its
-  own — a facade for a root REPL or a top-level library.
+  own source, and its own `:rig/lib` coordinate.
+- The root `deps.edn` additionally acts as the **workspace manifest**. It
+  holds shared requirements under `:rig/deps`, the cooldowns, and the
+  version file.
+- The root is also a module (`"."`) when it has `:deps` and `:paths` of
+  its own. This serves a root REPL or a top-level library.
 
-The workspace root is found by walking up from your current directory:
-the nearest `deps.lock`, or failing that the nearest `deps.edn` containing
-`:rig/modules`. So `rig test` works from any subdirectory, exactly like
-the Clojure CLI finds its project.
+Rig finds the workspace root by walking up from your current directory. It
+looks for the nearest `deps.lock`. If it finds none, it looks for the
+nearest `deps.edn` containing `:rig/modules`. So `rig test` works from any
+subdirectory, exactly as the Clojure CLI finds its project.
 
 ## `:rig/deps`: the single place to bump a shared version
 
-`:rig/deps` holds **requirements** for coordinates shared across modules
-— usually the same exact version string that appears in the modules' own
-`:deps`. It is the canonical, single place to change a cross-module
+`:rig/deps` holds the **requirements** for coordinates shared across
+modules. It usually names the same version string that the `:deps` of the
+modules themselves use. It is the single place to change a cross-module
 version:
 
 ```sh
 rig update com.example/shared 1.0.4
 ```
 
-sets the requirement in `:rig/deps` **and** in the `:deps` of every module
-that declares that coordinate (format-preserving, one visible diff per
-file), then re-locks. `rig check` polices the relationship: if a module
-requirement and the workspace requirement disagree, you get a `drift`
-warning; if the lock no longer satisfies a requirement, you get a
-`stale-lock` error.
+This command sets the requirement in `:rig/deps` **and** in the `:deps` of
+every module that declares that coordinate. It preserves the file format
+and produces one visible diff per file. Then it re-locks. `rig check`
+checks this relationship: if a module requirement and the workspace
+requirement disagree, Rig reports a `drift` warning. If the lockfile no
+longer satisfies a requirement, Rig reports a `stale-lock` error.
 
-Values in `:rig/deps` are plain requirement maps — `{:mvn/version …}`,
-plus `:exclusions`, `:local/root`, `:git` when needed — not a new
-vocabulary.
+Values in `:rig/deps` are plain requirement maps: `{:mvn/version …}`, plus
+`:exclusions`, `:local/root`, and `:git` when you need them. This is not a
+new vocabulary.
 
 ## Local module dependencies
 
@@ -65,16 +66,17 @@ Modules depend on each other the standard tools.deps way:
        com.example/lib     {:local/root "../lib"}}
 ```
 
-In the lock, a local dependency expands to the depended module's source
-and resource directories (relative to the workspace root). The build order
-follows the dependency graph: `rig test` runs modules in lock order, and a
-module's classpath always contains its local dependencies' code.
+In the lockfile, a local dependency expands to the source and resource
+directories of the depended module (relative to the workspace root). The
+build order follows the dependency graph: `rig test` runs modules in lock
+order. The classpath of each module always contains the code of its local
+dependencies.
 
-A `:local/root` reference to a directory that is **not** a workspace module
-— a `dev/` test overlay with its own `deps.edn`, for instance — is locked as
-a local module too: the entry expands to that directory's own manifest
-paths. It stays out of `:rig/modules`, so it is never a build/test/publish
-target.
+Rig also locks a `:local/root` reference to a directory that is **not** a
+workspace module as a local module. One example is a `dev/` test overlay
+with its own `deps.edn`. The entry expands to the manifest paths of that
+directory itself. The directory stays out of `:rig/modules`, so it is
+never a build, test, or publish target.
 
 ## `rig new-module`
 
@@ -85,5 +87,5 @@ rig new-module reporting
 ```
 
 This scaffolds `modules/reporting/` (manifest, `src`, `test`), inserts
-`"modules/reporting"` into the root's `:rig/modules`, and re-locks — the
-new module is part of the workspace from the first `rig test`.
+`"modules/reporting"` into the `:rig/modules` of the root, and re-locks.
+From the first `rig test` on, the new module is part of the workspace.

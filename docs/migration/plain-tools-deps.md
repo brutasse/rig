@@ -20,8 +20,8 @@ wrote deps.lock: 41 artifacts, 1 modules
 ```
 
 Commit `deps.lock`. That is the whole security core: full-tree pinning,
-hash verification, offline builds. Your `deps.edn` is unchanged; editors
-and `clj` keep working exactly as before.
+hash verification, and offline builds. Rig does not change your
+`deps.edn`. Editors and `clj` keep working exactly as before.
 
 ### Step 2 — adopt the `:rig/*` keys you need
 
@@ -88,8 +88,8 @@ rig verify --frozen && rig check --frozen && rig test --frozen
 ## Multi module
 
 If you already have several `deps.edn` directories (say `modules/lib` and
-`modules/app`) with `:local/root` cross-references, you have a workspace
-waiting to be declared:
+`modules/app`) with `:local/root` cross-references, you can declare them
+as a workspace:
 
 1. **Declare the modules** in the root `deps.edn`:
 
@@ -107,41 +107,42 @@ waiting to be declared:
               com.example/my-lib {:local/root "modules/lib"}}
    ```
 
-   Each module keeps declaring its own `:deps` (self-contained, as today);
-   `:rig/deps` is the canonical shared requirement, and `rig check` warns
-   on any drift between the two.
+   Each module keeps declaring its own `:deps` (self-contained, as
+   today). `:rig/deps` is the canonical shared requirement, and
+   `rig check` warns on any drift between the two.
 
-3. **Give each module its `:rig/*` keys** (`:rig/lib`, `:rig/main`, …) as
+3. **Give each module its `:rig/*` keys** (`:rig/lib`, `:rig/main`) as
    in the single-module steps.
 
-4. `rig lock` — the lock now covers every module, with local dependencies
-   expanded in each classpath, and `rig test` runs them in dependency
-   order.
+4. Run `rig lock`. The lock now covers every module, with local
+   dependencies expanded in each classpath, and `rig test` runs them in
+   dependency order.
 
 ## What stays unchanged
 
 - **`deps.edn` is still `deps.edn`.** `:paths`, `:deps`, `:aliases`,
   `:mvn/repos` behave exactly as tools.deps defines. CIDER, clojure-lsp,
   and any `clj -Sdeps` one-liner keep working on every module.
-- **`clj` remains available** for the edge cases Rig has no verb for —
-  and `rig exec` exports the locked `CLASSPATH` for scripts that want it.
+- **`clj` remains available** for the edge cases Rig has no verb for,
+  and `rig exec` exports the locked `CLASSPATH` for scripts that want
+  it.
 - **Your repositories** — including private ones — keep working through
   `~/.m2/settings.xml`, the same file as today.
 
 ## Gotchas
 
 - **Exact versions only.** `RELEASE` and `LATEST` in a manifest are
-  `rig check` errors (`floating-version`): the lock pins whatever resolved
-  at lock time, so floating versions get pinned explicitly —
-  `rig update org.clojure/test.check` — instead of drifting per build.
-  (Your first `rig lock` may select the current latest for any floating
-  coord; that selection is what gets pinned.)
+  `rig check` errors (`floating-version`). The lock pins whatever
+  resolves at lock time, so Rig pins floating versions explicitly with
+  `rig update org.clojure/test.check`, instead of letting them drift per
+  build. Your first `rig lock` can select the current latest for any
+  floating coord, and Rig pins that selection.
 - **Cooldowns on first adoption.** The first `rig add`/`rig update`
-  without a version may refuse a release published in the last 48 hours
-  (exit 5). That is the feature; `--force` overrides, and the decision is
-  recorded in the lock.
-- **`deps.lock` is committed source.** Review lock diffs like any other
-  diff; a changed `sha256` for an unchanged version is a review item.
+  without a version can refuse a release published in the last 48 hours
+  (exit 5). That is the feature. `--force` overrides the refusal, and
+  Rig records the decision in the lock.
+- **Treat `deps.lock` as source.** Review lock diffs like any other
+  diff. A changed `sha256` for an unchanged version is a review item.
 - **One manifest per module.** Rig finds the project by walking up from
-  your directory to the nearest `deps.lock` (or `:rig/modules` root) — so
-  run Rig from inside the project, as you do with `clj`.
+  your directory to the nearest `deps.lock` or `:rig/modules` root. Run
+  Rig from inside the project, as you do with `clj`.

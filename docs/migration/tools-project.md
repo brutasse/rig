@@ -1,10 +1,10 @@
 # Migrating from tools.project
 
-You are running a project (typically multi-module) driven by
-`clojure -T:project <target>` from a Makefile, with `:exoscale.project/*`
-keys in every `deps.edn` and a `:project` alias copy-pasted into each one.
-If you also share versions through
-[deps-modules](deps-modules.md), that layer migrates with the same steps.
+You run a project (typically multi-module) with
+`clojure -T:project <target>` commands from a Makefile. Every `deps.edn`
+carries `:exoscale.project/*` keys and a copy-pasted `:project` alias. If
+you also share versions through [deps-modules](deps-modules.md), the same
+steps migrate that layer.
 
 ## What you have today
 
@@ -47,11 +47,11 @@ And each module repeats the tooling keys and the `:project` alias:
 
 Limitations of this setup:
 
-- the `:project` alias is copy-pasted in every file, with drifting git
-  shas between them;
-- there is no lockfile, no hashing, no full-tree pinning;
-- `merge-deps` rewrites files on disk, and forgetting to run it means the
-  managed map and the modules can diverge;
+- The same `:project` alias appears in every file, and the git shas
+  drift between copies.
+- There is no lockfile, no hashing, and no full-tree pinning.
+- `merge-deps` rewrites files on disk. If you forget to run it, the
+  managed map and the modules can diverge.
 - ~25 configuration keys spread over three namespaces
   (`:exoscale.project/*`, `:exoscale.deps/*`, `:slipset.deps-deploy/*`).
 
@@ -120,7 +120,7 @@ rig lock
 git add deps.lock
 ```
 
-Commit it. Nothing else changes; every build is now hash-pinned. This is
+Commit it. Nothing else changes, and Rig hash-pins every build. This is
 also your parity baseline:
 
 ```sh
@@ -128,9 +128,9 @@ also your parity baseline:
 clojure -Spath -M -N:<module-ns>   # per module, per alias
 ```
 
-A byte-compare between the `clojure -Spath` output and the lock's
-classpath, per module and per alias, proves step 2 will not change what
-runs.
+A byte-compare between the `clojure -Spath` output and the classpath of
+the lock proves that step 2 will not change what runs. Compare per module
+and per alias.
 
 ## Step 2 — swap the command surface
 
@@ -171,22 +171,22 @@ rig publish
 git tag "v$(cat VERSION)"
 ```
 
-Rig is a native binary with the verbs — the Makefile wrapper that existed
-to feed `clojure -T:project` is no longer needed. If the Makefile only
-wrapped the old tooling, delete it here or in step 5. If it carries
-anything else (docker-compose conveniences, local overrides), keep it,
-and the surviving targets become one-liners around the Rig verbs.
+Rig is a native binary with the verbs, so you no longer need the Makefile
+wrapper that fed `clojure -T:project`. If the Makefile only wrapped the
+old tooling, delete it here or in step 5. If it carries anything else
+(docker-compose conveniences, local overrides), keep it, and the
+surviving targets become one-liners around the Rig verbs.
 
-`merge-deps` disappears with the step; the `git config safe.directory`
-workaround is no longer needed either. Run the test suite and the
-byte-compare from step 1. When green, ship.
+`merge-deps` disappears with this step, and you no longer need the
+`git config safe.directory` workaround. Run the test suite and the
+byte-compare from step 1. When the tests pass, ship.
 
 ## Step 3 — adopt the workspace model
 
-Now the manifests themselves — and this step is not done by hand. `rig
-migrate` does the whole mechanical rewrite in one command (`--dry-run`
-first, then the real run), format-preserving, reporting every file it
-changes:
+Now the manifests themselves — you do not edit them by hand. `rig
+migrate` does the whole mechanical rewrite in one command. It preserves
+formatting and reports every file it changes. Run it with `--dry-run`
+first, then run it for real:
 
 ```sh
 rig migrate --dry-run   # preview
@@ -195,25 +195,26 @@ rig migrate             # apply
 
 Per `deps.edn` it:
 
-1. renames the `:exoscale.project/*` keys to `:rig/*` (the table above);
-   `:slipset.deps-deploy/exec-args` becomes `:rig/publish`
-   (default `{:repo "clojars" :sign-releases? false}`);
-2. deletes every `:project` alias (all of them — the copies drift, there is
-   no canonical one to keep);
-3. deletes the `:exoscale.deps/inherit` markers from every coordinate; and
-4. in the root, renames `:exoscale.project/modules` → `:rig/modules`, lifts
-   the managed versions into `:rig/deps` as plain requirements, and deletes
-   `:exoscale.deps/managed-dependencies`, `:exoscale.deps/managed-aliases`,
-   and `:exoscale.project/extra-deps-files`.
+1. It renames the `:exoscale.project/*` keys to `:rig/*` (see the table
+   above). `:slipset.deps-deploy/exec-args` becomes `:rig/publish`, with
+   the default `{:repo "clojars" :sign-releases? false}`.
+2. It deletes every `:project` alias — all of them. The copies drift,
+   and there is no canonical one to keep.
+3. It deletes the `:exoscale.deps/inherit` markers from every coordinate.
+4. In the root, it renames `:exoscale.project/modules` to `:rig/modules`,
+   moves the managed versions into `:rig/deps` as plain requirements, and
+   deletes `:exoscale.deps/managed-dependencies`,
+   `:exoscale.deps/managed-aliases`, and
+   `:exoscale.project/extra-deps-files`.
 
-It reproduces the legacy merge's *effective* dependencies exactly: no
-version drift is introduced, and none is fixed — drift is what `check`
-surfaces below, not hidden. Blocking problems (unknown version-fn,
-`:sign-releases? true`, …) abort with nothing written; resolve them and
-re-run.
+It reproduces the effective dependencies of the legacy merge exactly. It
+introduces no version drift, and it fixes none. The `check` step below
+surfaces that drift instead of hiding it. Blocking problems (an unknown
+version-fn, `:sign-releases? true`) abort the run and write nothing.
+Resolve them and run the command again.
 
-The root's `:rig/deps` keeps full requirement maps — versions,
-exclusions, `:local/root`, `:git` — it is not a new format:
+The `:rig/deps` key of the root keeps full requirement maps: versions,
+exclusions, `:local/root`, and `:git`. It is not a new format:
 
 ```edn
 :rig/deps {org.clojure/clojure {:mvn/version "1.11.0"}
@@ -222,15 +223,15 @@ exclusions, `:local/root`, `:git` — it is not a new format:
            org.clojure/test.check {:mvn/version "1.1.1"}}
 ```
 
-Then re-lock and let `check` do the forensics:
+Then re-lock, and let `check` find the problems:
 
 ```sh
 rig lock
 rig check
 ```
 
-On a real project this is where previously hidden drift surfaces — a
-project migrated with this process got:
+On a real project, this is where hidden drift surfaces. A project
+migrated with this process got:
 
 ```
 check: error [stale-lock] modules/app com.example/shared: manifest requires "1.0.0"; lock pins "0.7.2" — run rig update
@@ -238,13 +239,13 @@ check: error [floating-version] modules/app org.clojure/test.check: manifest use
 check: warn [drift] modules/lib org.clojure/test.check: module requires "1.1.1", workspace requires "1.1.0"
 ```
 
-— the managed map said `com.example/shared 0.7.2` while `modules/app`
-actually ran `1.0.0`; `test.check` was `RELEASE` in one module, `1.1.0` in
-the managed map, `1.1.1` in another; a network library was pinned to an
-older version in the managed map than in a module. For each finding, choose
-the intended version in `:rig/deps` and run `rig update <coord> <version>`
-— one command updates the shared requirement, every declaring module, and
-the lock, in one visible diff.
+The managed map said `com.example/shared 0.7.2`, while `modules/app`
+actually ran `1.0.0`. `test.check` was `RELEASE` in one module, `1.1.0`
+in the managed map, and `1.1.1` in another. The managed map pinned a
+network library to an older version than a module did. For each finding,
+choose the intended version in `:rig/deps` and run
+`rig update <coord> <version>`. That one command updates the shared
+requirement, every declaring module, and the lock, in one visible diff.
 
 ## Step 4 — harden CI
 
@@ -271,29 +272,29 @@ Replace the old workflow steps with the frozen gate
 ## Step 5 — clean out
 
 - Delete Makefile targets that only wrapped the old tooling (keep the
-  Makefile for what is left — docker-compose conveniences, local
-  overrides, …).
-- Drop tools.project and deps-modules from the toolchain; nothing
+  Makefile for the rest: docker-compose conveniences and local
+  overrides).
+- Drop tools.project and deps-modules from the toolchain. Nothing
   references them anymore.
-- The `clj -T` knowledge in your team's heads becomes `rig <verb>`.
+- Your team replaces the `clj -T` knowledge with the `rig <verb>`
+  commands.
 
 ## Worked example
 
 A real multi-module project (eight modules, hundreds of locked artifacts)
 went through exactly these steps:
 
-1. `rig lock` on the untouched legacy repo → `deps.lock` committed;
-2. Makefile and both GitHub workflows swapped to the Rig verbs; locked
-   classpath verified **byte-identical** to `clojure -Spath` on all
-   module/alias combinations;
-3. `rig migrate` rewrote all 8 manifests `:exoscale.*` → `:rig/*` (comments
-   preserved, zero legacy keys left); `rig check` surfaced the drift above;
-   `rig update` settled it (test.check → 1.1.1 everywhere, the drifted
-   coordinates → their intended versions);
-4. CI on the frozen gate: `rig verify --frozen &&
-   rig check --frozen && rig test --frozen`, `rig build --uber --frozen`,
-   `rig publish` + tag;
-5. legacy targets deleted.
+1. Run `rig lock` on the untouched legacy repo, and commit `deps.lock`.
+2. You swap the Makefile and both GitHub workflows to the Rig verbs.
+   The locked classpath stays byte-identical to `clojure -Spath` on all
+   module/alias combinations.
+3. `rig migrate` rewrote all 8 manifests from `:exoscale.*` to
+   `:rig/*`, with comments preserved and zero legacy keys left.
+   `rig check` surfaced the drift above. `rig update` settled it:
+   test.check → 1.1.1 everywhere, and the drifted coordinates → their
+   intended versions.
+4. CI uses the frozen gate: `rig verify --frozen && rig check --frozen && rig test --frozen`, `rig build --uber --frozen`, and `rig publish` plus a tag.
+5. You delete the legacy targets.
 
 Result: `rig test` green, `rig build --uber` green, and the same
 byte-identical classpath — with hashing, cooldowns, and a lockfile around

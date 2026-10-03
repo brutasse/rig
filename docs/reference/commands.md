@@ -1,7 +1,7 @@
 # Commands
 
-Every command, what it does, and its flags. `rig <command> --help` is the
-documentation of record; this page is the map.
+This page lists every command, what it does, and its flags.
+`rig <command> --help` is the documentation of record. This page is the map.
 
 ## Overview
 
@@ -42,10 +42,10 @@ documentation of record; this page is the map.
 | `version` | hot | Print the project version. |
 | `info` | hot | Project and tool summary. |
 
-*Hot* commands run from the lock (lock → hash-check → launch), re-locking
+*Hot* commands run from the lock (lock → hash-check → launch). They re-lock
 only when the lock is stale and `--frozen` is not set. *Cold* commands do
-deeper kernel work (resolve, build, publish, edit) and may write the lock
-or manifests. `launch` is hot in that it never touches the kernel, but it
+deeper kernel work (resolve, build, publish, edit). They can write the lock
+or the manifests. `launch` is hot because it never touches the kernel. It
 treats the lock as inert data: it never checks staleness, never re-locks,
 and never uses the network.
 
@@ -58,24 +58,24 @@ rig lock
 ```
 
 Resolve every module of the workspace, fetch and sha256-hash every
-artifact, write `deps.lock`. Prints skipped version selections (cooldowns,
-forces) and a summary:
+artifact, and write `deps.lock`. The command prints skipped version
+selections (cooldowns, forces) and a summary:
 
 ```
 wrote deps.lock: 528 artifacts, 8 modules
 ```
 
-A requirement refused by cooldown aborts with exit 5:
+When a cooldown refuses a requirement, the command aborts with exit 5:
 
 ```
 refused org.clojure/tools.logging (cooldown 48h)
 1 requirement(s) refused by cooldowns (retry with --force)
 ```
 
-Maven requirements that live only in `:auth :oidc` repos are pre-seeded
-into the local `~/.m2/repository` (every request bearing the token) before
-resolution, so a cold m2 locks without tools.deps ever talking to an
-authenticated repo — see [authenticated
+Before resolution, Rig seeds the Maven requirements that live only in
+`:auth :oidc` repos into the local `~/.m2/repository`, and every request
+bears the token. A cold m2 locks this way, and tools.deps never talks to
+an authenticated repo. See [authenticated
 repositories](config.md#authenticated-repositories-auth-oidc).
 
 ### `rig update`
@@ -90,8 +90,9 @@ rig update [coord [version]]
 | `rig update <coord> <version>` | Pin the exact version (explicit, recorded in the lock). |
 | `rig update <coord>` | Newest eligible version (cooldown-gated, exit 5 if refused). |
 
-Flags: `--alias <a>` (target an alias's `:extra-deps`), `--shared-only`
-(update only `:rig/deps`). Global `--force` bypasses cooldowns.
+Flags: `--alias <a>` targets the `:extra-deps` of an alias, and
+`--shared-only` updates only `:rig/deps`. The global `--force` flag
+bypasses cooldowns.
 
 ### `rig add` / `rig remove`
 
@@ -100,10 +101,11 @@ rig add <coord> [version]      # no version: newest eligible (cooldown-gated)
 rig remove <coord>
 ```
 
-`add` flags: `--alias <a>` (under an alias's `:extra-deps`),
-`--shared` (default `true`; `--shared=false` keeps the requirement local).
-`-p <module>` chooses which module's `:deps` receives the edit; shared
-propagation still applies unless `--shared=false`.
+`add` flags: `--alias <a>` adds the requirement under the `:extra-deps`
+of an alias, and `--shared` defaults to `true`; `--shared=false` keeps
+the requirement local. `-p <module>` chooses which module supplies the
+`:deps` to edit. Shared propagation still applies unless you set
+`--shared=false`.
 
 ### `rig migrate`
 
@@ -111,10 +113,10 @@ propagation still applies unless `--shared=false`.
 rig migrate [--dry-run]
 ```
 
-One-shot conversion of a legacy workspace (the `:exoscale.project/*`,
-`:exoscale.deps/*`, `:slipset.deps-deploy/*` key namespaces, as produced by
-`tools.project` + `deps-modules`) into `:rig/*`, in place. Every manifest is
-reported:
+`rig migrate` converts a legacy workspace into `:rig/*`, in place. A legacy
+workspace uses the `:exoscale.project/*`, `:exoscale.deps/*`, and
+`:slipset.deps-deploy/*` key namespaces (the output of `tools.project` and
+`deps-modules`). The command reports every manifest:
 
 ```
 deps.edn: migrated
@@ -123,15 +125,16 @@ modules/orchestrator/deps.edn: migrated
 
 What it does, mechanically:
 
-- Renames the `:exoscale.project/*` keys to `:rig/*` (incl. the inverted
-  `:exoscale.project/bypass-test?` → `:rig/test?`).
+- Renames the `:exoscale.project/*` keys to `:rig/*`, including the inverted
+  `:exoscale.project/bypass-test?` → `:rig/test?`.
 - Materializes `:exoscale.deps/managed-dependencies` into the `:deps` of
-  every module that inherits from it and drops the pool (with a warning —
-  it is not carried as a `:rig/deps` shared requirement).
+  every module that inherits from it, then drops the pool with a warning.
+  Rig does not carry the pool as a `:rig/deps` shared requirement.
   `:exoscale.deps/inherit` (`:all` or a subset) marks which coords
-  inherit; the managed entry fills the keys a module left undeclared, and
-  a declared version/source key wins over the managed one — each such win
-  is a per-dep warning, not a silent rewrite.
+  inherit. The managed entry fills the keys a module leaves undeclared.
+  When a module declares a version or source key, that key wins over the
+  managed entry, and Rig reports each such case as a per-dep warning. Rig
+  never rewrites such a key.
 - Drops `:exoscale.deps/managed-aliases` (only the `:project` alias exists;
   Rig has no alias inheritance) and the `:project` aliases themselves.
 - Rewrites `:slipset.deps-deploy/exec-args` into `:rig/publish?` +
@@ -140,12 +143,13 @@ What it does, mechanically:
   repositories only).
 
 `--dry-run` runs the same analysis and reports per-file changes without
-writing anything. Blocking problems (e.g. an inherit-only coord that is
-not in the managed map, `:sign-releases? true`) abort the whole
-migration with exit 1 and nothing is written.
+writing anything. A blocking problem aborts the whole migration with exit
+1, and Rig writes nothing. Blocking problems are, for example, an
+inherit-only coord that is absent from the managed map, or
+`:sign-releases? true`.
 
-After `rig migrate`, run `rig lock` and `rig check`: the check reports
-the drift left among the module requirements and the lock (cross-module
+After `rig migrate`, run `rig lock` and `rig check`. The check reports the
+remaining drift between the module requirements and the lock (cross-module
 conflicts, stale pins).
 
 ## Inspection
@@ -158,31 +162,32 @@ Re-check every lock artifact against the cache.
 verified 528 artifacts (510 cached, 18 fetched, 2 git deps pinned by commit sha)
 ```
 
-Exit 4 on any hash mismatch; exit 3 if the lock is missing or stale under
-`--frozen`. The intended first CI gate.
+The command exits 4 on any hash mismatch. Under `--frozen`, the command
+exits 3 when the lock is absent or stale. It is the intended first CI
+gate.
 
 ### `rig check`
 
 Two stages, one exit code:
 
-1. **Consistency** (workspace-wide, read-only): `stale-lock` (requirement
-   not satisfied by the pin), `conflict` (incompatible requirements),
-   `drift` (module requirement ≠ workspace requirement — warning),
-   `floating-version` (`RELEASE`/`LATEST` in a manifest — error; fix with
-   `rig update <coord>`), `no-lib` (publish/build without `:rig/lib`),
-   `unknown-repo` (lock pins via a repo no manifest declares).
-2. **Namespace load and AOT-compile**: on each target module's locked
-   base classpath, its non-project requires are preloaded, then its
-   namespaces AOT-compile in dependency order; a failing load or compile
-   is a `load-fail` error. A module
-   pinning `org.clojure/clojure` below the 1.8.0 floor is reported as
-   `clojure-floor` before any JVM is launched (the runner entry point
-   cannot load on Clojure 1.7.x). Stage 2 launches on the locked classpath
-   as-is: on Clojure ≥ 1.9 the runtime itself requires
-   `org.clojure/spec.alpha` to be present (it loads `clojure.core.server`
-   at init), so a module declaring no spec (directly or transitively)
-   fails with a `spec/alpha` class-not-found — a missing project
-   dependency, not a Rig failure.
+1. **Consistency** (workspace-wide, read-only) checks: `stale-lock` (a
+   requirement the pin does not satisfy). `conflict` (incompatible
+   requirements). `drift` (a module requirement differs from the workspace
+   requirement — a warning). `floating-version` (`RELEASE`/`LATEST` in a
+   manifest — an error; fix it with `rig update <coord>`). `no-lib`
+   (publish or build without `:rig/lib`). `unknown-repo` (the lock pins
+   via a repo that no manifest declares).
+2. **Namespace load and AOT-compile**: Rig preloads the non-project
+   requires on the locked base classpath of each target module, then
+   AOT-compiles its namespaces in dependency order. A failing load or
+   compile produces a `load-fail` error. Rig reports a module that pins
+   `org.clojure/clojure` below the 1.8.0 floor as `clojure-floor`, before
+   it launches any JVM (the runner entry point cannot load on Clojure
+   1.7.x). Stage 2 launches on the locked classpath as-is: on Clojure ≥
+   1.9 the runtime itself requires `org.clojure/spec.alpha` to be present
+   (it loads `clojure.core.server` at init). A module that declares no
+   spec (directly or transitively) therefore fails with a `spec/alpha`
+   class-not-found — a missing project dependency, not a Rig failure.
 
 ```
 check: error [stale-lock] modules/app org.clojure/clojure: manifest requires "1.11.0"; lock pins "1.12.5" — run rig update
@@ -204,14 +209,15 @@ a stale lock — it reports staleness as a problem and exits 1.
 mvxcvi/arrangement 1.2.0 -> 1.2.1 (latest 2.1.0, breaking)
 ```
 
-`--breaking` lists only breaking updates. `up to date` when nothing.
+`--breaking` lists only breaking updates. The command prints `up to date`
+when it finds none.
 
 ### `rig tree`
 
 Print the resolved dependency tree for a module (`-p`), one line per
-occurrence with `├─`/`└─` connectors; an occurrence not in the classpath
-(conflict, exclusion, duplicate) is marked with its reason. `--alias <a>`
-includes the alias's extra-deps.
+occurrence with `├─`/`└─` connectors. Rig marks an occurrence that is not
+in the classpath (conflict, exclusion, duplicate) with its reason.
+`--alias <a>` includes the extra-deps of the alias.
 
 ### `rig info` / `rig version`
 
@@ -228,17 +234,18 @@ module version.
 rig test [opt value…]
 ```
 
-Run each target module's test exec-fn (from the lock) on its locked test
-classpath. Without `-p`, every module with a test exec-fn runs, in
-dependency order. Arguments are EDN literals forwarded to the runner:
+Run the test exec-fn of each target module (from the lock) on its locked
+test classpath. Without `-p`, every module with a test exec-fn runs, in
+dependency order. The arguments are EDN literals, and Rig forwards them
+to the runner:
 
 ```
 rig test :kaocha.filter/focus '[:unit]'
 ```
 
-The runner's exit code is Rig's. A module pinning `org.clojure/clojure`
-below the 1.8.0 floor fails before anything runs (the same `clojure-floor`
-gate as check).
+Rig exits with the exit code of the runner. A module that pins
+`org.clojure/clojure` below the 1.8.0 floor fails before anything runs
+(the same `clojure-floor` gate as check).
 
 ### `rig run`
 
@@ -246,8 +253,8 @@ gate as check).
 rig run [args…]
 ```
 
-Launch the module's `:rig/main` on the (alias) classpath. Program flags
-after `--` pass through: `rig run -p modules/app -- --env dev`.
+Launch the `:rig/main` of the module on the (alias) classpath. Program
+flags after `--` pass through: `rig run -p modules/app -- --env dev`.
 `--alias <a>` selects the classpath. No main → usage error.
 
 ### `rig launch`
@@ -256,44 +263,47 @@ after `--` pass through: `rig run -p modules/app -- --env dev`.
 rig launch [jar] [args…]
 ```
 
-Launch the built artifact with Rig's production JVM flags — the entrypoint
-for a deployed app. `rig launch` replaces its own process with the JVM
-(process exec): the app is the process itself — in a container, its PID 1
-— signals reach the JVM directly, and its exit code is the process's (on
-Windows, where there is no process exec, rig forks the JVM and waits).
-Flags, in order:
+Launch the built artifact with the production JVM flags of Rig — the
+entrypoint for a deployed app. `rig launch` replaces its own process with
+the JVM (process exec): the app is the process itself. In a container,
+the app is PID 1. Signals reach the JVM directly, and the exit code of
+the JVM is the exit code of the process. On Windows, where there is no
+process exec, rig forks the JVM and waits. Flags, in order:
 
-1. **Rig's production defaults**: G1 garbage collection
+1. **The production defaults of Rig**: G1 garbage collection
    (`-XX:+UseG1GC`, with `-XX:+AlwaysPreTouch`), exit on out-of-memory
    (`-XX:+ExitOnOutOfMemoryError`, plus
    `-XX:+HeapDumpOnOutOfMemoryError`), and loopback-only JMX on port
-   **10101** (`-Dcom.sun.management.jmxremote` with `authenticate=false`,
-   `ssl=false`; the RMI port is pinned to 10101 and
+   **10101** (`-Dcom.sun.management.jmxremote` with `authenticate=false`
+   and `ssl=false`). Rig pins the RMI port to 10101, and
    `-Djava.rmi.server.hostname=127.0.0.1` keeps JMX to same-host
-   clients).
-2. **the module's `:rig/launch-opts`** — later flags override the defaults
-   (last JVM flag wins). A garbage collector in `:rig/launch-opts` (e.g.
-   `-XX:+UseZGC`) *replaces* the G1 default: the JVM refuses to start with
-   two collectors selected, so Rig drops its own rather than pass both.
+   clients.
+2. **The `:rig/launch-opts` of the module** — later flags override the
+   defaults (last JVM flag wins). A garbage collector in
+   `:rig/launch-opts`, for example `-XX:+UseZGC`, *replaces* the G1
+   default: the JVM refuses to start with two collectors, so Rig drops
+   its own rather than pass both.
 3. **`RIG_LAUNCH_OPTS` (env var)** — per-deployment JVM flags,
    whitespace-separated, appended last; the same rules apply (last JVM
    flag wins; a collector in it replaces any earlier selection).
 4. `-jar <uberjar>`, or `-cp <locked classpath> <main>` for the plain jar.
 
-The first positional is the jar, when it names an existing file; otherwise
-(in a workspace) all positionals go to the main and the jar is the target
-module's build output from the lock (the uberjar when one is declared).
+The first positional is the jar when it names an existing file. Otherwise
+(in a workspace) all positionals go to the main. The jar is then the build
+output of the target module from the lock (the uberjar when the module
+declares one).
 
 The launch plan (main, `:rig/launch-opts`, build JVM) comes from
 `META-INF/rig/launch.json` — the descriptor `rig build` bakes into every
 jar — so `rig launch <jar>` works outside the workspace (a standalone
 container). Without the descriptor, the lock is the plan.
 
-`rig launch` is offline by definition: it runs what is already built and
-cached. The lock is inert data for it (a stale lock is ignored,
-`--frozen` is a no-op), and classpath artifacts must already be cached. The
-launch JVM's major version must exactly match the build JVM's (a different
-major fails in both directions) — exit 2, as is a missing artifact.
+`rig launch` is offline by definition: it runs what is already in the
+cache, from a previous build. The lock is inert data for it: it ignores a
+stale lock, and `--frozen` has no effect. Classpath artifacts must already
+be in the cache. The major version of the launch JVM must exactly match
+the major version of the build JVM. A different major fails, and a
+missing artifact fails, with exit 2.
 
 ### `rig repl`
 
@@ -309,10 +319,10 @@ rig repl [--alias <a>]
 rig exec <command> [args…]
 ```
 
-Run any command with the locked classpath exported as `CLASSPATH` (and
-`JAVA_OPTS` from the module/alias JVM options), in the module directory.
-The command's exit code is Rig's. The escape hatch for scripts and tools
-Rig has no verb for.
+Run any command with the locked classpath that Rig exports as `CLASSPATH`
+(and `JAVA_OPTS` from the module/alias JVM options), in the module
+directory. Rig exits with the exit code of the command. Use it for
+scripts and tools Rig has no verb for.
 
 ## Authentication
 
@@ -324,11 +334,12 @@ rig auth get [gate|url] [--flow browser|device]
 
 Print the bearer token of an OIDC gate to stdout. The gate comes from the
 gate config (`~/.config/rig/auth.yaml`): pass a gate name or a repository
-URL the gate fronts, or nothing when the config holds a single gate. The
-token is the gate's `RIG_TOKEN_<GATE>` environment variable when set,
-else the gate's cached token, else a fresh negotiation with the gate's
-issuer, verified against its JWKS. Machine-friendly output — script it
-into a `curl`, or pipe it anywhere a bearer is expected. See
+URL the gate fronts, or nothing when the config holds a single gate. Rig
+uses the `RIG_TOKEN_<GATE>` environment variable of the gate when you set
+it, else the cached token of the gate, else a fresh negotiation with the
+issuer of the gate. Rig verifies that token against the JWKS. The output
+is machine-friendly: script it into a `curl`, or pipe it anywhere a
+bearer belongs. See
 [authenticated repositories](config.md#authenticated-repositories-auth-oidc).
 
 ## Building and publishing
@@ -339,14 +350,15 @@ into a `curl`, or pipe it anywhere a bearer is expected. See
 rig build [--uber | --native]
 ```
 
-Build the module's jar, or the uberjar with `--uber` (requires
-`:rig/uberjar?`), or the native-image binary with `--native` (requires
-`:rig/native?` and the workspace's `:rig/jvm` pin; the binary's entry
-point is `:rig/main`) — always on the locked classpath. With the
-workspace's `:rig/jvm` pin, every jar the build produces is scanned
-against it as the bytecode floor: a class that would not load on the
-pinned JVM fails the build (see [JVMs](config.md#jvms-rigjvm)).
-`built <path>` on success. See [Native images](config.md#native-images-rig-build-native).
+Build the jar of the module. `--uber` builds the uberjar (requires
+`:rig/uberjar?`), and `--native` builds the native-image binary (requires
+`:rig/native?` and the `:rig/jvm` pin of the workspace; the entry point
+of the binary is `:rig/main`). Every build runs on the locked classpath.
+With the `:rig/jvm` pin of the workspace, Rig scans every jar the build
+produces against it as the bytecode floor. A class that would not load on
+the pinned JVM fails the build (see [JVMs](config.md#jvms-rigjvm)).
+The command prints `built <path>` on success. See
+[Native images](config.md#native-images-rig-build-native).
 
 ### `rig install`
 
@@ -356,12 +368,13 @@ with a `:rig/lib` without `-p`.
 ### `rig publish`
 
 Deploy the module jar(s) to the remote repository from `:rig/publish`.
-Only `:rig/publish?` modules; network required. The repo (`:repo` is a
-`:mvn/repos` id or `clojars`) must be an http/https Maven repository:
-jar + POM uploaded with credentials from `~/.m2/settings.xml`; a repo
-marked `:auth :oidc` is uploaded with the bearer of the gate that
-fronts its `:url` (the gate's `RIG_TOKEN_<GATE>`, cached token, or
-negotiated) instead.
+Rig deploys only the `:rig/publish?` modules, and Rig requires the
+network. The repo (`:repo` is a `:mvn/repos` id or `clojars`) must be an
+http/https Maven repository. Rig uploads the jar and the POM with
+credentials from `~/.m2/settings.xml`. For a repo marked `:auth :oidc`,
+Rig uploads instead with the bearer of the gate that fronts its `:url`
+(the `RIG_TOKEN_<GATE>` variable of the gate, the cached token, or a
+negotiated token).
 
 ## Hygiene and scaffolding
 
@@ -372,8 +385,8 @@ line each).
 
 ### `rig lint`
 
-Run clj-kondo (from PATH, with the project's own config) on the module.
-No lock needed.
+Run clj-kondo (from PATH, with the config of the project itself) on the
+module. No lock needed.
 
 ### `rig fmt`
 
@@ -402,11 +415,12 @@ release `SHA256SUMS`, atomic replace). `--check` reports only;
 ## JVM management
 
 `rig` manages local Temurin (Eclipse Adoptium) JDKs, one per major
-version. The project's requirement is `:rig/jvm` in the root `deps.edn` —
-a major (feature) version, e.g. `21`. The rig-managed JDK takes precedence
-over the system `java`; a system JDK whose feature version matches the pin
-serves only when no managed JDK is installed, and online `rig` installs
-the newest matching release on demand when neither is present.
+version. The requirement of the project is `:rig/jvm` in the root
+`deps.edn` — a major (feature) version, for example `21`. The rig-managed
+JDK takes precedence over the system `java`. A system JDK whose feature
+version matches the pin serves only when no managed JDK exists. When
+neither exists and `rig` is online, it installs the newest matching
+release on demand.
 
 ### `rig jvm install`
 
@@ -414,13 +428,14 @@ the newest matching release on demand when neither is present.
 rig jvm install 21        # newest 21.x
 ```
 
-`<major>` is a major (feature) version. Resolves the release through the
-Adoptium API, downloads the archive for the current platform, verifies its
-sha256 against the API's published checksum, and extracts it to the state
-dir (`~/.local/share/rig/jdks/temurin-<version>/`). One JDK per major
-version: when a JDK for the major is already installed, this exits without
-changing anything — use `rig jvm update` to move it to the newest release.
-`--offline` refuses (installing needs the network).
+`<major>` is a major (feature) version. The command resolves the release
+through the Adoptium API, downloads the archive for the current platform,
+and verifies the sha256 against the published checksum of the API. It
+extracts the JDK to the state dir
+(`~/.local/share/rig/jdks/temurin-<version>/`). Rig keeps one JDK per
+major version. When a JDK for the major already exists, this command
+exits without changes — use `rig jvm update` to move it to the newest
+release. `--offline` refuses (installing needs the network).
 
 ### `rig jvm list`
 
@@ -443,20 +458,20 @@ rig jvm uninstall 21.0.12.1+1     # exact, or unique prefix (rig jvm uninstall 2
 
 ### `rig jvm update`
 
-Workspace command (needs a `:rig/jvm` pin in the lock): updates the
-rig-managed JDK for the pinned major to the newest release for it,
-replacing the installed one — rig keeps one JDK per major version. When no
-JDK for the major is installed, the newest release is installed. The
-manifest and the lock are untouched. `--offline` refuses (updating needs
-the network).
+`rig jvm update` is a workspace command (it needs a `:rig/jvm` pin in the
+lock). It updates the rig-managed JDK for the pinned major to the newest
+release, and replaces the installed one. Rig keeps one JDK per major
+version. When no JDK for the major exists, the command installs the
+newest release. The command does not touch the manifest or the lock.
+`--offline` refuses (updating needs the network).
 
 ## GraalVM management
 
 `rig` manages GraalVM community JDKs, one per major version, for
-native-image builds (`rig build --native`). The project's requirement is
-derived from the `:rig/jvm` pin; missing GraalVMs are installed
-explicitly — `rig build --native` never downloads, it fails with a hint
-until `rig graalvm install` has run.
+native-image builds (`rig build --native`). Rig derives the requirement
+from the `:rig/jvm` pin. You install missing GraalVMs explicitly:
+`rig build --native` never downloads, it fails with a hint until
+`rig graalvm install` has run.
 
 ### `rig graalvm install`
 
@@ -464,14 +479,14 @@ until `rig graalvm install` has run.
 rig graalvm install 21        # newest 21.x build
 ```
 
-`<major>` is a major (feature) version. Resolves the build through the
-`graalvm/graalvm-ce-builds` GitHub releases, downloads the archive for the
-current platform, verifies its sha256 against the release's `.sha256`
-sidecar, and extracts it to the state dir
-(`~/.local/share/rig/graal/graalvm-<version>/graal`). One GraalVM per major
-version: when a GraalVM for the major is already installed, this exits
-without changing anything — use `rig graalvm update` to move it to the
-newest build. `--offline` refuses (installing needs the network).
+`<major>` is a major (feature) version. The command resolves the build
+through the `graalvm/graalvm-ce-builds` GitHub releases, downloads the
+archive for the current platform, and verifies the sha256 against the
+`.sha256` sidecar of the release. It extracts the GraalVM to the state dir
+(`~/.local/share/rig/graal/graalvm-<version>/graal`). Rig keeps one
+GraalVM per major version. When a GraalVM for the major already exists,
+this command exits without changes — use `rig graalvm update` to move it
+to the newest build. `--offline` refuses (installing needs the network).
 
 ### `rig graalvm list`
 
@@ -491,12 +506,13 @@ rig graalvm uninstall 21.0.2         # exact, or unique prefix (rig graalvm unin
 
 ### `rig graalvm update`
 
-Workspace command (needs a `graalvm` block in the lock — the workspace
-needs a `:rig/jvm` pin and a `:rig/native?` module): updates the
-rig-managed GraalVM for the pinned major to the newest community build for
-it, replacing the installed one — rig keeps one GraalVM per major version.
-When none is installed, the newest build is installed. The manifest and the
-lock are untouched. `--offline` refuses (updating needs the network).
+`rig graalvm update` is a workspace command. It needs a `graalvm` block in
+the lock, so the workspace needs a `:rig/jvm` pin and a `:rig/native?`
+module. It updates the rig-managed GraalVM for the pinned major to the
+newest community build, and replaces the installed one. Rig keeps one
+GraalVM per major version. When none exists, the command installs the
+newest build. The command does not touch the manifest or the lock.
+`--offline` refuses (updating needs the network).
 
 ## Global flags
 
@@ -510,8 +526,8 @@ lock are untouched. `--offline` refuses (updating needs the network).
 | `-v, --verbose` | Debug logging. |
 | `--autocomplete [shell]` | Print the shell completion script to stdout: `bash`, `zsh`, `fish` or `powershell`; no value = detect the running shell. |
 
-Shell completion (detects your shell; `-p` completes module paths, `--alias`
-completes the module's aliases):
+Shell completion (detects your shell; `-p` completes module paths,
+`--alias` completes the aliases of the module):
 
 ```sh
 eval "$(rig --autocomplete)"            # bash
@@ -532,6 +548,6 @@ rig --autocomplete | Invoke-Expression  # PowerShell
 | 5 | cooldown refused — retry with `--force` |
 
 Commands that launch a child process (`test`, `run`, `repl`, `exec`,
-`lint`, `fmt`) propagate the child's exit code verbatim, above these
-(`launch` is the exception: it execs the JVM, so the JVM's exit code is
-the process's).
+`lint`, `fmt`) propagate the exit code of the child verbatim, above
+these. `launch` is the exception: it execs the JVM, so the exit code of
+the JVM is the exit code of the process.

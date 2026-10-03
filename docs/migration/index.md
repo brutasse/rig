@@ -11,37 +11,35 @@ Four entry points, one strategy.
 
 ## The common strategy
 
-Whatever you are coming from, the migration is the same five steps, and
-**each step is independently shippable**:
+Whatever you start from, the migration follows the same five steps.
+**Each step is independently shippable**:
 
-1. **Add the lock (additive, zero risk).** `rig lock` on the current repo
-   and commit `deps.lock`. Nothing else changes — your manifests are
-   already self-contained, and Rig reads them as-is. Every build is now
-   hash-pinned, and you have a baseline to prove parity against.
+1. **Add the lock (additive, zero risk).** Run `rig lock` on the current
+   repo and commit `deps.lock`. Nothing else changes. Your manifests are
+   already self-contained, and Rig reads them as-is. Rig hash-pins every
+   build, and you get a baseline to prove parity against.
 2. **Swap the command surface.** Replace the old invocations — Makefile
-   targets, CI steps, shell muscle memory — with the Rig verbs
-   (`clj -T:project test` → `rig test`, …). Rig is the command surface;
-   a Makefile that only wrapped the old tooling is now unnecessary.
+   targets, CI steps, and your command-line habits — with the Rig verbs
+   (`clj -T:project test` → `rig test`). Rig is the command surface.
+   A Makefile that only wrapped the old tooling is now unnecessary.
    Verify the locked classpath is byte-identical to what the old tooling
-   resolved (`clojure -Spath` is the oracle) and that the test suite is
-   green.
-3. **Adopt the model.** Add `:rig/modules` to the root (and `:rig/deps`
-   too, if you want to keep shared requirements), rewrite the per-module
-   tooling keys to `:rig/*`, and delete the legacy machinery (managed
-   maps — materialized into the modules, not lifted — inherit markers,
-   `:project` aliases, deploy-config keys) — for legacy workspaces that
-   whole rewrite is one
-   `rig migrate` command (`--dry-run` first); plain tools.deps projects add
-   the keys by hand. `rig check` now surfaces any drift the old
-   machinery was hiding; resolve each finding with an explicit
+   resolved (`clojure -Spath` is the oracle). Verify that the test suite
+   passes.
+3. **Adopt the model.** Add `:rig/modules` to the root. Add `:rig/deps`
+   too, if you want to keep shared requirements. Rewrite the tooling
+   keys of each module to `:rig/*`. Delete the legacy machinery: managed
+   maps, inherit markers, `:project` aliases, and deploy-config keys.
+   Rig materializes the managed maps into the modules; it does not keep
+   them as shared requirements. For a legacy workspace, one `rig migrate`
+   command does that rewrite (run `--dry-run` first). A plain tools.deps
+   project adds the keys by hand. The old machinery hid drift; `rig
+   check` now surfaces it. Resolve each finding with an explicit
    `rig update`.
 4. **Harden CI.** Replace the workflow steps with the frozen gate:
-   `rig verify --frozen && rig check --frozen && rig test
-   --frozen`, `rig build --uber --frozen`, and `rig publish` + tag.
+   `rig verify --frozen && rig check --frozen && rig test --frozen`, `rig build --uber --frozen`, and `rig publish` + tag.
 5. **Clean out.** Delete the Makefile targets that only wrapped the old
    tooling and drop the old tools from the toolchain entirely.
 
-Step 1 alone delivers the security core — full-tree pinning, hashing,
-offline builds — without changing a single line of existing
-configuration. If you stop there, you have already won the important
-half.
+Step 1 alone delivers the security core: full-tree pinning, hashing, and
+offline builds. It does not change one line of existing configuration.
+If you stop there, you already have the important part.

@@ -1,7 +1,7 @@
 # CI
 
-The CI story is three commands, plus the release (`rig publish` + a tag —
-[Build, publish, release](build-publish.md#releasing)):
+The CI workflow is three commands, plus the release (`rig publish` and a
+tag — [Build, publish, release](build-publish.md#releasing)):
 
 ```sh
 rig verify --frozen && rig check --frozen && rig test --frozen
@@ -18,9 +18,9 @@ rig publish
 | `rig test --frozen` | the tests pass on the locked classpath, and if the lock were stale, fail instead of re-locking. |
 
 `--frozen` is what makes this a gate: any deviation from the committed
-lock is a hard error (exit 3), not a silent refresh. The gate may use the
-network to fill a cold cache — every byte is hash-checked against the lock
-either way.
+lockfile is a hard error (exit 3), not a silent refresh. The gate can use
+the network to fill a cold cache. Either way, Rig hash-checks every byte
+against the lockfile.
 
 Run `rig build --uber --frozen` afterwards for artifacts (or whatever
 your pipeline builds).
@@ -75,19 +75,19 @@ jobs:
 
 Notes:
 
-- **setup-rig** installs the Rig binary (SHA256-verified against the
-  release `SHA256SUMS`) and restores the artifact cache keyed on
-  `deps.lock`; the `setup-rig/save` step (last) persists what the run
-  populated. Pin the action ref to a tag or git sha, and `version` to a
-  release.
+- **setup-rig** installs the Rig binary (verified with the SHA256 hashes in
+  the release `SHA256SUMS`) and restores the artifact cache keyed on
+  `deps.lock`. The `setup-rig/save` step (last) stores what the run
+  downloaded. Pin the action ref to a tag or git sha, and pin `version` to
+  a release.
 - **Git dependencies** use the same git/ssh setup your repository already
-  uses; their commit shas are in the lock, so a green run means "this
+  uses. Their commit shas are in the lockfile, so a green run means "this
   exact commit".
-- The cache is keyed on `deps.lock` (same lock → warm hit, changed lock →
-  miss and re-fetch). It is optional speed for the default gate, which can
-  fetch on a cold cache, but required for the offline gate below: a cache
-  hit is what keeps that build hermetic.
-- The release is `rig publish` + a tag on the released version: the
+- The cache key is `deps.lock` (same lockfile → warm hit, changed
+  lockfile → miss and re-fetch). The default gate can fetch on a cold
+  cache, so the cache only adds speed there. The offline gate below needs
+  it: a cache hit is what keeps that build hermetic.
+- The release is `rig publish` and a tag on the released version: the
   version history is yours ([Build, publish, release](build-publish.md#releasing)).
   The push on `main` that triggered the workflow already carries the
   branch, so the step only pushes the tag.
@@ -101,33 +101,32 @@ add `--offline` to the gate:
 rig verify --frozen --offline && rig check --frozen --offline && rig test --frozen --offline
 ```
 
-`--offline` refuses the network, so every artifact (and the kernel and runner jars)
-must already be in the Rig cache (`~/.local/share/rig`) or a
-checksum-checked Maven repo (`~/.m2/repository`). On a cold cache it fails
-(exit 1) — that is the point: a green offline run is the hermeticity
-proof. Cache the Rig cache alongside `~/.m2/repository`/`~/.gitlibs`, or
-run where they are pre-populated.
+`--offline` refuses the network. Every artifact (and the kernel and runner
+jars) must already sit in the Rig cache (`~/.local/share/rig`) or in a
+checksum-checked Maven repository (`~/.m2/repository`). On a cold cache,
+Rig fails with exit 1. That is the point: a green offline run is the
+hermeticity proof. Cache the Rig cache alongside `~/.m2/repository` and
+`~/.gitlibs`, or run on a machine that has them filled.
 
 ## Managed JVMs
 
-When the workspace pins a JVM (`:rig/jvm` in the root `deps.edn`), Rig
-uses the rig-managed JDK for the major in the state dir — a matching
-system JDK serves only when no managed JDK is installed. For CI that
-means:
+When the workspace pins a JVM (`:rig/jvm` in the root `deps.edn`), Rig uses
+the rig-managed JDK for that major from the state dir. A matching system
+JDK serves only when no managed JDK exists. For CI, that means:
 
-- Do not rely on the runner's system JDK: the managed JDK is used
-  automatically, downloading on the first run (~200 MB) and hitting the
-  state dir afterwards. Cache `~/.local/share/rig` (it contains `jdks/`)
-  or pre-install with `rig jvm install <major>`.
-- Hermetic `--offline` builds need the pinned JDK already installed in the
-  state dir, or they fail with a hint.
+- Do not rely on the runner's system JDK. Rig uses the managed JDK
+  automatically. It downloads on the first run (~200 MB) and uses the state
+  dir afterwards. Cache `~/.local/share/rig` (it contains `jdks/`) or
+  pre-install with `rig jvm install <major>`.
+- Hermetic `--offline` builds need the pinned JDK already in the state dir,
+  or they fail with a hint.
 - Moving the pinned major to its newest release is a store-level change:
-  `rig jvm update` replaces the rig-managed JDK; `deps.lock` is not
-  written, so there is nothing to commit.
+  `rig jvm update` replaces the rig-managed JDK. Rig does not write
+  `deps.lock`, so there is nothing to commit.
 
 ## Per-PR testing
 
-For branch-level CI that doesn't deploy, the same frozen trio works on a
+For branch-level CI that does not deploy, the same frozen trio works on a
 subset:
 
 ```sh
@@ -136,12 +135,12 @@ rig check --frozen -p modules/example   # -p restricts the ns-load stage
 rig test --frozen -p modules/example :kaocha.filter/focus '[:unit]'
 ```
 
-`check`'s stage 1 (lock vs manifests) is always workspace-wide; `-p`
+Stage 1 of `check` (lockfile vs manifests) is always workspace-wide. `-p`
 only narrows the namespace-loading stage 2.
 
 ## What CI must NOT do
 
-- run plain `rig test` without `--frozen` — a stale lock would re-lock in
-  CI and the failure you wanted would disappear;
-- commit `deps.lock` changes from CI — lock changes belong to the PR that
-  changed the requirements, where they get reviewed.
+- run plain `rig test` without `--frozen` — a stale lockfile would re-lock
+  in CI, and the failure you wanted would disappear;
+- commit `deps.lock` changes from CI — lockfile changes belong to the PR
+  that changed the requirements, where you review them.
