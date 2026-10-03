@@ -21,6 +21,8 @@ var (
 
 var shaRe = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
+var extRe = regexp.MustCompile(`^[0-9a-z]+$`)
+
 type Store struct{ Root string }
 
 func New() (*Store, error) {
@@ -39,8 +41,19 @@ func NewAt(root string) *Store { return &Store{Root: root} }
 
 func (s *Store) Artifacts() string { return filepath.Join(s.Root, "artifacts") }
 
-func (s *Store) ArtifactPath(sha string) string {
-	return filepath.Join(s.Artifacts(), sha)
+// ArtifactPath returns an artifact's cache path: "<sha256>.<extension>".
+// The extension is part of the name on purpose: the JDK derives jar: URLs
+// from the file suffix, and an extension-less classpath entry hands CLJS
+// consumers file: URLs, breaking resource copying out of jars. An empty or
+// malformed extension addresses the legacy extension-less layout.
+func (s *Store) ArtifactPath(sha, ext string) string {
+	if !extRe.MatchString(ext) {
+		ext = ""
+	}
+	if ext == "" {
+		return filepath.Join(s.Artifacts(), sha)
+	}
+	return filepath.Join(s.Artifacts(), sha+"."+ext)
 }
 
 func (s *Store) KernelDir(sha string) string {
@@ -64,25 +77,41 @@ func checkSHA(sha string) error {
 	return nil
 }
 
-func (s *Store) Get(sha string) (string, error) {
+func (s *Store) Get(sha, ext string) (string, error) {
 	if err := checkSHA(sha); err != nil {
 		return "", err
 	}
-	p := s.ArtifactPath(sha)
-	if _, err := os.Stat(p); err != nil {
+	p := s.ArtifactPath(sha, ext)
+	if _, err := os.Stat(p); err == nil {
+		return p, nil
+	}
+	if ext == "" {
 		return "", ErrMissing
+	}
+	// A legacy extension-less entry (pre-extension layout): adopt it into
+	// the extension layout so a classpath never carries an extension-less
+	// name again. A losing rename race means a concurrent Get already
+	// adopted it; the entry itself is the same verified content either way.
+	old := s.ArtifactPath(sha, "")
+	if _, err := os.Stat(old); err != nil {
+		return "", ErrMissing
+	}
+	if err := os.Rename(old, p); err != nil {
+		if _, err := os.Stat(p); err != nil {
+			return "", ErrMissing
+		}
 	}
 	return p, nil
 }
 
-func (s *Store) Add(src, sha string) error {
+func (s *Store) Add(src, sha, ext string) error {
 	if err := checkSHA(sha); err != nil {
 		return err
 	}
 	if err := os.MkdirAll(s.Artifacts(), 0o755); err != nil {
 		return err
 	}
-	dst := s.ArtifactPath(sha)
+	dst := s.ArtifactPath(sha, ext)
 	// A unique temp per call: concurrent Adds of the same sha (identical
 	// content served from different URLs) must not collide on one shared
 	// "<sha>.tmp" — the second rename would fail with ENOENT.
@@ -137,8 +166,8 @@ func urlKey(url string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func (s *Store) Verify(sha string) error {
-	p, err := s.Get(sha)
+func (s *Store) Verify(sha, ext string) error {
+	p, err := s.Get(sha, ext)
 	if err != nil {
 		return err
 	}

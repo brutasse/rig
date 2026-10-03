@@ -143,12 +143,12 @@ func Build(ctx context.Context, client *fetch.Client, store *cache.Store, m2root
 
 func secureMvn(ctx context.Context, client *fetch.Client, store *cache.Store, m2root string, a lockfile.Artifact) (string, error) {
 	if a.URL == "" {
-		if p, err := store.Get(a.SHA256); err == nil && store.Verify(a.SHA256) == nil {
+		if p, err := store.Get(a.SHA256, a.Extension); err == nil && store.Verify(a.SHA256, a.Extension) == nil {
 			return p, nil
 		}
 		return "", fmt.Errorf("classpath: artifact %s is not in the cache and has no download URL", a.ID)
 	}
-	p, _, err := client.Get(ctx, store, fetch.Item{URL: a.URL, Repo: a.Repository, Local: M2Path(m2root, a), SHA: a.SHA256})
+	p, _, err := client.Get(ctx, store, fetch.Item{URL: a.URL, Repo: a.Repository, Ext: a.Extension, Local: M2Path(m2root, a), SHA: a.SHA256})
 	return p, err
 }
 

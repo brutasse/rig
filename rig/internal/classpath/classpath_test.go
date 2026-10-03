@@ -32,7 +32,7 @@ func storeWithArtifact(t *testing.T, doc *lockfile.Document) *cache.Store {
 	}
 	sha := shaOf(artifactBody)
 	doc.Artifacts[0].SHA256 = sha
-	if err := store.Add(src, sha); err != nil {
+	if err := store.Add(src, sha, ""); err != nil {
 		t.Fatal(err)
 	}
 	return store
@@ -59,7 +59,7 @@ func TestBuildBase(t *testing.T) {
 	want := []string{
 		filepath.Join(ws, "src"),
 		filepath.Join(ws, "resources"),
-		filepath.Join(store.Artifacts(), sha),
+		store.ArtifactPath(sha, doc.Artifacts[0].Extension),
 	}
 	got := Flatten(es)
 	if len(got) != len(want) {
@@ -95,7 +95,7 @@ func TestBuildAlias(t *testing.T) {
 	want := []string{
 		filepath.Join(ws, "test"),
 		filepath.Join(ws, "src"),
-		filepath.Join(store.Artifacts(), doc.Artifacts[0].SHA256),
+		store.ArtifactPath(doc.Artifacts[0].SHA256, doc.Artifacts[0].Extension),
 	}
 	got := Flatten(es)
 	if len(got) != len(want) {
@@ -126,7 +126,7 @@ func TestBuildLocalModule(t *testing.T) {
 	}
 	want := []string{
 		filepath.Join(ws, "src"),
-		filepath.Join(store.Artifacts(), doc.Artifacts[0].SHA256),
+		store.ArtifactPath(doc.Artifacts[0].SHA256, doc.Artifacts[0].Extension),
 		filepath.Join(ws, "modules", "app", "src"),
 		filepath.Join(ws, "modules", "app", "resources"),
 	}

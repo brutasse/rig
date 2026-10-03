@@ -60,12 +60,15 @@ func (c *Client) authorize(req *http.Request, repo string) {
 	}
 }
 
-// Item identifies an artifact to fetch: its repository URL and id, the local
-// Maven repository copy when known (Local, "" when absent), and, for known
-// artifacts, the expected sha256 (SHA).
+// Item identifies an artifact to fetch: its repository URL and id, the
+// extension the cache entry carries (Ext, e.g. "jar" — the JDK needs the
+// suffix in the file name), the local Maven repository copy when known
+// (Local, "" when absent), and, for known artifacts, the expected sha256
+// (SHA).
 type Item struct {
 	URL   string
 	Repo  string
+	Ext   string
 	Local string
 	SHA   string
 }
@@ -74,8 +77,8 @@ type Item struct {
 // else imported from the local m2 copy when it hashes to it.SHA, else
 // downloaded (and verified) from the repository.
 func (c *Client) Get(ctx context.Context, store *cache.Store, it Item) (string, bool, error) {
-	if p, err := store.Get(it.SHA); err == nil {
-		if err := store.Verify(it.SHA); err == nil {
+	if p, err := store.Get(it.SHA, it.Ext); err == nil {
+		if err := store.Verify(it.SHA, it.Ext); err == nil {
 			return p, true, nil
 		}
 	}
@@ -93,9 +96,9 @@ func (c *Client) Get(ctx context.Context, store *cache.Store, it Item) (string, 
 // is reported as a mismatch (never re-fetched), so tampering is surfaced, not
 // masked. Missing entries are taken from m2 or the repository and checked.
 func (c *Client) VerifyGet(ctx context.Context, store *cache.Store, it Item) (string, bool, error) {
-	if _, err := store.Get(it.SHA); err == nil {
-		if err := store.Verify(it.SHA); err == nil {
-			return store.ArtifactPath(it.SHA), true, nil
+	if _, err := store.Get(it.SHA, it.Ext); err == nil {
+		if err := store.Verify(it.SHA, it.Ext); err == nil {
+			return store.ArtifactPath(it.SHA, it.Ext), true, nil
 		}
 		return "", false, fmt.Errorf("%w: %s", cache.ErrMismatch, it.SHA)
 	}
@@ -115,16 +118,16 @@ func (c *Client) VerifyGet(ctx context.Context, store *cache.Store, it Item) (st
 // recorded beside it; a download from the repository.
 func (c *Client) GetNew(ctx context.Context, store *cache.Store, it Item) (string, string, error) {
 	if sha, ok := store.RecordedSHA(it.URL); ok {
-		if _, err := store.Get(sha); err == nil && store.Verify(sha) == nil {
-			return sha, store.ArtifactPath(sha), nil
+		if _, err := store.Get(sha, it.Ext); err == nil && store.Verify(sha, it.Ext) == nil {
+			return sha, store.ArtifactPath(sha, it.Ext), nil
 		}
 	}
 	if it.Local != "" {
 		if want, ok := mavenSHA1(it.Local); ok {
 			if s1, sha, err := fileHashes(it.Local); err == nil && s1 == want {
-				if err := store.Add(it.Local, sha); err == nil {
+				if err := store.Add(it.Local, sha, it.Ext); err == nil {
 					store.RecordURL(it.URL, sha)
-					return sha, store.ArtifactPath(sha), nil
+					return sha, store.ArtifactPath(sha, it.Ext), nil
 				}
 			}
 		}
@@ -158,11 +161,11 @@ func (c *Client) GetNew(ctx context.Context, store *cache.Store, it Item) (strin
 		return "", "", err
 	}
 	sha := hex.EncodeToString(h.Sum(nil))
-	if err := store.Add(name, sha); err != nil {
+	if err := store.Add(name, sha, it.Ext); err != nil {
 		return "", "", err
 	}
 	store.RecordURL(it.URL, sha)
-	return sha, store.ArtifactPath(sha), nil
+	return sha, store.ArtifactPath(sha, it.Ext), nil
 }
 
 func (c *Client) download(ctx context.Context, store *cache.Store, it Item) (string, error) {
@@ -195,10 +198,10 @@ func (c *Client) download(ctx context.Context, store *cache.Store, it Item) (str
 	if got != it.SHA {
 		return "", fmt.Errorf("fetch: %s: %w (got %s, want %s)", it.URL, cache.ErrMismatch, got, it.SHA)
 	}
-	if err := store.Add(name, it.SHA); err != nil {
+	if err := store.Add(name, it.SHA, it.Ext); err != nil {
 		return "", err
 	}
-	return store.ArtifactPath(it.SHA), nil
+	return store.ArtifactPath(it.SHA, it.Ext), nil
 }
 
 // fromLocal imports it.Local into the cache when its content hashes to want.
@@ -210,10 +213,10 @@ func fromLocal(store *cache.Store, it Item, want string) (string, bool) {
 	if err != nil || got != want {
 		return "", false
 	}
-	if err := store.Add(it.Local, want); err != nil {
+	if err := store.Add(it.Local, want, it.Ext); err != nil {
 		return "", false
 	}
-	return store.ArtifactPath(want), true
+	return store.ArtifactPath(want, it.Ext), true
 }
 
 // mavenSHA1 reads the Maven <file>.sha1 record written beside downloaded
