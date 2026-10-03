@@ -141,6 +141,17 @@ commands reject v1 locks with an unsupported-version error. `rig lock`,
 
 ### Fixed
 
+- **The AOT compile JVM.** The kernel forks one JVM to compile the
+  namespaces of the module. `tools.build` chose that JVM from the
+  environment: `JAVA_CMD`, then the `PATH` search, then `JAVA_HOME`. The
+  host JVM compiled the code, while the kernel itself ran on the JVM Rig
+  used for the workspace. A green build said nothing about the pinned
+  JVM. The kernel now starts the fork on its own JVM — the JVM Rig
+  launched for the workspace. `JAVA_CMD` and `JAVA_HOME` no longer select
+  the fork's JVM. The build's kernel JVM also gets `JAVA_HOME` of the
+  managed JDK, as the run and test JVMs already did. Code that starts a
+  JVM at build time now sees the same JDK as in `rig run` and
+  `rig test`.
 - **Bytecode floor.** The kernel jar of v0.1.0 compiled without a
   `--release` pin and shipped a Java 21-targeted `Main.class` — it
   failed to load on any `:rig/jvm` pin below 21. Rig now compiles the

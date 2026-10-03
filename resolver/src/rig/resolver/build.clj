@@ -229,6 +229,17 @@
                        (:compile plan)))
    "\n (System/exit 0)\n)"))
 
+(defn- java-exe
+  "The java executable of the running JVM. The AOT fork is the kernel's own
+  JVM: rig launches the kernel with the workspace's picked JDK, so the
+  compile happens on the pinned JVM. tools.build's default lookup ($JAVA_CMD,
+  then java on PATH, then $JAVA_HOME) ignores the running JVM, and a green
+  build would silently compile on the host's java."
+  []
+  (.getPath (io/file (System/getProperty "java.home") "bin"
+                     (if (str/starts-with? (System/getProperty "os.name") "Win")
+                       "java.exe" "java"))))
+
 (defn- aot-compile
   "Two-phase AOT compile of the module's own namespaces, in place of
   b/compile-clj: the plan's preloads (the non-project namespaces the
@@ -239,8 +250,9 @@
   classpath, clojure.main runs the script, and on success the working
   dir is copied into the class-dir; on failure the working dir is
   preserved (script and command line included) for inspection. The
-  fork inherits the workspace's :rig/compile-jvm-opts as JVM flags —
-  the flags must reach the JVM that compiles, not just the kernel."
+  fork runs on the kernel's own JVM (java-exe) and inherits the
+  workspace's :rig/compile-jvm-opts as JVM flags — the flags must reach
+  the JVM that compiles, not just the kernel."
   [basis class-dir artifact-dirs extra compile-jvm-opts]
   (let [plan (aot/plan artifact-dirs extra)]
     (when (seq (:compile plan))
@@ -250,7 +262,8 @@
             script (io/file working "compile.clj")
             _ (io/make-parents class-dir)
             _ (spit script (script-text (.getPath wdir) plan))
-            args (process/java-command {:cp [(.getPath wdir) (str class-dir)]
+            args (process/java-command {:java-cmd (java-exe)
+                                        :cp [(.getPath wdir) (str class-dir)]
                                         :java-opts compile-jvm-opts
                                         :basis basis
                                         :main 'clojure.main

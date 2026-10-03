@@ -191,13 +191,15 @@ func (e *hotEnv) buildOne(ctx context.Context, m string, uber, native bool) (str
 		cfg["launch"] = launch
 	}
 
+	// The kernel JVM runs the project's code (the AOT compile), so it gets the
+	// picked JDK's JAVA_HOME like every other JVM that runs it.
 	resp, err := kernel.Call(ctx, e.kernel, e.java, kernel.Request{
 		Op:        "build",
 		Workspace: e.root.Dir,
 		Modules:   []string{m},
 		Args:      map[string]any{"builds": map[string]any{m: cfg}},
 		JVMFlags:  e.lock.CompileJVMOpts,
-	})
+	}, e.javaEnv...)
 	if err != nil {
 		var oe *kernel.OpError
 		if errors.As(err, &oe) {

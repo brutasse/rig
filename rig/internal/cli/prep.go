@@ -458,7 +458,7 @@ func (e *hotEnv) runJavaPrep(ctx context.Context, m string, mod lockfile.Module)
 		Workspace: e.root.Dir,
 		Modules:   []string{m},
 		Args:      map[string]any{"builds": map[string]any{m: cfg}},
-	})
+	}, e.javaEnv...)
 	if err != nil {
 		var oe *kernel.OpError
 		if errors.As(err, &oe) {
