@@ -202,6 +202,10 @@ func checkModuleLoads(ctx context.Context, e *hotEnv, m string) (*checkProblem, 
 	var plan struct {
 		Preload []string `json:"preload"`
 		Compile []string `json:"compile"`
+		Skipped []struct {
+			File   string `json:"file"`
+			Reason string `json:"reason"`
+		} `json:"skipped"`
 	}
 	out, err := kernel.Call(ctx, e.kernel, e.java, kernel.Request{
 		Op:        "aot-plan",
@@ -246,6 +250,22 @@ func checkModuleLoads(ctx context.Context, e *hotEnv, m string) (*checkProblem, 
 	runArgs = append(runArgs, plan.Compile...)
 	err = jvm.Run{Java: e.java, Args: runArgs, Dir: e.modDir(m), Env: e.javaEnv}.Run()
 	if err == nil {
+		if len(plan.Skipped) > 0 {
+			skip := make([]string, len(plan.Skipped))
+			for i, s := range plan.Skipped {
+				skip[i] = fmt.Sprintf("%s (%s)", s.File, s.Reason)
+			}
+			// Data, not sources: a .clj under :paths without a readable
+			// ns form (config maps, deps-new templates) stays on the
+			// classpath as the resource it is — but say so, loudly
+			// enough that a mangled real source is not lost silently.
+			return &checkProblem{
+				Severity: "warn",
+				Kind:     "plan-skip",
+				Module:   m,
+				Message:  fmt.Sprintf("skipped %d non-namespace source(s): %s", len(plan.Skipped), strings.Join(skip, ", ")),
+			}, nil
+		}
 		return nil, nil
 	}
 	if code := jvm.Code(err); code == 1 {
