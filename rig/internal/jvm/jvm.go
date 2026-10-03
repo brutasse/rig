@@ -1,6 +1,7 @@
 package jvm
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -52,6 +53,10 @@ type Run struct {
 	Args []string
 	Dir  string
 	Env  []string
+	// Ctx bounds the forked JVM's lifetime: cancelling it kills the
+	// process and Run returns (the Exec path hands the process to the
+	// JVM, where the caller's own signal handling applies instead).
+	Ctx context.Context
 	// Exec, when set, replaces the current process with the JVM instead of
 	// forking and waiting: the caller's process becomes the JVM (its exit
 	// code is the JVM's, and signals reach it directly). On platforms
@@ -67,7 +72,12 @@ func (r Run) Run() error {
 		}
 		// No process exec on this platform (or it failed): fork and wait.
 	}
-	cmd := exec.Command(r.Java, r.Args...)
+	var cmd *exec.Cmd
+	if r.Ctx != nil {
+		cmd = exec.CommandContext(r.Ctx, r.Java, r.Args...)
+	} else {
+		cmd = exec.Command(r.Java, r.Args...)
+	}
 	cmd.Dir = r.Dir
 	cmd.Env = append(os.Environ(), r.Env...)
 	cmd.Stdin = os.Stdin

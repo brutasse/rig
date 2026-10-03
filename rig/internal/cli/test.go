@@ -2,10 +2,12 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -15,21 +17,36 @@ import (
 )
 
 func newTestCmd(o *opts) *cobra.Command {
-	return &cobra.Command{
+	var timeout string
+	cmd := &cobra.Command{
 		Use:   "test [opt value...]",
 		Short: "Run the tests of the target modules",
 		Long: `Runs each target module's test exec-fn on its locked test classpath.
 Without -p, every module that declares a test exec-fn is run, in lock
 order. EDN arguments are forwarded to the exec-fn as key/value opts:
 
-  rig test :kaocha.filter/focus '[:unit]'`,
+  rig test :kaocha.filter/focus '[:unit]'
+
+An exec-fn that never returns — a test runner wedged on a dead child
+process, say — holds the module's slot forever; the runner JVM cannot be
+trusted to exit on its own. A watchdog kills it and fails the run: by
+default after 30m, set with --timeout, 0 disables.
+
+  rig test --timeout 15m`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runTest(cmd.Context(), o, args)
+			d, err := time.ParseDuration(timeout)
+			if err != nil {
+				return exitf(2, "test --timeout %q: %v", timeout, err)
+			}
+			return runTest(cmd.Context(), o, args, d)
 		},
 	}
+	cmd.Flags().StringVar(&timeout, "timeout", "30m",
+		"kill a test exec-fn that has not finished after this duration (0 disables)")
+	return cmd
 }
 
-func runTest(ctx context.Context, o *opts, args []string) error {
+func runTest(ctx context.Context, o *opts, args []string, timeout time.Duration) error {
 	e, err := o.hot(ctx, true)
 	if err != nil {
 		return err
@@ -86,7 +103,21 @@ func runTest(ctx context.Context, o *opts, args []string) error {
 		runArgs := append([]string{}, mod.JVMOpts...)
 		runArgs = append(runArgs, al.JVMOpts...)
 		runArgs = append(runArgs, "-cp", full, "rig.runner", "test", al.Exec.Fn, name)
-		err = jvm.Run{Java: e.java, Args: runArgs, Dir: e.modDir(m), Env: append(envSlice(al.Env), e.javaEnv...)}.Run()
+		runCtx := ctx
+		var cancel context.CancelFunc
+		if timeout > 0 {
+			// Watchdog: a wedged exec-fn is killed at the deadline and
+			// fails the run — hanging CI is worse than red CI.
+			runCtx, cancel = context.WithTimeout(ctx, timeout)
+		}
+		err = jvm.Run{Ctx: runCtx, Java: e.java, Args: runArgs, Dir: e.modDir(m), Env: append(envSlice(al.Env), e.javaEnv...)}.Run()
+		if cancel != nil {
+			stuck := errors.Is(runCtx.Err(), context.DeadlineExceeded)
+			cancel()
+			if stuck {
+				return exitf(1, "test: %s: exec-fn %s did not finish in %s, killed (--timeout to raise, --timeout 0 to disable)", m, al.Exec.Fn, timeout)
+			}
+		}
 		if err == nil {
 			continue
 		}

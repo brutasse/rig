@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/brutasse/rig/internal/digest"
 	"github.com/brutasse/rig/internal/jvm"
@@ -131,6 +132,27 @@ func TestHotTestAll(t *testing.T) {
 	}
 	if !strings.Contains(out, "tests failed in: modules/app") {
 		t.Errorf("all test out = %q", out)
+	}
+}
+
+func TestHotTestTimeout(t *testing.T) {
+	hotSetup(t)
+	// An exec-fn that never returns must be killed by the watchdog and
+	// fail the run, not hang forever (a kaocha-cljs suite
+	// wedged on a dead node client hung rig test indefinitely).
+	writeFile(t, "modules/app/test/app/sleepy_test.clj",
+		"(ns app.sleepy-test\n  (:require [clojure.test :refer [deftest]]))\n(deftest forever (Thread/sleep 3600000))\n")
+	start := time.Now()
+	code, out := runCLI(t, "test", "--cache-dir", t.TempDir(), "--timeout", "3s")
+	elapsed := time.Since(start)
+	if code != 1 {
+		t.Fatalf("exit = %d, want 1; out: %s", code, out)
+	}
+	if !strings.Contains(out, "did not finish in 3s, killed") {
+		t.Errorf("out = %q, want the watchdog failure", out)
+	}
+	if elapsed > time.Minute {
+		t.Errorf("watchdog fired after %v, want promptly after 3s", elapsed)
 	}
 }
 
