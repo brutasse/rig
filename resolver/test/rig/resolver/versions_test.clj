@@ -183,6 +183,16 @@
           (is (= 1 (count (:refused res))) "nothing selected -> refused")
           (is (= "cooldown" (get-in res [:refused 0 :reason]))))))))
 
+(deftest select-versions-accepts-per-repo-cooldowns
+  "all-cooldowns-zero? folds the per-repo cooldowns in: an (apply zero?
+  ...) crashed with ArityException as soon as :repos was non-empty."
+  (let [data {:deps {'com.rig.test/cooldown {:mvn/version "RELEASE"}}}]
+    (is (= {:selected {} :skipped [] :refused [] :changed? false}
+           (versions/select-versions data [] {:default "0s" :repos {"f" "0s"}}
+                                     false {} {} true
+                                     (System/currentTimeMillis)))
+        "all-zero per-repo cooldowns defer to native resolution")))
+
 ;; --- :auth :oidc repos: bearer header on authenticated probes ---
 
 (defn- auth-metadata-body

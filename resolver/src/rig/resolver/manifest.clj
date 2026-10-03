@@ -31,19 +31,19 @@
   [dir]
   (let [file (io/file dir "deps.edn")]
     (if (.exists file)
-      (let [bytes (Files/readAllBytes (.toPath file))]
-        (let [data (edn/read-string (String. bytes "UTF-8"))
-              legacy (set (legacy-keys-of data))]
-          (when (seq legacy)
-            (throw (ex-info (str (.getPath file)
-                                 ": still uses legacy keys "
-                                 (str/join ", " (map str (sort legacy)))
-                                 " - run rig migrate")
-                            {:rig/legacy? true})))
-          {:dir (str dir)
-           :file (str file)
-           :sha256 (sha256-hex bytes)
-           :data data}))
+      (let [bytes (Files/readAllBytes (.toPath file))
+            data (edn/read-string (String. bytes "UTF-8"))
+            legacy (set (legacy-keys-of data))]
+        (when (seq legacy)
+          (throw (ex-info (str (.getPath file)
+                               ": still uses legacy keys "
+                               (str/join ", " (map str (sort legacy)))
+                               " - run rig migrate")
+                          {:rig/legacy? true})))
+        {:dir (str dir)
+         :file (str file)
+         :sha256 (sha256-hex bytes)
+         :data data})
       {:dir (str dir)
        :file (str file)
        :sha256 nil

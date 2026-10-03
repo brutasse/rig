@@ -62,7 +62,7 @@
         root-data (or (:data root-man) {})
         module-dirs (manifest/modules-of root-data)
         manifests (into {ws root-man}
-                        (for [m (remove #(.equals % ".") module-dirs)]
+                        (for [m (remove #{"."} module-dirs)]
                           [m (manifest/read-manifest (str (io/file ws m)))]))
         extra (distinct (mapcat (fn [man]
                                   (for [[id sp] (get-in (or (:data man) {}) [:mvn/repos] {})]
@@ -198,11 +198,8 @@
         rel (fn [abs]
               (try (str (.relativize ws-path (.toPath (io/file abs))))
                    (catch IllegalArgumentException _ nil)))
-        refs (concat (keep (fn [[_ spec]] (get spec :local/root))
-                           (get data :deps {}))
-                     (mapcat (fn [al]
-                               (keep (fn [[_ spec]] (get spec :local/root))
-                                     (get-in al [:extra-deps] {})))
+        refs (concat (keep (comp :local/root val) (get data :deps {}))
+                     (mapcat #(keep (comp :local/root val) (get-in % [:extra-deps] {}))
                              (vals (get data :aliases {}))))]
     (for [r refs]
       (let [abs (some-> (io/file mdir r) (.getCanonicalPath) str)]
@@ -257,9 +254,9 @@
         now-ms (System/currentTimeMillis)
         module-dirs (manifest/modules-of root-data)
         declared-abs (into {} (for [m module-dirs]
-                                [m (let [p (if (= m ".") ws (str (io/file ws m)))]
-                                     (try (some-> p (io/file) (.getCanonicalPath) str)
-                                          (catch Exception _ p)))]))
+                                [m (let [d (if (= m ".") ws (str (io/file ws m)))]
+                                     (try (some-> d (io/file) (.getCanonicalPath) str)
+                                          (catch Exception _ d)))]))
         ;; A :local/root dependency that is not itself a workspace module
         ;; (e.g. a dev/ test overlay with its own manifest) is locked as a
         ;; local module: it enters the modules map so classpath
@@ -270,7 +267,7 @@
         m2 (m2dir)
         gl (gitlibs-dir)
         manifests (into {ws root-man}
-                        (for [m (concat (remove #(.equals % ".") module-dirs)
+                        (for [m (concat (remove #{"."} module-dirs)
                                         (keys local-mods))]
                           [(get modules-abs m) (manifest/read-manifest (get modules-abs m))]))
         git-deps (apply merge (map (fn [man] (git-deps-of (or (:data man) {}))) (vals manifests)))
@@ -280,9 +277,7 @@
                                                 (vals manifests)))]
                     (into (vec (versions/standard-repos-of (into #{} (map first extra))))
                           (sort-by first extra)))
-        state (atom {:skipped [] :refused []})
-        modules (into {}
-                      (for [m (concat module-dirs (keys local-mods))]
+        mres (into {} (for [m (concat module-dirs (keys local-mods))]
                         (let [mdir (get modules-abs m)
                               man (get manifests mdir)
                               data (or (:data man) {})
@@ -294,8 +289,6 @@
                                                             overrides
                                                             respect-pins?
                                                             now-ms)
-                              _ (swap! state update :skipped into (:skipped sel))
-                              _ (swap! state update :refused into (:refused sel))
                               proj (let [base (or (when (:changed? sel)
                                                     (versions/apply-versions data (:selected sel) overrides))
                                                   data)]
@@ -309,7 +302,12 @@
                                                  [al (plan/map-classpath
                                                       (:classpath-roots (resolve-basis mdir [al] proj))
                                                       modules-abs m2 gl)]))]
-                          [m (module-plan ws mdir man base-mapped alias-maps m2 gl modules-abs)])))
+                          [m {:plan (module-plan ws mdir man base-mapped alias-maps m2 gl modules-abs)
+                              :skipped (:skipped sel)
+                              :refused (:refused sel)}])))
+        modules (into {} (for [[m r] mres] [m (:plan r)]))
+        skipped (mapcat :skipped (vals mres))
+        refused (mapcat :refused (vals mres))
         artifacts (into []
                         (pmap (fn [a]
                                 (if (= "mvn" (:kind a))
@@ -334,8 +332,7 @@
                   "artifacts" artifacts
                   "skipped" (mapv skip-entry
                                   (distinct (sort-by (juxt :coord :version :reason)
-                                                     (:skipped @state))))
-                  "modules" (into {} (for [[k v] modules] [k (dissoc v :raw-artifacts)]))}
-        refused (:refused @state)]
+                                                     skipped)))
+                  "modules" (into {} (for [[k v] modules] [k (dissoc v :raw-artifacts)]))}]
     (cond-> {"lock" lock-doc}
       (seq refused) (assoc "refused" refused))))
