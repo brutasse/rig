@@ -440,9 +440,16 @@
 (def lein-dep-options #{:exclusions :local/root :git/url :git/sha})
 
 (defn- sym-exclusions
-  "Maven exclusion coords as symbols (rig's shape)."
+  "Maven exclusion coords as symbols (rig's shape), qualifying bare
+  symbols as lein expands dep coords: bare X is X/X. tools.deps matches
+  exclusions by qualified lib, so an unqualified entry is a silent
+  no-op (plus a DEPRECATED warning at lock time) — lein repos carry
+  them."
   [xs]
-  (vec (map (fn [x] (if (symbol? x) x (symbol x))) xs)))
+  (vec (map (fn [x]
+              (let [s (if (symbol? x) x (symbol x))]
+                (if (namespace s) s (symbol (name s) (name s)))))
+            xs)))
 
 (defn- unquote-var
   "The lein-replace var of a `~var` slot (the reader produces
