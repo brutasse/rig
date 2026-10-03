@@ -119,7 +119,7 @@
         [per-pins all-pins] (pins-of lock)
         root-man (manifest/read-manifest ws)
         root-data (or (:data root-man) {})
-        module-dirs (remove #(.equals % ".") (manifest/modules-of root-data))
+        module-dirs (remove #{"."} (manifest/modules-of root-data))
         mod-dir (fn [m] (str (io/file ws m)))
         manifests (into {"." root-man}
                          (for [m module-dirs] [m (manifest/read-manifest (mod-dir m))]))
@@ -128,99 +128,100 @@
                           (for [[m man] (dissoc manifests ".")
                                 :when (:data man)]
                             [m (reqs-of (:data man))]))
-         ;; [module coord version scope] — scope :own checks a requirement
-         ;; against the module's own locked classpaths; scope :workspace
-         ;; (:rig/deps shared requirements) against any locked classpath.
-         sites (concat
-                (for [[c v] (reqs-of root-data)] ["." c v :own])
-                (for [[c v] managed] ["." c v :workspace])
-                (for [m module-dirs
-                      [c v] (get module-reqs m [])]
-                  [m c v :own]))
-        pats (atom [])
-        add (fn [severity kind module coord message]
-              (swap! pats conj {:severity severity
-                                :kind kind
-                                :module module
-                                :coord coord
-                                 :message message}))]
-
-        (doseq [[m c v _] sites
-                :when (versions/floating? v)]
-          (add "error" "floating-version" m c
-               (str "manifest uses \"" v "\"; run `rig update " c
-                    "` to pin an exact version")))
-
-        (doseq [[m c v scope] sites
-                :when (not (versions/floating? v))
-                :let [p (get (if (= scope :workspace) all-pins
-                               (get per-pins m {})) c)]
-                :when (not (and (seq p) (some #(satisfied? v %) p)))]
-          (add "error" "stale-lock" m c
-               (if (seq p)
-                 (str (if (= scope :workspace) "workspace requires"
-                        "manifest requires")
-                      " \"" v "\"; lock pins \"" (first p)
-                      "\" — run rig update")
-                 (if (= scope :workspace)
-                   (str "workspace requires \"" v
-                        "\"; no module pins it — run rig update")
-                   (str "manifest requires \"" v
-                        "\"; lock has no pin — run rig lock")))))
-
-        (doseq [m module-dirs
-                [c v] (get module-reqs m [])
-                :let [w (get managed c)]
-                :when (and (some? w)
-                           (not (versions/floating? v))
-                           (not (versions/floating? w))
-                           (not= v w))]
-          (add "warn" "drift" m c
-               (str "module requires \"" v "\", workspace requires \"" w "\"")))
-
-          (let [per-coord (reduce (fn [acc [m c v _]]
-                                  (if (or (= m ".") (versions/floating? v))
-                                    acc
-                                    (update acc c (fn [mm]
-                                                    (assoc mm m (conj (get mm m) v))))))
-                                {}
-                                sites)
-              ms-of (fn [mods] (sort (keys mods)))]
-          (doseq [[c mods] (sort-by key per-coord)
-                  :let [ms (ms-of mods)
-                        bad (some (fn [[i j]]
-                                    (let [m1 (nth ms i) m2 (nth ms j)]
-                                      (some identity
-                                           (for [v1 (get mods m1)
-                                                 v2 (get mods m2)
-                                                 :when (and (not (satisfied? v1 v2))
-                                                            (not (satisfied? v2 v1)))]
-                                               [m1 v1 m2 v2]))))
-                                  (for [i (range (count ms))
-                                        j (range (inc i) (count ms))] [i j]))]
-                  :when bad]
-            (let [[m1 v1 m2 v2] bad]
-              (add "error" "conflict" m1 c
-                   (str "requirements \"" v1 "\" (" m1 ") and \"" v2
-                        "\" (" m2 ") are incompatible")))))
-
-        (doseq [m (cons "." module-dirs)
-                :let [d (or (:data (get manifests m)) {})]
-                :when (and (manifest/publish? d) (not (manifest/lib d)))]
-          (add "error" "no-lib" m ""
-               "publish is enabled but the module has no :rig/lib coordinate"))
-
-         (let [declared (into #{"central" "clojars"}
-                              (for [m (keys manifests)
-                                    :let [d (or (:data (get manifests m)) {})]
-                                    id (keys (get d :mvn/repos {}))]
-                                id))]
-          (doseq [r (sort (repo-ids-of lock))
-                  :when (not (declared r))]
-            (add "error" "unknown-repo" "." r
-                 (str "lock pins artifacts via repo \"" r
-                      "\" which no manifest declares under :mvn/repos"))))
-
-        (let [problems (distinct (sort-by (juxt :module :coord :kind) @pats))]
-          {:ok (every? #(= "warn" (:severity %)) problems)
-           :problems (vec problems)})))
+        ;; [module coord version scope] — scope :own checks a requirement
+        ;; against the module's own locked classpaths; scope :workspace
+        ;; (:rig/deps shared requirements) against any locked classpath.
+        sites (concat
+               (for [[c v] (reqs-of root-data)] ["." c v :own])
+               (for [[c v] managed] ["." c v :workspace])
+               (for [m module-dirs
+                     [c v] (get module-reqs m [])]
+                 [m c v :own]))
+        floating (for [[m c v _] sites
+                       :when (versions/floating? v)]
+                   {:severity "error"
+                    :kind "floating-version"
+                    :module m
+                    :coord c
+                    :message (str "manifest uses \"" v "\"; run `rig update " c
+                                  "` to pin an exact version")})
+        stale (for [[m c v scope] sites
+                    :when (not (versions/floating? v))
+                    :let [p (get (if (= scope :workspace) all-pins
+                                   (get per-pins m {})) c)]
+                    :when (not (and (seq p) (some #(satisfied? v %) p)))]
+                  {:severity "error"
+                   :kind "stale-lock"
+                   :module m
+                   :coord c
+                   :message (if (seq p)
+                              (str (if (= scope :workspace) "workspace requires"
+                                     "manifest requires")
+                                   " \"" v "\"; lock pins \"" (first p)
+                                   "\" — run rig update")
+                              (if (= scope :workspace)
+                                (str "workspace requires \"" v
+                                     "\"; no module pins it — run rig update")
+                                (str "manifest requires \"" v
+                                     "\"; lock has no pin — run rig lock")))})
+        drift (for [m module-dirs
+                    [c v] (get module-reqs m [])
+                    :let [w (get managed c)]
+                    :when (and (some? w)
+                               (not (versions/floating? v))
+                               (not (versions/floating? w))
+                               (not= v w))]
+                {:severity "warn"
+                 :kind "drift"
+                 :module m
+                 :coord c
+                 :message (str "module requires \"" v "\", workspace requires \"" w "\"")})
+        per-coord (reduce (fn [acc [m c v _]]
+                            (if (or (= m ".") (versions/floating? v))
+                              acc
+                              (update acc c (fn [mm]
+                                              (assoc mm m (conj (get mm m) v))))))
+                          {}
+                          sites)
+        conflicts (for [[c mods] (sort-by key per-coord)
+                        :let [sms (sort-by key mods)
+                              bad (first (for [[m1 vs1] sms
+                                               [m2 vs2] (rest (drop-while (fn [[m _]] (not= m m1)) sms))
+                                               v1 vs1
+                                               v2 vs2
+                                               :when (and (not (satisfied? v1 v2))
+                                                          (not (satisfied? v2 v1)))]
+                                           [m1 v1 m2 v2]))]
+                        :when bad]
+                    (let [[m1 v1 m2 v2] bad]
+                      {:severity "error"
+                       :kind "conflict"
+                       :module m1
+                       :coord c
+                       :message (str "requirements \"" v1 "\" (" m1 ") and \"" v2
+                                     "\" (" m2 ") are incompatible")}))
+        no-lib (for [m (cons "." module-dirs)
+                     :let [d (or (:data (get manifests m)) {})]
+                     :when (and (manifest/publish? d) (not (manifest/lib d)))]
+                 {:severity "error"
+                  :kind "no-lib"
+                  :module m
+                  :coord ""
+                  :message "publish is enabled but the module has no :rig/lib coordinate"})
+        declared (into #{"central" "clojars"}
+                       (for [m (keys manifests)
+                             :let [d (or (:data (get manifests m)) {})]
+                             id (keys (get d :mvn/repos {}))]
+                         id))
+        unknown (for [r (sort (repo-ids-of lock))
+                      :when (not (declared r))]
+                  {:severity "error"
+                   :kind "unknown-repo"
+                   :module "."
+                   :coord r
+                   :message (str "lock pins artifacts via repo \"" r
+                                 "\" which no manifest declares under :mvn/repos")})]
+    (let [problems (distinct (sort-by (juxt :module :coord :kind)
+                                      (concat floating stale drift conflicts no-lib unknown)))]
+      {:ok (every? #(= "warn" (:severity %)) problems)
+       :problems (vec problems)})))

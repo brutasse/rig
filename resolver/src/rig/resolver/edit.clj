@@ -157,58 +157,62 @@
         root-file (io/file ws "deps.edn")
         mod-file (if (= module ".") root-file (io/file ws module "deps.edn"))
         action (if (nil? req) "remove" "set")
-        edits (atom [])]
-
-    (when-not (.exists root-file)
-      (throw (ex-info (str "workspace manifest not found: " (.getPath root-file)) {})))
-    (when (and (not shared-only) (not (.exists mod-file)))
-      (throw (ex-info (str "module manifest not found: " (.getPath mod-file)) {})))
-
-    (when (not shared-only)
-      (when (edit-file mod-file (fn [zt] (or (edit-module-section zt coord req alias) zt)))
-        (swap! edits conj {"file" (rel-deps module)
+        _ (when-not (.exists root-file)
+            (throw (ex-info (str "workspace manifest not found: " (.getPath root-file)) {})))
+        _ (when (and (not shared-only) (not (.exists mod-file)))
+            (throw (ex-info (str "module manifest not found: " (.getPath mod-file)) {})))
+        edits (-> []
+                  ;; module manifest (skipped for shared-only edits)
+                  (cond-> (and (not shared-only)
+                               (edit-file mod-file (fn [zt] (or (edit-module-section zt coord req alias) zt))))
+                    (conj {"file" (rel-deps module)
                            "action" action
                            "coord" coord-str
-                           "requirement" req})))
-
-    (when shared
-      (when (edit-file root-file (fn [zt] (or (edit-rig-deps zt coord req) zt)))
-        (swap! edits conj {"file" "deps.edn"
+                           "requirement" req}))
+                  ;; root manifest, for a shared requirement
+                  (cond-> (and shared
+                               (edit-file root-file (fn [zt] (or (edit-rig-deps zt coord req) zt))))
+                    (conj {"file" "deps.edn"
                            "action" action
                            "coord" coord-str
-                           "requirement" req})))
-
-    (when (and shared (not shared-only))
-      (let [root-data (or (:data (manifest/read-manifest ws)) {})
-            others (remove #(= (str %) module) (manifest/modules-of root-data))]
-        (doseq [m others]
-          (let [f (if (= m ".") root-file (io/file ws m "deps.edn"))]
-            (when (.exists f)
-              (let [text (slurp f)
-                    zt (z/of-string text)
-                    dm (s/get zt :deps)
-                    entry (when dm (s/get dm coord))]
-                (when (and entry (s/get entry :mvn/version))
-                  (let [out (format! (z/root-string (edit-deps-section dm coord req)))]
-                    (when (not= text out)
-                      (spit f out)
-                      (swap! edits conj {"file" (rel-deps (str m))
-                                         "action" action
-                                         "coord" coord-str
-                                         "requirement" req}))))))))))
-
-    (let [res (resolve/resolve-lock
+                           "requirement" req})))]
+    (let [edits (if (and shared (not shared-only))
+                  ;; propagate the shared requirement into the other modules
+                  (let [root-data (or (:data (manifest/read-manifest ws)) {})
+                        others (remove #(= (str %) module) (manifest/modules-of root-data))]
+                    (reduce (fn [edits m]
+                              (let [f (if (= m ".") root-file (io/file ws m "deps.edn"))]
+                                (if-not (.exists f)
+                                  edits
+                                  (let [text (slurp f)
+                                        zt (z/of-string text)
+                                        dm (s/get zt :deps)
+                                        entry (when dm (s/get dm coord))]
+                                    (if-not (and entry (s/get entry :mvn/version))
+                                      edits
+                                      (let [out (format! (z/root-string (edit-deps-section dm coord req)))]
+                                        (if (= text out)
+                                          edits
+                                          (do (spit f out)
+                                              (conj edits {"file" (rel-deps (str m))
+                                                           "action" action
+                                                           "coord" coord-str
+                                                           "requirement" req})))))))))
+                            edits
+                            others))
+                  edits)
+          res (resolve/resolve-lock
                (cond-> request
                  (and req (not shared-only) (true? (get args :explicit?)))
                  (assoc :args (assoc (or (:args request) {})
                                      :requirement-overrides {coord-str req}))))
           lock (cond-> (get res "lock")
-                  (seq extra-skipped)
-                  (update "skipped" (fn [prev]
-                                      (distinct (sort-by (juxt :coord :version :reason)
-                                                         (concat prev
-                                                                  (map resolve/skip-entry extra-skipped)))))))]
-      (merge res {"edits" (vec @edits)
+                 (seq extra-skipped)
+                 (update "skipped" (fn [prev]
+                                     (distinct (sort-by (juxt :coord :version :reason)
+                                                        (concat prev
+                                                                 (map resolve/skip-entry extra-skipped)))))))]
+      (merge res {"edits" edits
                   "lock" lock}))))
 
 (defn edit-dep

@@ -73,10 +73,7 @@
              []
              (str/split module-dir #"/"))
         tp (str/split dst #"/")
-        i (loop [i 0]
-            (if (and (< i (count bp)) (< i (count tp)) (= (nth bp i) (nth tp i)))
-              (recur (inc i))
-              i))
+        i (count (take-while true? (map = bp tp)))
         ups (vec (replicate (- (count bp) i) ".."))
         rest (subvec tp i)]
     (if (empty? (vec (concat ups rest)))
@@ -95,9 +92,10 @@
   A managed entry's own :exoscale.deps/inherit marker is inert residue
   and does not propagate."
   [declared managed inherit module-dir]
-  (let [managed (cond-> (dissoc managed :exoscale.deps/inherit)
-                  (not= :all inherit) (select-keys (vec inherit)))
-        managed (cond-> managed (contains? managed :local/root)
+  (let [pooled (cond-> (dissoc managed :exoscale.deps/inherit)
+                 (not= :all inherit) (select-keys (vec inherit)))
+        managed (cond-> pooled
+                  (contains? pooled :local/root)
                   (update :local/root (fn [v] (canonicalize v module-dir))))
         declared (dissoc declared :exoscale.deps/inherit)
         drift (filter (fn [k]
@@ -127,54 +125,50 @@
                                  (nil? (get managed k))))
                           dm)
         bare (filter (fn [[_ v]] (empty? (dissoc v :exoscale.deps/inherit)))
-                     unmanaged)
-        drifts (atom [])]
+                     unmanaged)]
     (if (seq bare)
       {:deps nil
        :problems (map (fn [[k _]]
                         (str "dep " (str k) " uses :exoscale.deps/inherit but is missing from :exoscale.deps/managed-dependencies and declares no version"))
                       bare)}
-      {:deps (into {} (map (fn [[k v]]
-                             (cond
-                               (not (and (map? v) (contains? v :exoscale.deps/inherit)))
-                               [k v]
-                               (get managed k)
-                               (let [[dep drift] (inherit-dep v (get managed k)
-                                                              (get v :exoscale.deps/inherit)
-                                                              module-dir)]
-                                 (when drift (swap! drifts conj [k drift]))
-                                 [k dep])
-                               :else
-                               [k (dissoc v :exoscale.deps/inherit)]))
-                           dm))
-        :warnings (concat (map (fn [[k _]]
-                                 (str "dep " (str k) " :exoscale.deps/inherit dropped (missing from :exoscale.deps/managed-dependencies; declared keys kept)"))
-                               (remove (fn [[_ v]] (empty? (dissoc v :exoscale.deps/inherit)))
-                                       unmanaged))
-                           (map (fn [[k drift]]
-                                  (str "dep " (str k) ": " drift
-                                       " (declared kept; merge-deps would have used the managed value)"))
-                                @drifts))
-        :problems nil})))
+      (let [{:keys [deps drifts]}
+            (reduce (fn [{:keys [deps drifts] :as acc} [k v]]
+                      (cond
+                        (not (and (map? v) (contains? v :exoscale.deps/inherit)))
+                        (assoc acc :deps (assoc deps k v))
+                        (get managed k)
+                        (let [[dep drift] (inherit-dep v (get managed k)
+                                                       (get v :exoscale.deps/inherit)
+                                                       module-dir)]
+                          {:deps (assoc deps k dep)
+                           :drifts (if drift (conj drifts [k drift]) drifts)})
+                        :else
+                        (assoc acc :deps (assoc deps k (dissoc v :exoscale.deps/inherit)))))
+                    {:deps {} :drifts []}
+                    dm)]
+        {:deps deps
+         :warnings (concat (map (fn [[k _]]
+                                  (str "dep " (str k) " :exoscale.deps/inherit dropped (missing from :exoscale.deps/managed-dependencies; declared keys kept)"))
+                                (remove (fn [[_ v]] (empty? (dissoc v :exoscale.deps/inherit)))
+                                        unmanaged))
+                            (map (fn [[k drift]]
+                                   (str "dep " (str k) ": " drift
+                                        " (declared kept; merge-deps would have used the managed value)"))
+                                 drifts))
+         :problems nil}))))
 
 (defn- materialize-alias
   "Materialize one alias entry's :deps/:extra-deps/:override-deps sub-maps.
   Returns [entry problems warnings]."
   [v managed module-dir]
-  (loop [subs [:deps :extra-deps :override-deps]
-         entry v
-         problems []
-         warnings []]
-    (if (nil? subs)
-      [entry problems warnings]
-      (let [[sub & rest-subs] subs
-            res (when (contains? entry sub)
-                  (materialize-deps (get entry sub) managed module-dir))]
-        (recur rest-subs
-               (cond-> entry
-                 res (assoc sub (get res :deps)))
+  (reduce (fn [[entry problems warnings] sub]
+            (let [res (when (contains? entry sub)
+                        (materialize-deps (get entry sub) managed module-dir))]
+              [(cond-> entry res (assoc sub (get res :deps)))
                (concat problems (when res (get res :problems)))
-               (concat warnings (when res (get res :warnings))))))))
+               (concat warnings (when res (get res :warnings)))]))
+          [v [] []]
+          [:deps :extra-deps :override-deps]))
 
 (defn- materialize-aliases
   "Drop the :project driver alias; materialize the inherit entries inside
@@ -205,7 +199,7 @@
            :problems (when (seq (:problems res)) (:problems res))
            :warnings (concat (:warnings res)
                             (map (fn [[k _]]
-                                   (str "alias :" (str (name k))
+                                   (str "alias :" (name k)
                                         " top-level :exoscale.deps/inherit dropped (only the :project driver alias is supported)"))
                                  dropped)))))
 
@@ -245,7 +239,7 @@
                [nil {}]
                (str/starts-with? u "s3p://")
                [nil {}]
-               :true
+               :else
                (repo-from-url u (merge root-repos mod-repos)))
         problems (concat (when sign
                            [":slipset.deps-deploy/exec-args :sign-releases? true is not supported by rig"])
@@ -262,77 +256,73 @@
   {:data m :warnings [..] :problems [..]}."
   [data module-dir root-data]
   (let [managed-deps (get root-data :exoscale.deps/managed-dependencies)
-        warnings (atom [])
-        problems (atom [])
-        d (reduce (fn [acc [k v]]
-                    (cond
-                      (contains? acc k)
-                      acc
-                      (= k :exoscale.project/bypass-test?)
-                      (assoc acc :rig/test? (not (true? v)))
-                      (= k :exoscale.project/version-fn)
-                      (if-let [kw (get version-fn-map (version-fn-key v))]
-                        (assoc acc :rig/version-fn kw)
-                        (do (swap! problems conj
-                                   (str ":exoscale.project/version-fn " (pr-str v)
-                                        " is not a known tools.project version tool"))
-                            acc))
-                      (= k :exoscale.deps/managed-dependencies)
-                      (if (= module-dir ".")
-                        ;; The pool is materialized into the modules'
-                        ;; :deps (inherit-dep); it is not carried as a
-                        ;; :rig/deps shared requirement — legacy merge-deps
-                        ;; only inlined it into declared deps, and as a
-                        ;; shared requirement inert pins became live
-                        ;; stale-lock errors.
-                        (do (swap! warnings conj
-                                   ":exoscale.deps/managed-dependencies dropped (versions materialized into the modules' :deps; not carried as :rig/deps shared requirements)")
-                            acc)
-                        (do (swap! problems conj
-                                   ":exoscale.deps/managed-dependencies is only supported in the root deps.edn")
-                            acc))
-                      (= k :exoscale.deps/managed-aliases)
-                      (let [extra (filter (fn [[ak _]] (not= ak :project)) v)]
-                        (swap! warnings conj
-                               (if (seq extra)
-                                 (str ":exoscale.deps/managed-aliases entries "
-                                      (str/join ", " (map str (map first extra)))
-                                      " dropped (no rig equivalent; only the :project driver alias is supported)")
-                                 ":exoscale.deps/managed-aliases dropped (only the :project driver alias)"))
-                        acc)
-                      (= k :slipset.deps-deploy/exec-args)
-                      acc
-                      (contains? key-rename k)
-                      (assoc acc (get key-rename k) v)
-                      (and (keyword? k) (contains? legacy-ns (namespace k)))
-                      (do (swap! warnings conj (str "dropped " (str k) " (no rig equivalent)"))
-                          acc)
-                      :true
-                      (assoc acc k v)))
-                  {} data)]
-    (let [pub (exec-args-to-publish (get data :slipset.deps-deploy/exec-args)
-                                    (get d :mvn/repos)
-                                    (get root-data :mvn/repos))]
-      (swap! warnings into (or (get pub :warnings) []))
-      (swap! problems into (or (get pub :problems) []))
-      (let [deps-res (when (contains? d :deps)
-                       (materialize-deps (get d :deps) managed-deps module-dir))
-            aliases-res (when (contains? d :aliases)
-                          (materialize-aliases (get d :aliases) managed-deps module-dir))]
-        (swap! problems into (when deps-res (or (get deps-res :problems) [])))
-        (swap! problems into (when aliases-res (or (get aliases-res :problems) [])))
-        (swap! warnings into (when deps-res (get deps-res :warnings)))
-        (swap! warnings into (when aliases-res (get aliases-res :warnings)))
-        {:data (-> d
-                   (cond-> (and (some? deps-res) (nil? (get deps-res :problems)))
-                           (assoc :deps (get deps-res :deps)))
-                   (cond-> (and (some? aliases-res) (nil? (get aliases-res :problems)))
-                           (assoc :aliases (get aliases-res :aliases)))
-                   (cond-> (get pub :publish) (assoc :rig/publish (get pub :publish)))
-                   (cond-> (seq (get pub :repos))
-                           (assoc :mvn/repos (merge (get d :mvn/repos) (get pub :repos)))))
-         :warnings @warnings
-         :problems @problems}))))
+        warn (fn [st ws] (update st :warnings conj ws))
+        fail (fn [st ps] (update st :problems conj ps))
+        st (reduce (fn [st [k v]]
+                     (let [d (:data st)]
+                       (cond
+                         (contains? d k)
+                         st
+                         (= k :exoscale.project/bypass-test?)
+                         (update st :data assoc :rig/test? (not (true? v)))
+                         (= k :exoscale.project/version-fn)
+                         (if-let [kw (get version-fn-map (version-fn-key v))]
+                           (update st :data assoc :rig/version-fn kw)
+                           (fail st (str ":exoscale.project/version-fn " (pr-str v)
+                                         " is not a known tools.project version tool")))
+                         (= k :exoscale.deps/managed-dependencies)
+                         ;; The pool is materialized into the modules'
+                         ;; :deps (inherit-dep); it is not carried as a
+                         ;; :rig/deps shared requirement — legacy merge-deps
+                         ;; only inlined it into declared deps, and as a
+                         ;; shared requirement inert pins became live
+                         ;; stale-lock errors.
+                         (if (= module-dir ".")
+                           (warn st ":exoscale.deps/managed-dependencies dropped (versions materialized into the modules' :deps; not carried as :rig/deps shared requirements)")
+                           (fail st ":exoscale.deps/managed-dependencies is only supported in the root deps.edn"))
+                         (= k :exoscale.deps/managed-aliases)
+                         (let [extra (filter (fn [[ak _]] (not= ak :project)) v)]
+                           (warn st (if (seq extra)
+                                      (str ":exoscale.deps/managed-aliases entries "
+                                           (str/join ", " (map (comp str first) extra))
+                                           " dropped (no rig equivalent; only the :project driver alias is supported)")
+                                      ":exoscale.deps/managed-aliases dropped (only the :project driver alias)")))
+                         (= k :slipset.deps-deploy/exec-args)
+                         st
+                         (contains? key-rename k)
+                         (update st :data assoc (get key-rename k) v)
+                         (and (keyword? k) (contains? legacy-ns (namespace k)))
+                         (warn st (str "dropped " (str k) " (no rig equivalent)"))
+                         :else
+                         (update st :data assoc k v))))
+                   {:data {} :warnings [] :problems []}
+                   data)
+        pub (exec-args-to-publish (get data :slipset.deps-deploy/exec-args)
+                                  (get-in st [:data :mvn/repos])
+                                  (get root-data :mvn/repos))
+        st (-> st
+               (update :warnings into (or (get pub :warnings) []))
+               (update :problems into (or (get pub :problems) [])))
+        deps-res (when (contains? (get st :data) :deps)
+                   (materialize-deps (get-in st [:data :deps]) managed-deps module-dir))
+        aliases-res (when (contains? (get st :data) :aliases)
+                      (materialize-aliases (get-in st [:data :aliases]) managed-deps module-dir))
+        st (cond-> st
+             deps-res (-> (update :problems into (or (get deps-res :problems) []))
+                          (update :warnings into (get deps-res :warnings)))
+             aliases-res (-> (update :problems into (or (get aliases-res :problems) []))
+                             (update :warnings into (get aliases-res :warnings))))]
+    (update st :data
+            (fn [d]
+              (cond-> d
+                (and (some? deps-res) (nil? (get deps-res :problems)))
+                (assoc :deps (get deps-res :deps))
+                (and (some? aliases-res) (nil? (get aliases-res :problems)))
+                (assoc :aliases (get aliases-res :aliases))
+                (get pub :publish)
+                (assoc :rig/publish (get pub :publish))
+                (seq (get pub :repos))
+                (assoc :mvn/repos (merge (get d :mvn/repos) (get pub :repos))))))))
 
 ;; --- leiningen (project.clj) conversion ---
 ;;
@@ -370,15 +360,10 @@
   (let [sa (ver-segments a)
         sb (ver-segments b)]
     (when (and sa sb)
-      (loop [sa sa
-             sb sb]
-        (let [x (or (first sa) 0)
-              y (or (first sb) 0)]
-          (if (= x y)
-            (if (and (seq sa) (seq sb))
-              (recur (rest sa) (rest sb))
-              false)
-            (< x y)))))))
+      (let [n (max (count sa) (count sb))
+            pad (fn [s] (take n (concat s (repeat 0))))]
+        (some (fn [[x y]] (when-not (= x y) (< x y)))
+              (map vector (pad sa) (pad sb)))))))
 
 (defn- kaocha-predates-exec-fn
   "True when the kaocha version is numeric and predates
@@ -638,7 +623,7 @@
                           (str "dep " coord " has an odd number of option elements"))})
                    :else
                    (let [opts (into {} (map vec (partition 2 opt-vec)))
-                         unknown (filter #(not (contains? lein-dep-options %)) (keys opts))
+                         unknown (remove lein-dep-options (keys opts))
                          warns (map (fn [k]
                                       (str "dep " coord ": leiningen option " (str k)
                                            " is not supported by rig (dropped)"))
@@ -669,26 +654,26 @@
                                :warnings (concat warnings warns)})
                          (merge acc {:problems (conj problems
                                 (str "dep " coord " uses the :version token, but the project version is not a literal (cannot materialize it)"))}))
-                       :true
+                       :else
                        (let [entry (get pool dep-sym)
                              mv (when entry (get entry :version))
-                             mv (if (symbol? mv) (or (get vvars mv) mv) mv)
+                             v (if (symbol? mv) (or (get vvars mv) mv) mv)
                              pexcl (when entry (get entry :exclusions))]
                          (cond
-                           (string? mv)
-                           (merge acc {:deps (assoc deps dep-sym (mat mv (or excl pexcl)))
+                           (string? v)
+                           (merge acc {:deps (assoc deps dep-sym (mat v (or excl pexcl)))
                                  :warnings (concat warnings warns)})
-                           (contains? #{:self :version} mv)
+                           (contains? #{:self :version} v)
                            (if (some? vversion)
                              (merge acc {:deps (assoc deps dep-sym (mat vversion (or excl pexcl)))
                                    :warnings (concat warnings warns)})
                              (merge acc {:problems (conj problems
                                     (str "dep " coord "'s :managed-dependencies entry uses :version, but the project version is not a literal (cannot materialize it)"))}))
-                           (symbol? mv)
+                           (symbol? v)
                            (merge acc {:problems (conj problems
-                                  (str "dep " coord "'s :managed-dependencies version " (str mv)
+                                  (str "dep " coord "'s :managed-dependencies version " (str v)
                                        " is a lein-replace var that cannot be resolved statically (pin it explicitly)"))})
-                           :true
+                           :else
                            (merge acc {:problems (conj problems
                                   (str "dep " coord " declares no version, :local/root or :git/url (no :managed-dependencies entry)"))})))))))
                (merge acc {:problems (conj problems (str "dep " (pr-str e) " is not a [group artifact ...] entry"))})))
@@ -742,8 +727,8 @@
   [repos mod-repos]
   (when (some? repos)
     (let [n (count repos)
-          spec (first-deploy-spec repos)
-          spec (if (and (keyword? spec) (not= :clojars spec)) nil spec)
+          raw-spec (first-deploy-spec repos)
+          spec (if (and (keyword? raw-spec) (not= :clojars raw-spec)) nil raw-spec)
           sign (true? (when (map? spec) (get spec :sign-releases)))
           url (when (map? spec) (get spec :url))]
       (cond
@@ -839,8 +824,8 @@
   always yields an alias with a kaocha :exec-fn (rig test hard-requires
   one); other profiles yield an alias only when they carry expressible
   content."
-  [name p test-defaults kaocha-ver pool vversion vvars siblings]
-  (let [test? (= name :test)
+  [pname p test-defaults kaocha-ver pool vversion vvars siblings]
+  (let [test? (= pname :test)
         map? (or (nil? p) (map? p))
         p (or p {})
         dres (dep-entries (get p :dependencies) pool vversion vvars siblings)
@@ -869,9 +854,9 @@
                         (keys p))]
     [alias
      (concat (when-not map?
-               [(str "profile :" (str (clojure.core/name name)) " is not a map (no rig equivalent)")])
+               [(str "profile :" (name pname) " is not a map (no rig equivalent)")])
              (map (fn [k]
-                    (str "profile :" (str (clojure.core/name name)) " dropped " (str k) " (no rig equivalent)"))
+                    (str "profile :" (name pname) " dropped " (str k) " (no rig equivalent)"))
                   dropped)
              dw)
      dp]))
@@ -905,7 +890,7 @@
                             (update acc :problems conj
                                     (str ":managed-dependencies entry " (str k) " version " (str mv)
                                          " is a lein-replace var that cannot be resolved statically (pin it explicitly)")))
-                          :true
+                          :else
                           (update acc :problems conj
                                   (str ":managed-dependencies entry " (str k) " declares no version")))))
                     {:deps {} :problems []}
@@ -1012,7 +997,7 @@
         ;; are dropped (the parent problem names the cause).
         strip-miss (fn [ps]
                      (if (seq (get parent :problems))
-                       (filter #(not (re-find #"no :managed-dependencies entry" %)) ps)
+                       (remove #(re-find #"no :managed-dependencies entry" %) ps)
                        ps))
         problems (concat (get parent :problems)
                          (get mp :problems)
@@ -1047,13 +1032,11 @@
                                  default-kaocha)])
                          (map (fn [k]
                                 (str "dropped " (str k) " (no rig equivalent)"))
-                               (filter (fn [k] (not (contains? lein-handled-keys k)))
-                                       (keys pairs)))
+                               (remove lein-handled-keys (keys pairs)))
                          (map (fn [k]
-                                (str "profile :" (str (name k))
+                                (str "profile :" (name k)
                                      " dropped (only :test and :dev migrate to :aliases)"))
-                               (filter (fn [k] (not (contains? #{:test :dev :uberjar :provided} k)))
-                                       (keys profiles)))
+                               (remove #{:test :dev :uberjar :provided} (keys profiles)))
                           (when (and (some? provided)
                                       (some some? [(get provided :dependencies)
                                                    (get provided :source-paths)
@@ -1063,10 +1046,9 @@
                           (map (fn [k]
                                  (str "profile :provided dropped " (str k)
                                       " (no rig equivalent)"))
-                                (filter (fn [k]
-                                          (not (contains? #{:dependencies :source-paths
-                                                           :resource-paths :jvm-opts} k)))
-                                        (keys (or provided {}))))
+                                (remove #{:dependencies :source-paths
+                                                  :resource-paths :jvm-opts}
+                                (keys (or provided {}))))
                          (when (some? (get profiles :uberjar))
                            ["profile :uberjar dropped (:rig/uberjar? true emitted for `rig build --uber`)"]))]
     {:target target :problems (vec problems) :warnings (vec warnings)}))
@@ -1194,9 +1176,7 @@
 (defn- namespaced-map-node?
   "True if nd is a `#:qualifier {…}` (namespaced map) node."
   [nd]
-  (and (some? nd)
-       (= "rewrite_clj.node.namespaced_map.NamespacedMapNode"
-          (.getName (.getClass nd)))))
+  (instance? rewrite_clj.node.namespaced_map.NamespacedMapNode nd))
 
 (defn- expand-namespaced-maps
   "Rewrite every `#:qualifier {…}` node in the tree as the equivalent plain map
@@ -1249,7 +1229,7 @@
                          (assoc-entry zt path k v)
                          (= (n/sexpr (z/node vz)) v)
                          zt
-                         :true
+                         :else
                          (edit-value zt path k (data->node v)))))
                    ztop
                    (seq target))
@@ -1340,7 +1320,7 @@
                            (keys (get data :mvn/repos)))
              (contains? target :mvn/repos)
              (assoc-entry zt [] :mvn/repos (get target :mvn/repos))
-             :true
+             :else
              zt)
         ;; add the remaining new top-level keys (e.g. :rig/publish)
         zt (reduce (fn [zt [k v]]
@@ -1408,7 +1388,7 @@
       (migrate-deps-edn ws root-file dry-run?)
       (.exists lein-file)
       (lein-migrate ws lein-file dry-run?)
-      :true
+      :else
       (throw (ex-info (str "workspace manifest not found: " (.getPath root-file)
                            " (no deps.edn or project.clj)") {})))))
 

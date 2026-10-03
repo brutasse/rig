@@ -67,10 +67,10 @@
   [class-dir ensures]
   (let [root (io/file class-dir)]
     (when (and (.exists root) (not (under-ensure? (str root) ensures)))
-      (dorun (for [f (file-seq root)
-                   :when (and (not (identical? f root))
-                               (not (under-ensure? (str f) ensures)))]
-               (file/delete f))))))
+      (doseq [f (file-seq root)
+              :when (and (not (identical? f root))
+                         (not (under-ensure? (str f) ensures)))]
+        (file/delete f)))))
 
 (defn- drop-sources
   "Deletes the .clj/.cljc the copy step brought into the class-dir (see
@@ -81,13 +81,13 @@
   [class-dir ensures]
   (let [root (io/file class-dir)]
     (when (.exists root)
-      (dorun (for [f (file-seq root)
-                   :when (and (not (identical? f root))
-                              (.isFile f)
-                              (not (under-ensure? (str f) ensures))
-                              (or (str/ends-with? (str f) ".clj")
-                                  (str/ends-with? (str f) ".cljc")))]
-               (file/delete f))))))
+      (doseq [f (file-seq root)
+              :when (and (not (identical? f root))
+                         (.isFile f)
+                         (not (under-ensure? (str f) ensures))
+                         (or (str/ends-with? (str f) ".clj")
+                             (str/ends-with? (str f) ".cljc")))]
+        (file/delete f)))))
 
 (defn- pinned-time-ms
   "The build's :rig/timestamp-string as epoch millis, or nil when the

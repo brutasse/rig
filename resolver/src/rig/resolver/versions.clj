@@ -244,8 +244,8 @@
 (defn- all-cooldowns-zero?
   [cooldown]
   (let [d (parse-duration-ms (or (get cooldown :default) "48h"))
-        rs (map (fn [s] (parse-duration-ms s)) (vals (or (get cooldown :repos) {})))]
-    (apply zero? (cons d rs))))
+        rs (map parse-duration-ms (vals (or (get cooldown :repos) {})))]
+    (every? zero? (cons d rs))))
 
 (defn select-versions
   "Per floating coord: 1) requirement-overrides win (recorded \"explicit\"),
@@ -270,64 +270,62 @@
                               c))
          cooldown-str (fn [repo] (cooldown-for repo cooldown))
         zero? (all-cooldowns-zero? cooldown)
-        meta (atom {})
-        selected (atom {})
-        skipped (atom [])
-        refused (atom [])]
-    (doseq [c coords]
-       (let [override (get overrides (str c))
-             pin (get pins (str c))
-             req (req-of c)]
-         (cond
-           override
-           (do (swap! selected assoc c override)
-               (when (not= pin override)
-                 (swap! skipped conj {:coord c :version override :reason "explicit"
-                                      :published-at nil :cooldown nil})))
+        meta (atom {}) ;; memo across coords: repo-metadata hits the network
+        step (fn [{:keys [selected skipped refused] :as st} c]
+               (let [override (get overrides (str c))
+                     pin (get pins (str c))
+                     req (req-of c)]
+                 (cond
+                   override
+                   (cond-> (assoc st :selected (assoc selected c override))
+                     (not= pin override)
+                     (update :skipped conj {:coord c :version override :reason "explicit"
+                                            :published-at nil :cooldown nil}))
 
-          (and pin respect-pins?)
-          (swap! selected assoc c pin)
+                   (and pin respect-pins?)
+                   (assoc st :selected (assoc selected c pin))
 
-          zero?
-          nil
+                   zero?
+                   st
 
-          :else
-           (do (when-not (contains? @meta c)
-                 (swap! meta assoc c (repo-metadata (str c) repos)))
-               (let [md (get @meta c)
-                     byv (get md :by-version)
-                     cands (if (= :latest (keyword (str/lower-case (or req ""))))
-                             (if (seq (get md :latest))
-                               (into #{} (get md :latest))
-                               (keys byv))
-                             (keys byv))
-                     age-ok (fn [v]
-                             (let [d (get byv v)
-                                   pa (:published-at d)]
-                               (and pa (<= pa (- now-ms (parse-duration-ms (cooldown-str (:repo d))))))))
-                     elig (fn [v]
-                            (or (true? force) (age-ok v)))
-                     eligible (filter elig cands)
-                     chosen (when (seq eligible)
-                              (reduce (fn [a b] (if (pos? (vcmp a b)) a b)) eligible))]
-                 (if chosen
-                   (do (swap! selected assoc c chosen)
-                       (when (and (true? force) (not (age-ok chosen)))
-                         (swap! skipped conj {:coord c :version chosen :reason "forced"
-                                              :published-at (iso (get-in byv [chosen :published-at]))
-                                              :cooldown (cooldown-str (get-in byv [chosen :repo]))})))
-                   (swap! refused conj {:coord c :reason "cooldown"
-                                        :cooldown (or (get cooldown :default) "48h")}))
-                 (doseq [v (sort cands)
-                         :when (and (not (age-ok v))
-                                    (not (= v chosen)))]
-                   (swap! skipped conj {:coord c :version v :reason "cooldown"
-                                        :published-at (iso (get-in byv [v :published-at]))
-                                        :cooldown (cooldown-str (get-in byv [v :repo]))})))))))
-     {:selected @selected
-      :skipped @skipped
-      :refused @refused
-      :changed? (boolean (seq @selected))}))
+                   :else
+                   (do (when-not (contains? @meta c)
+                         (swap! meta assoc c (repo-metadata (str c) repos)))
+                       (let [md (get @meta c)
+                             byv (get md :by-version)
+                             cands (if (= :latest (keyword (str/lower-case (or req ""))))
+                                     (if (seq (get md :latest))
+                                       (into #{} (get md :latest))
+                                       (keys byv))
+                                     (keys byv))
+                             age-ok (fn [v]
+                                      (let [d (get byv v)
+                                            pa (:published-at d)]
+                                        (and pa (<= pa (- now-ms (parse-duration-ms (cooldown-str (:repo d))))))))
+                             elig (fn [v]
+                                    (or (true? force) (age-ok v)))
+                             eligible (filter elig cands)
+                             chosen (when (seq eligible)
+                                      (reduce (fn [a b] (if (pos? (vcmp a b)) a b)) eligible))
+                             st1 (if chosen
+                                   (cond-> (assoc st :selected (assoc selected c chosen))
+                                     (and (true? force) (not (age-ok chosen)))
+                                     (update :skipped conj {:coord c :version chosen :reason "forced"
+                                                            :published-at (iso (get-in byv [chosen :published-at]))
+                                                            :cooldown (cooldown-str (get-in byv [chosen :repo]))}))
+                                   (update st :refused conj {:coord c :reason "cooldown"
+                                                             :cooldown (or (get cooldown :default) "48h")}))]
+                         (update st1 :skipped
+                                 (fn [sk]
+                                   (into sk
+                                         (for [v (sort cands)
+                                               :when (and (not (age-ok v))
+                                                          (not (= v chosen)))]
+                                           {:coord c :version v :reason "cooldown"
+                                            :published-at (iso (get-in byv [v :published-at]))
+                                            :cooldown (cooldown-str (get-in byv [v :repo]))})))))))))]
+    (let [res (reduce step {:selected {} :skipped [] :refused []} coords)]
+      (assoc res :changed? (boolean (seq (:selected res)))))))
 
 (defn apply-versions
   "Substitutes exact versions for the selected coords in the manifest map.
@@ -344,10 +342,11 @@
                                        (assoc s :mvn/version (get selected c))
                                        s)])))
         rewrite-aliases (fn [aliases]
-                          (into {} (for [[k a] aliases]
-                                     [k (if (map? a)
-                                          (update a :extra-deps (fn [e] (when e (rewrite-deps e))))
-                                          a)])))]
+                          (update-vals aliases
+                                       (fn [a]
+                                         (if (map? a)
+                                           (update a :extra-deps (fn [e] (when e (rewrite-deps e))))
+                                           a))))]
     (-> project-data
         (update :deps (fn [d] (when d (rewrite-deps d))))
         (update :aliases (fn [al] (when al (rewrite-aliases al)))))))

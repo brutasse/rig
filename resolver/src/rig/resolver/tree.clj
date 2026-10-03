@@ -39,21 +39,18 @@
    reason (e.g. `jackson-core:2.12.4 (same-version)`) and not expanded."
   [node prefix ws]
   (let [kids (sort-by :step (vals (:children node)))]
-    (loop [i 0 lines []]
-      (if (= i (count kids))
-        lines
-        (let [kid (nth kids i)
-              last? (= i (dec (count kids)))
-              line (str prefix
-                        (if last? "└── " "├── ")
-                        (node-id (:lib kid) (:coord kid) ws)
-                        (when-not (true? (:include kid))
-                          (str " (" (name (or (:reason kid) "omitted")) ")")))]
-          (recur (inc i)
-                 (into (conj lines line)
-                       (render-lines kid
-                                     (str prefix (if last? "    " "│   "))
-                                     ws))))))))
+    (mapcat (fn [[i kid]]
+              (let [last? (= i (dec (count kids)))
+                    line (str prefix
+                              (if last? "└── " "├── ")
+                              (node-id (:lib kid) (:coord kid) ws)
+                              (when-not (true? (:include kid))
+                                (str " (" (name (or (:reason kid) "omitted")) ")")))]
+                (cons line
+                      (render-lines kid
+                                    (str prefix (if last? "    " "│   "))
+                                    ws))))
+            (map-indexed vector kids))))
 
 (defn tree
   [request]
