@@ -180,3 +180,21 @@ func TestCheckCljcLoads(t *testing.T) {
 		t.Errorf("check out = %q", out)
 	}
 }
+
+func TestCheckCompileFail(t *testing.T) {
+	hotSetup(t)
+	cleanFixture(t)
+	// A namespace that loads its requires fine but throws at the top level
+	// must be flagged: it contributes nothing to the preload list, so only
+	// the compile phase (the runner's argv after "--") can catch it. A
+	// runner that silently drops the compile list reports vacuous ok here.
+	writeFile(t, "modules/app/src/app/poison.cljc",
+		"(ns app.poison)\n(throw (RuntimeException. \"poison-compiles\"))\n")
+	code, out := runCLI(t, "check", "--cache-dir", t.TempDir())
+	if code != 1 {
+		t.Fatalf("check exit = %d, want 1; out: %s", code, out)
+	}
+	if !strings.Contains(out, "failed to load app.poison") {
+		t.Errorf("check out missing the compile error: %q", out)
+	}
+}
