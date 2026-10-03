@@ -107,6 +107,28 @@ func TestCheckLoadFail(t *testing.T) {
 	}
 }
 
+func TestCheckDataSourcesSkipped(t *testing.T) {
+	hotSetup(t)
+	cleanFixture(t)
+	// tools.deps puts .clj data files on the classpath as resources: a
+	// config map with no ns form, and a deps-new template whose ns does
+	// not parse. The plan must skip both with a warning, not die: check
+	// used to hard-fail on both.
+	writeFile(t, "modules/app/src/migratus.clj", "{:store :in-memory}\n")
+	writeFile(t, "modules/app/src/tmpl/core.clj",
+		"(ns {{final-name}}.core\n  (:require [clojure.string]))\n")
+	code, out := runCLI(t, "check", "--cache-dir", t.TempDir())
+	if code != 0 {
+		t.Fatalf("check exit = %d, want 0 (a skip is a warning); out: %s", code, out)
+	}
+	if !strings.Contains(out, "plan-skip") || !strings.Contains(out, "warning") {
+		t.Errorf("check out = %q, want a plan-skip warning", out)
+	}
+	if !strings.Contains(out, "no ns declaration") || !strings.Contains(out, "unreadable") {
+		t.Errorf("check out = %q, want both skip reasons", out)
+	}
+}
+
 func TestCheckKernelLeak(t *testing.T) {
 	hotSetup(t)
 	cleanFixture(t)

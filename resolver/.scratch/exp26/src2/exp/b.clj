@@ -1,0 +1,1 @@
+(ns exp.b (def y 2))

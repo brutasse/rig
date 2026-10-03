@@ -25,7 +25,7 @@
   (->> (mapcat (fn [d]
                  (when-let [f (io/file d)]
                    (when (.isDirectory f) (file-seq f))))
-                src-dirs)
+               src-dirs)
        (filter (fn [^java.io.File f]
                  (let [n (.getName f)]
                    (and (.isFile f)
@@ -34,18 +34,20 @@
                         (not (#{"data_readers.clj" "data_readers.cljc"} n))))))
        (sort-by str)))
 
+(def ^:private unreadable (keyword "rig.resolver.aot" "unreadable"))
+
 (defn- read-decl
   "The (ns ...) declaration of f: nil when the file declares no
-  namespace, an exception naming f on a read failure. A file the
-  module cannot load is a plan failure, not something to skip — the
-  check must not turn green because a broken source was left out of
-  the plan."
+  namespace, `unreadable` when it does not even parse. A .clj under
+  :paths that is not a readable ns form is data by definition —
+  tools.deps puts config files on the classpath precisely as resources
+  (a bare migratus map, say) and deps-new templates carry {{vars}} no
+  reader gets past — the plan skips such files instead of dying on
+  them."
   [^java.io.File f]
   (try
     (file/read-file-ns-decl f parse/clj-read-opts)
-    (catch Exception e
-      (throw (ex-info (str "cannot read the ns declaration of " (.getPath f))
-                      {:file (.getPath f)} e)))))
+    (catch Exception _ unreadable)))
 
 (defn plan
   "The AOT plan for the sources under src-dirs, with the declared entry
@@ -59,14 +61,18 @@
                            (topo order — a require cycle in the module
                            is a plan error, as in tools.build), then
                            the entry points not found among the
-                           sources.}"
+                           sources.
+     :skipped [{:file p :reason r} ...]
+                           the .clj/.cljc left out as data: no ns
+                           declaration, or one that does not parse}"
   [src-dirs extra]
-  (let [decls (for [f (ns-files src-dirs)]
-                (let [d (read-decl f)]
-                  (when-not d
-                    (throw (ex-info (str "no ns declaration in " (.getPath f))
-                                    {:file (.getPath f)})))
-                  [f d]))
+  (let [parsed (for [f (ns-files src-dirs)] [f (read-decl f)])
+        skipped (vec (for [[f d] parsed :when (or (nil? d) (= d unreadable))]
+                       {:file (.getPath f)
+                        :reason (if (= d unreadable)
+                                  "unreadable ns declaration"
+                                  "no ns declaration")}))
+        decls (for [[f d] parsed :when (and d (not= d unreadable))] [f d])
         ns->deps (into {} (for [[_ d] decls]
                             [(parse/name-from-ns-decl d)
                              (parse/deps-from-ns-decl d)]))
@@ -91,7 +97,7 @@
         compile (vec (map str
                           (distinct
                            (concat ordered stragglers (map symbol extra)))))]
-    {:preload preload :compile compile}))
+    {:preload preload :compile compile :skipped skipped}))
 
 (defn aot-plan
   "Kernel op: the AOT plan of the request's sources (:args :src-dirs,
