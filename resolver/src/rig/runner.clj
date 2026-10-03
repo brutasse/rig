@@ -48,7 +48,26 @@
         (throw (ex-info (str "exec-fn not found: " exec-fn) {:exec-fn exec-fn})))
       (apply @f [opts]))))
 
-(defn -main [mode & rest]
+(defn with-main-bindings
+  "Run f under the dynamic bindings clojure.main establishes for user
+  code: *print-namespace-maps* true. rig launches this jar's -main
+  directly, skipping clojure.main, so without this the same code prints
+  {:app/a 1} under rig test and #:app{:a 1} under clojure -M — suites
+  asserting on printed maps flip. The var is resolved at runtime: a
+  literal binding form would bake in a core field reference that
+  projects pinned below 1.9 (the var's introduction) do not have."
+  [f]
+  (if-let [v (resolve 'clojure.core/*print-namespace-maps*)]
+    (do
+      (push-thread-bindings {v true})
+      (try
+        (f)
+        (finally
+          (pop-thread-bindings))))
+    (f)))
+
+(defn- dispatch
+  [mode rest]
   (case mode
     "test"
     (let [exec-fn (first rest)
@@ -72,7 +91,7 @@
                            (catch Exception e
                              (println (str "rig: failed to load " ns-str ": "
                                            (failure-message e)))
-                              ns-str)))
+                             ns-str)))
                        rest)]
       (flush)
       (System/exit (if (nil? failed) 0 1)))
@@ -92,13 +111,13 @@
                                         ;; e.g. mydata_readers is unaffected.
                                         (not (#{"data_readers.clj" "data_readers.cljc"}
                                               (.getName f))))]
-                        (str/join "."
-                                 (map #(str/replace % #"\.cljc?$" "")
-                                      (str/split (str (.relativize (.toPath (io/file d))
-                                                    (.toPath f)))
-                                                #"[\\/]"))))
-                  distinct
-                  sort)
+                         (str/join "."
+                                   (map #(str/replace % #"\.cljc?$" "")
+                                        (str/split (str (.relativize (.toPath (io/file d))
+                                                                     (.toPath f)))
+                                                   #"[\\/]"))))
+                       distinct
+                       sort)
           failed (some (fn [ns-str]
                          (try
                            (require (symbol ns-str) :reload)
@@ -106,7 +125,7 @@
                            (catch Exception e
                              (println (str "rig: failed to load " ns-str ": "
                                            (failure-message e)))
-                              ns-str)))
+                             ns-str)))
                        ns-strs)]
       (flush)
       (System/exit (if (nil? failed) 0 1)))
@@ -132,10 +151,16 @@
                                           (compile %))
                                        ns-str))
                                compiles))))]
-       (flush)
-       (System/exit (if (nil? failed) 0 1)))
+      (flush)
+      (System/exit (if (nil? failed) 0 1)))
 
     (do
       (binding [*out* *err*]
         (println (str "rig: unknown runner mode: " mode)))
       (System/exit 2))))
+
+(defn -main
+  "rig launches this directly, skipping clojure.main — dispatch the mode
+  under clojure.main's bindings (see with-main-bindings)."
+  [mode & rest]
+  (with-main-bindings #(dispatch mode rest)))
