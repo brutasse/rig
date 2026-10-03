@@ -17,22 +17,41 @@
             [clojure.tools.namespace.parse :as parse]))
 
 (defn- ns-files
-  "The module's .clj/.cljc sources under src-dirs, with the runner's
-  load-all skip set (the Go-side walk of rig check keeps the same
-  set): no *_init.clj, no data-readables files. Missing dirs are
-  skipped."
+  "The module's .clj/.cljc sources under src-dirs, as [root file] pairs,
+  with the runner's load-all skip set (the Go-side walk of rig check
+  keeps the same set): no *_init.clj, no data-readables files. Missing
+  dirs are skipped."
   [src-dirs]
   (->> (mapcat (fn [d]
-                 (when-let [f (io/file d)]
-                   (when (.isDirectory f) (file-seq f))))
-                src-dirs)
-       (filter (fn [^java.io.File f]
+                 (when-let [root (io/file d)]
+                   (when (.isDirectory root)
+                     (map (partial vector root) (file-seq root)))))
+               src-dirs)
+       (filter (fn [[_ ^java.io.File f]]
                  (let [n (.getName f)]
                    (and (.isFile f)
                         (or (str/ends-with? n ".clj") (str/ends-with? n ".cljc"))
                         (not (str/ends-with? n "_init.clj"))
                         (not (#{"data_readers.clj" "data_readers.cljc"} n))))))
-       (sort-by str)))
+       (sort-by (fn [[_ ^java.io.File f]] (.getPath f)))))
+
+(defn- path-stem
+  "f's loadable path under root: relative to root, extension dropped —
+  what clojure.core/load looks a namespace up by."
+  [^java.io.File root ^java.io.File f]
+  (-> (.getPath f)
+      (.substring (inc (.length (.getPath root))))
+      (.replaceAll "\\.cljc?$" "")))
+
+(defn- loadable?
+  "Whether the classpath resolves ns to f: load munges the namespace
+  symbol (dots to slashes, dashes to underscores) and looks for that
+  path. A file below a resources root — exported clj-kondo hooks,
+  templates — declares a namespace that resolves elsewhere, so it is
+  jar payload, not a compilable namespace of the module."
+  [[root f] ns]
+  (= (path-stem root f)
+     (-> (name ns) (str/replace "." "/") (str/replace "-" "_"))))
 
 (defn- read-decl
   "The (ns ...) declaration of f: nil when the file declares no
@@ -61,15 +80,19 @@
                            the entry points not found among the
                            sources.}"
   [src-dirs extra]
-  (let [decls (for [f (ns-files src-dirs)]
+  (let [decls (for [[root f] (ns-files src-dirs)]
                 (let [d (read-decl f)]
                   (when-not d
                     (throw (ex-info (str "no ns declaration in " (.getPath f))
                                     {:file (.getPath f)})))
-                  [f d]))
-        ns->deps (into {} (for [[_ d] decls]
-                            [(parse/name-from-ns-decl d)
-                             (parse/deps-from-ns-decl d)]))
+                  [(parse/name-from-ns-decl d) (parse/deps-from-ns-decl d)
+                   [root f]]))
+        ;; Only loadable files name namespaces the module can compile: a
+        ;; nested .clj the classpath cannot resolve (exported hooks and
+        ;; templates under a resources root) would fail the compile with
+        ;; "Could not locate ... on classpath".
+        decls (filter (fn [[ns _ pf]] (loadable? pf ns)) decls)
+        ns->deps (into {} (for [[ns deps _] decls] [ns deps]))
         project (set (keys ns->deps))
         preload (vec (map str
                           (sort

@@ -73,20 +73,28 @@
         (file/delete f)))))
 
 (defn- drop-sources
-  "Deletes the .clj/.cljc the copy step brought into the class-dir (see
-  build-module): a source next to its AOT __init.class in the jar is an
-  RT.load recompile hazard. Prep output under an :ensure path is the
-  build's input, not its output, and survives — the same carve-out as
-  clean-class-dir."
+  "Deletes from the class-dir the sources paired with their AOT
+  __init.class (see build-module; runs after the compile): a source next
+  to its AOT class in the jar is an RT.load recompile hazard. Unpaired
+  sources survive — a classpath-unreachable .clj below a resources root
+  (exported clj-kondo hooks, templates) is jar payload with no class to
+  pair with, and deleting it silently stripped the payload from the
+  published jar. Prep output under an :ensure path is the build's input,
+  not its output, and survives — the same carve-out as clean-class-dir."
   [class-dir ensures]
   (let [root (io/file class-dir)]
     (when (.exists root)
       (doseq [f (file-seq root)
-              :when (and (not (identical? f root))
+              :let [n (str f)
+                    ext (cond (str/ends-with? n ".cljc") 5
+                              (str/ends-with? n ".clj") 4
+                              :else 0)]
+              :when (and (pos? ext)
+                         (not (identical? f root))
                          (.isFile f)
-                         (not (under-ensure? (str f) ensures))
-                         (or (str/ends-with? (str f) ".clj")
-                             (str/ends-with? (str f) ".cljc")))]
+                         (not (under-ensure? n ensures))
+                         (.exists (io/file (str (subs n 0 (- (count n) ext))
+                                                "__init.class"))))]
         (file/delete f)))))
 
 (defn- pinned-time-ms
@@ -299,9 +307,6 @@
     ;; jar/uber. compile-clj only compiles .clj; it never copies.
     (when (seq copy-dirs)
       (b/copy-dir {:src-dirs copy-dirs :target-dir class-dir}))
-    ;; The copy drags the module's Clojure sources along; drop them again
-    ;; (see drop-sources).
-    (drop-sources class-dir (or ensure []))
     ;; javac before the AOT compile: the module's own Java classes must
     ;; already sit in the class-dir (second on the compile classpath,
     ;; after the working class dir) so that Clojure code referencing
@@ -314,6 +319,10 @@
     ;; dependency order.
     (aot-compile basis class-dir artifact-dirs extra
                  (get cfg :compile-jvm-opts))
+    ;; The copy dragged the module's Clojure sources into the class-dir;
+    ;; now that the compile paired them with classes, drop them again
+    ;; (see drop-sources).
+    (drop-sources class-dir (or ensure []))
     (write-launch-descriptor class-dir (get cfg :launch))
     (let [result (cond-> {:class-dir class-dir}
                    (get cfg :jar?)
