@@ -509,6 +509,19 @@
       (is (= ["src/clj" "resources"] (get d :paths)))
       (is (= ["src/clj" "resources"] (get d :rig/artifact-dirs))))))
 
+(deftest lein-dev-only-warnings-do-not-blame-the-test-profile
+  ;; The effective :test profile is :dev merged under :test (lein applies
+  ;; :dev to the test task), but a workspace with no :test profile must not
+  ;; get "profile :test dropped ..." warnings for keys it never wrote.
+  (let [text "(defproject com.example/only-dev \"0.1.0\"\n              :dependencies [[org.clojure/clojure \"1.12.1\"]]\n              :profiles {:dev {:global-vars {*assert* true}\n                               :plugins [[lein-cljfmt \"0.6.4\"]]}})\n"
+        ws (temp-ws {"project.clj" text})
+        r (run ws)]
+    (is (empty? (problems r)))
+    (is (not (some #(re-find #"profile :test" %) (warnings r)))
+        (pr-str (warnings r)))
+    (is (some #(re-find #"profile :dev dropped :global-vars" %) (warnings r))
+        (pr-str (warnings r)))))
+
 (deftest leiningen-version-literal
   (let [ws (temp-ws {"project.clj" "(defproject foo/bar \"1.2.3\" :main foo.main)\n"})
         r (run ws)]
