@@ -295,6 +295,44 @@
                                "preserved: " (.toString working))
                           {:exit exit})))))))
 
+(defn- rel-files
+  "Files under root, paths relative to root, slash-separated."
+  [root]
+  (let [r (.getPath (io/file root))
+        n (inc (count r))]
+    (for [f (file-seq (io/file root))
+          :when (.isFile f)]
+      (subs (.getPath f) n))))
+
+(defn- warn-unmatched-excludes
+  "tools.build matches :exclude patterns with re-matches — a FULL match
+  against entry names — so a plausible prefix pattern like \"^clojure/\"
+  silently excludes nothing. Warn for every pattern that matches no entry
+  in this build's own entry universe (class-dir, classpath dirs, classpath
+  jar entries). Jar DIRECTORY entries drop out of the universe: a pattern
+  that only hits container entries excludes no class."
+  [basis class-dir patterns]
+  (when (seq patterns)
+    (let [jar-entries (fn [^java.io.File f]
+                        (with-open [zf (ZipFile. f)]
+                          (doall (map #(.getName ^ZipEntry %)
+                                      (enumeration-seq (.entries zf))))))
+          root-names (fn [root]
+                       (let [f (io/file root)]
+                         (cond
+                           (.isDirectory f) (rel-files f)
+                           (str/ends-with? (str f) ".jar") (jar-entries f))))
+          names (into #{}
+                      (comp (mapcat root-names)
+                            (remove #(.endsWith ^String % "/")))
+                      (cons class-dir (:classpath-roots basis)))]
+      (doseq [p patterns
+              :when (and (string? p)
+                         (not (some #(re-matches (re-pattern p) %) names)))]
+        (println (str "uberjar :exclude pattern " (pr-str p) " matched no entry — "
+                      "patterns are FULL matches against entry names "
+                      "(re-matches): use \"dir/.*\", not \"^dir/\""))))))
+
 (defn- build-module [cfg]
   (let [ts (pinned-time-ms (get cfg :timestamp-string))
         basis (basis (get cfg :classpath))
@@ -343,6 +381,7 @@
                                  (finalize-jar (get cfg :jar-file) ts)))
                    (get cfg :uber?)
                    (assoc :uber (do
+                                  (warn-unmatched-excludes basis class-dir (get cfg :exclude))
                                   (b/uber {:basis basis
                                            :class-dir class-dir
                                            :uber-file (get cfg :uber-file)

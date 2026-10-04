@@ -41,7 +41,7 @@ Set in the `deps.edn` of each module. All keys are optional unless noted.
 | `:rig/native-file` | `target/<lib name>` | Native binary output path, relative to the module (no extension). |
 | `:rig/native-opts` | `[]` | Extra native-image arguments, appended after Rig's fixed ones. |
 | `:rig/uberjar-file` | `target/<name>-<version>.jar` | Uberjar output path, relative to the module. |
-| `:rig/uber-opts` | `{}` | tools.build uberjar options (currently `:exclude`), e.g. `{:exclude ["META-INF/license/.*"]}`. |
+| `:rig/uber-opts` | `{}` | tools.build uberjar options (currently only `:exclude`), e.g. `{:exclude ["META-INF/license/.*"]}`. Patterns are FULL matches against entry names (`re-matches`): a prefix pattern like `"^META-INF/license/"` excludes nothing — rig warns about patterns that match no entry, and about opts keys it does not consume. |
 | `:rig/timestamp-string` | — | ISO-8601 UTC instant (e.g. `"2026-01-01T00:00:00Z"`) used as the timestamp of every entry in the built jar and uberjar; entries are also written in name-sorted order. Set together with a pinned `:rig/jvm`, this makes the build output byte-reproducible. Pre-1980 values are refused (the zip format would clamp them silently). |
 | `:rig/test?` | `true` | Recorded in the lock (`test.enabled`). `rig test` itself targets modules by their `:test` alias's `:exec-fn`. |
 | `:rig/publish?` | `false` (true if `:rig/publish` is set) | Whether `rig publish` deploys this module. |
