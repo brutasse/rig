@@ -310,6 +310,26 @@
     (is (= {:extra-paths ["test"]}
            (get (get (file-edn ws "modules/m/deps.edn") :aliases) :test)))))
 
+(deftest new-top-level-keys-get-their-own-line
+  (let [ws (temp-ws {"deps.edn"
+                     "{:exoscale.project/lib m/lib\n :exoscale.project/deploy? true\n :aliases {:test {:main-opts [\"-m\" \"x\"]}}\n :slipset.deps-deploy/exec-args {:repository \"my-repo\"}}\n"})]
+    (let [r (run ws)]
+      (is (empty? (problems r)))
+      (let [text (file-text ws "deps.edn")]
+        (is (re-find #"(?m)^ :rig/publish \{:repo \"my-repo\"\}\}$" text)
+            (str "key not on its own line:\n" text))
+        (is (not (re-find #"\}\} :rig/publish" text))
+            (str "key glued onto the closing line:\n" text))
+        (is (= {:repo "my-repo"} (get (file-edn ws "deps.edn") :rig/publish)))))))
+
+(deftest new-top-level-keys-are-not-commented-out
+  (let [ws (temp-ws {"deps.edn"
+                     "{:exoscale.project/lib m/lib\n :exoscale.project/deploy? true\n :slipset.deps-deploy/exec-args {:repository \"my-repo\"} ;; ship it\n }\n"})]
+    (let [r (run ws)]
+      (is (empty? (problems r)))
+      (is (= {:repo "my-repo"} (get (file-edn ws "deps.edn") :rig/publish))
+          (str "appended after the trailing comment:\n" (file-text ws "deps.edn"))))))
+
 (deftest s3p-repo-is-a-problem
   "An s3p:// deploy url has no rig equivalent (rig publishes to http/https
   only): the migration is blocked and nothing is written."
