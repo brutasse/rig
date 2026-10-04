@@ -18,7 +18,11 @@ import (
 )
 
 var (
-	ErrResolution = errors.New("kernel: resolution failed")
+	// ErrOpFailed is the mapping of the kernel's exit 1: the op failed,
+	// whatever it was. The kernel prints the real error on stderr before
+	// exiting; a trailer naming the failure (resolution, compile, …)
+	// would claim more than the exit code carries.
+	ErrOpFailed   = errors.New("kernel: op failed")
 	ErrBadRequest = errors.New("kernel: bad request")
 	ErrLegacyKeys = errors.New("kernel: manifest still uses legacy keys - run rig migrate")
 )
@@ -185,7 +189,11 @@ type OpError struct {
 	Err error
 }
 
-func (e *OpError) Error() string { return e.Op + ": " + e.Err.Error() }
+// Error renders just the wrapped error: every caller prints the verb
+// itself ("build:", "lock:", …), so prefixing the kernel op name here
+// would stutter ("build: build: kernel: op failed"). Op stays on the
+// struct for programs that want the kernel-side op name.
+func (e *OpError) Error() string { return e.Err.Error() }
 
 func (e *OpError) Unwrap() error { return e.Err }
 
@@ -231,7 +239,7 @@ func Call(ctx context.Context, jar, java string, req Request, env ...string) ([]
 		var mapped error
 		switch ee.ExitCode() {
 		case 1:
-			mapped = ErrResolution
+			mapped = ErrOpFailed
 		case 2:
 			mapped = ErrBadRequest
 		case 3:

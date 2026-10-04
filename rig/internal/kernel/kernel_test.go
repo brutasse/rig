@@ -231,6 +231,15 @@ func TestCallSuccess(t *testing.T) {
 	}
 }
 
+func TestOpErrorError(t *testing.T) {
+	// The verb comes from the caller; Error() must not repeat the kernel
+	// op name ("build: build: kernel: op failed" used to be the trailer).
+	oe := &OpError{Op: "build", Err: ErrOpFailed}
+	if got := oe.Error(); got != "kernel: op failed" {
+		t.Errorf("Error() = %q, want %q", got, "kernel: op failed")
+	}
+}
+
 func TestCallExitMapping(t *testing.T) {
 	java, err := jvm.Find()
 	if err != nil {
@@ -241,7 +250,7 @@ func TestCallExitMapping(t *testing.T) {
 		code int
 		want error
 	}{
-		{1, ErrResolution},
+		{1, ErrOpFailed},
 		{2, ErrBadRequest},
 		{3, ErrLegacyKeys},
 	}
