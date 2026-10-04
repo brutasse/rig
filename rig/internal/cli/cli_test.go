@@ -404,6 +404,26 @@ func TestVersionFromLockFallback(t *testing.T) {
 	}
 }
 
+func TestVersionEmptyLockVersion(t *testing.T) {
+	// A workspace with no VERSION file resolves to an empty module
+	// version in the lock: version must say so and fail, not print a
+	// blank line and exit 0.
+	dir := t.TempDir()
+	t.Chdir(dir)
+	doc := lockfile.ForTest(".")
+	mod := doc.Modules["."]
+	mod.Version = ""
+	doc.Modules["."] = mod
+	writeFile(t, "deps.edn", "{}\n")
+	if err := doc.Save("deps.lock"); err != nil {
+		t.Fatal(err)
+	}
+	code, out := runCLI(t, "version")
+	if code != 1 || !strings.Contains(out, "no version") {
+		t.Fatalf("exit=%d out=%q, want 1 with the no-version message", code, out)
+	}
+}
+
 func TestInfo(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
