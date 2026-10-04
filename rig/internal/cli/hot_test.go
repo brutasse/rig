@@ -440,7 +440,8 @@ func TestHotRelockNoticesTheRewrite(t *testing.T) {
 }
 
 // chmodTree sets dir and everything under it to dirMode/fileMode.
-func chmodTree(dir string, dirMode, fileMode os.FileMode) error {	return filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
+func chmodTree(dir string, dirMode, fileMode os.FileMode) error {
+	return filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
