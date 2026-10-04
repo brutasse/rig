@@ -26,6 +26,14 @@ func newLockCmd(o *opts) *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
+			// --frozen is documented as "never modify the lock; fail if
+			// it is stale" — and rig lock is the command that writes the
+			// lock. The flag used to be silently ignored: CI passing
+			// --frozen believed the lock was protected while deps.lock
+			// was rewritten. Refuse the contradiction instead.
+			if o.frozen {
+				return exitf(2, "lock: --frozen means 'never write the lock', and rig lock writes it")
+			}
 			// FindNoLock: the kernel reads the existing lock itself (raw JSON,
 			// pins preserved) and writes the current schema, so a lock of an
 			// older schema must not block the re-lock.

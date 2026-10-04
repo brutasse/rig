@@ -523,7 +523,7 @@ newest build. The command does not touch the manifest or the lock.
 |---|---|
 | `-p, --path <module>` | Target one module (default: all, in dependency order; `.` = root module). |
 | `--offline` | Never use the network. Artifacts come from the cache or a checksum-checked `~/.m2`; fail if in neither. |
-| `--frozen` | Never modify the lock; fail (exit 3) if it is missing or stale. The CI mode. |
+| `--frozen` | Never modify the lock; fail (exit 3) if it is missing or stale. The CI mode. `rig lock` refuses it — writing the lock is its whole job. |
 | `--force` | Bypass cooldowns (the decision is recorded in the lock). |
 | `--cache-dir <dir>` | State directory (artifact cache + kernel jars). Default `~/.local/share/rig`; honors `$XDG_DATA_HOME`. |
 | `-v, --verbose` | Debug logging. |
