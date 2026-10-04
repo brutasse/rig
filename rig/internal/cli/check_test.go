@@ -103,11 +103,16 @@ func TestCheckNoLock(t *testing.T) {
 		t.Fatal(err)
 	}
 	code, out := runCLI(t, "check", "--cache-dir", t.TempDir())
-	if code != 1 {
-		t.Fatalf("check exit = %d, want 1; out: %s", code, out)
+	// Exit 3 is the documented code for a missing lock; one message, not
+	// one stale-lock line per module.
+	if code != 3 {
+		t.Fatalf("check exit = %d, want 3; out: %s", code, out)
 	}
-	if !strings.Contains(out, "run rig lock") {
-		t.Errorf("check out missing the no-lock hint: %q", out)
+	if !strings.Contains(out, "no lock") || !strings.Contains(out, "run 'rig lock'") {
+		t.Errorf("check out missing the single no-lock message: %q", out)
+	}
+	if strings.Contains(out, "stale-lock") {
+		t.Errorf("check out still renders per-module stale-lock problems without a lock: %q", out)
 	}
 }
 

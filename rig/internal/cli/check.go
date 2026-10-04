@@ -53,6 +53,11 @@ func runCheck(ctx context.Context, o *opts) error {
 	if err != nil {
 		return err
 	}
+	// A missing lock is a lock problem (exit 3), not a per-module report:
+	// every consistency problem would be "no pin — run rig lock" anyway.
+	if root.Lock == nil {
+		return exitf(3, "no lock at %s (run 'rig lock')", root.LockPath())
+	}
 	store, err := o.store()
 	if err != nil {
 		return err
