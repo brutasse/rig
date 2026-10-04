@@ -845,8 +845,11 @@
   "One leiningen profile -> [alias warnings problems]. The :test profile
   always yields an alias with a kaocha :exec-fn (rig test hard-requires
   one); other profiles yield an alias only when they carry expressible
-  content."
-  [pname p test-defaults kaocha-ver pool vversion vvars siblings]
+  content. p is the EFFECTIVE profile (:dev merged under :test, as lein
+  applies :dev to the test task); warnings report dropped keys of
+  warn-src — the profile as the user wrote it — so keys inherited from
+  :dev are not blamed on a :test profile that does not exist."
+  [pname p warn-src test-defaults kaocha-ver pool vversion vvars siblings]
   (let [test? (= pname :test)
         map? (or (nil? p) (map? p))
         p (or p {})
@@ -873,7 +876,7 @@
                                             #{:dependencies :source-paths :resource-paths :test-paths :jvm-opts}
                                             #{:dependencies :source-paths :resource-paths :jvm-opts})
                                           k)))
-                        (keys p))]
+                        (keys warn-src))]
     [alias
      (concat (when-not map?
                [(str "profile :" (name pname) " is not a map (no rig equivalent)")])
@@ -973,10 +976,12 @@
         kaocha-ver (if kaocha-bump
                      default-kaocha
                      (or declared-kaocha default-kaocha))
-        test (profile-alias :test merged-test test-defaults kaocha-ver pool vversion vvars siblings)
+        test (profile-alias :test merged-test (or (get profiles :test) {})
+                            test-defaults kaocha-ver pool vversion vvars siblings)
         [test-alias test-w test-p] test
         dev (if (some? (get profiles :dev))
-              (profile-alias :dev (get profiles :dev) test-defaults kaocha-ver pool vversion vvars siblings)
+              (profile-alias :dev (get profiles :dev) (get profiles :dev)
+                             test-defaults kaocha-ver pool vversion vvars siblings)
               [{} [] []])
         [dev-alias dev-w dev-p] dev
         aliases (cond-> {:test test-alias}
