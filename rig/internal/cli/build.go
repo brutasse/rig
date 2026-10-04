@@ -171,6 +171,9 @@ func (e *hotEnv) buildOne(ctx context.Context, m string, uber, native bool) (str
 		if ex, ok := mod.Build.Uberjar.Opts["exclude"]; ok {
 			cfg["exclude"] = ex
 		}
+		for _, k := range ignoredUberOptsKeys(mod.Build.Uberjar.Opts) {
+			fmt.Fprintf(os.Stderr, "rig: warning: %s: :rig/uber-opts key :%s ignored (rig supports only :exclude)\n", m, k)
+		}
 		warnDuplicateEntries(entries)
 	}
 	// Bake the launch plan into the artifact (META-INF/rig/launch.json) so
@@ -532,6 +535,19 @@ func entrySHA256(zf *zip.ReadCloser, name string) string {
 	h := sha256.New()
 	_, _ = io.Copy(h, r)
 	return hex.EncodeToString(h.Sum(nil))
+}
+
+// ignoredUberOptsKeys lists :rig/uber-opts keys the build does not consume
+// (everything but :exclude), sorted for a stable warning order.
+func ignoredUberOptsKeys(opts map[string]any) []string {
+	var keys []string
+	for k := range opts {
+		if k != "exclude" {
+			keys = append(keys, k)
+		}
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // warnDuplicateEntries reports jar entries present in more than one classpath
