@@ -335,6 +335,10 @@ binary (GraalVM):
   uninstall / update).
   `RIG_GRAALVM_HOME=<home>` overrides the store (a dev override, like
   `RIG_JAVA`; it must contain `bin/native-image`).
+  GitHub limits unauthenticated release lookups to 60 requests per hour
+  per IP address — shared CI runners exhaust that pool. Rig authenticates
+  the lookup with `GH_TOKEN` or `GITHUB_TOKEN` when you set one; GitHub
+  Actions exports `GITHUB_TOKEN` for every step.
 - **Entry point.** `:rig/main` must be a Clojure namespace. Rig compiles
   a small entry shim (javac beside the java of the workspace) whose main
   delegates to `clojure.main` with `-m <ns>`, so the binary runs with

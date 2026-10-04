@@ -162,3 +162,49 @@ func TestGetUnknownTag(t *testing.T) {
 		t.Error("Get(bad tag) succeeded, want error")
 	}
 }
+
+func TestReleaseRequestSendsToken(t *testing.T) {
+	var auth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth = r.Header.Get("Authorization")
+		fmt.Fprint(w, `{"tag_name":"v0.2.0","assets":[]}`)
+	}))
+	t.Cleanup(srv.Close)
+
+	t.Setenv("GH_TOKEN", "tok")
+	if _, err := Latest(context.Background(), srv.Client(), srv.URL); err != nil {
+		t.Fatal(err)
+	}
+	if auth != "Bearer tok" {
+		t.Errorf("authorization = %q, want \"Bearer tok\"", auth)
+	}
+
+	t.Setenv("GH_TOKEN", "")
+	t.Setenv("GITHUB_TOKEN", "")
+	if _, err := Latest(context.Background(), srv.Client(), srv.URL); err != nil {
+		t.Fatal(err)
+	}
+	if auth != "" {
+		t.Errorf("authorization without a token = %q, want none", auth)
+	}
+}
+
+func TestForbiddenWithoutTokenSaysHowToAuth(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	t.Cleanup(srv.Close)
+
+	t.Setenv("GH_TOKEN", "")
+	t.Setenv("GITHUB_TOKEN", "")
+	_, err := Latest(context.Background(), srv.Client(), srv.URL)
+	if err == nil || !strings.Contains(err.Error(), "set GH_TOKEN or GITHUB_TOKEN") {
+		t.Errorf("unauthenticated err = %v, want the token hint", err)
+	}
+
+	t.Setenv("GITHUB_TOKEN", "tok")
+	_, err = Latest(context.Background(), srv.Client(), srv.URL)
+	if err == nil || strings.Contains(err.Error(), "set GH_TOKEN") {
+		t.Errorf("authenticated err = %v, want no token hint", err)
+	}
+}

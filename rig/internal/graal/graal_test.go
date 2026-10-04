@@ -239,6 +239,80 @@ func TestResolveRateLimitBody(t *testing.T) {
 	}
 }
 
+func TestResolveRateLimitHint(t *testing.T) {
+	// An unauthenticated 403 says how to raise the limit; with a token, the
+	// server's own message must stand alone.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	t.Cleanup(srv.Close)
+
+	t.Setenv("GH_TOKEN", "")
+	t.Setenv("GITHUB_TOKEN", "")
+	_, err := NewAPI(srv.URL).Resolve(context.Background(), "25")
+	if err == nil || !strings.Contains(err.Error(), "set GH_TOKEN or GITHUB_TOKEN") {
+		t.Errorf("unauthenticated err = %v, want the token hint", err)
+	}
+
+	t.Setenv("GH_TOKEN", "tok")
+	_, err = NewAPI(srv.URL).Resolve(context.Background(), "25")
+	if err == nil || strings.Contains(err.Error(), "set GH_TOKEN") {
+		t.Errorf("authenticated err = %v, want no token hint", err)
+	}
+}
+
+func TestResolveSendsTokenToAPIOnly(t *testing.T) {
+	// The token authenticates the API request; the sidecar and the archive —
+	// served from the release's own download URLs — must never see it.
+	osN, archN, ok := platform()
+	if !ok {
+		t.Skipf("no platform mapping for %s/%s", osN, archN)
+	}
+	archive, sum := makeTargz(t, "25.0.2")
+	want := "graalvm-community-jdk-25.0.2_" + osN + "-" + archN + "_bin"
+	var apiAuth, sidecarAuth, dlAuth string
+	var srv *httptest.Server
+	mux := http.NewServeMux()
+	mux.HandleFunc("/repos/"+repo+"/releases", func(w http.ResponseWriter, r *http.Request) {
+		apiAuth = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]apiRelease{{TagName: "jdk-25.0.2", Assets: []apiAsset{
+			{Name: want + ".tar.gz", BrowserDownloadURL: srv.URL + "/dl", Size: 10},
+			{Name: want + ".tar.gz.sha256", BrowserDownloadURL: srv.URL + "/sha"},
+		}}})
+	})
+	mux.HandleFunc("/sha", func(w http.ResponseWriter, r *http.Request) {
+		sidecarAuth = r.Header.Get("Authorization")
+		w.Write([]byte(sum + "\n"))
+	})
+	mux.HandleFunc("/dl", func(w http.ResponseWriter, r *http.Request) {
+		dlAuth = r.Header.Get("Authorization")
+		http.ServeFile(w, r, archive)
+	})
+	srv = httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	t.Setenv("GH_TOKEN", "tok")
+	if _, err := NewAPI(srv.URL).Resolve(context.Background(), "25"); err != nil {
+		t.Fatal(err)
+	}
+	if apiAuth != "Bearer tok" {
+		t.Errorf("api authorization = %q, want \"Bearer tok\"", apiAuth)
+	}
+	if sidecarAuth != "" || dlAuth != "" {
+		t.Errorf("download hosts got a token: sidecar %q, archive %q", sidecarAuth, dlAuth)
+	}
+
+	t.Setenv("GH_TOKEN", "")
+	t.Setenv("GITHUB_TOKEN", "")
+	if _, err := NewAPI(srv.URL).Resolve(context.Background(), "25"); err != nil {
+		t.Fatal(err)
+	}
+	if apiAuth != "" {
+		t.Errorf("api authorization without a token = %q, want none", apiAuth)
+	}
+}
+
 func TestResolveBadSidecar(t *testing.T) {
 	archive, _ := makeTargz(t, "25.0.2")
 	srv := apiServer(t, "25.0.2", archive, "not-a-sha", http.StatusOK)

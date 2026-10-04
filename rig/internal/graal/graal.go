@@ -21,6 +21,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/brutasse/rig/internal/ghtoken"
 	"github.com/brutasse/rig/internal/jdk"
 )
 
@@ -42,16 +43,18 @@ var ErrNotInstalled = errors.New("graal: not installed")
 var sha256Re = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 type apiClient struct {
-	base string
-	http *http.Client
+	base  string
+	token string
+	http  *http.Client
 }
 
 // NewAPI returns the GitHub releases API client; base "" uses DefaultBase.
+// Requests carry the GH_TOKEN / GITHUB_TOKEN bearer token when one is set.
 func NewAPI(base string) *apiClient {
 	if base == "" {
 		base = DefaultBase
 	}
-	return &apiClient{base: base, http: &http.Client{Timeout: 2 * time.Minute}}
+	return &apiClient{base: base, token: ghtoken.Token(), http: &http.Client{Timeout: 2 * time.Minute}}
 }
 
 // Asset is one downloadable GraalVM build.
@@ -158,12 +161,18 @@ type statusError struct {
 	url    string
 	status int
 	body   string
+	// noToken marks a request that went out unauthenticated: a 403 on it is
+	// GitHub's per-IP rate limit, so the error says how to raise it.
+	noToken bool
 }
 
 func (e *statusError) Error() string {
 	s := fmt.Sprintf("graal: %s: status %d", e.url, e.status)
 	if e.body != "" {
 		s += ": " + e.body
+	}
+	if e.status == http.StatusForbidden && e.noToken {
+		s += " (" + ghtoken.Hint + ")"
 	}
 	return s
 }
@@ -174,6 +183,9 @@ func (a *apiClient) releases(ctx context.Context) ([]apiRelease, error) {
 	if err != nil {
 		return nil, err
 	}
+	if a.token != "" {
+		req.Header.Set("Authorization", "Bearer "+a.token)
+	}
 	resp, err := a.http.Do(req)
 	if err != nil {
 		return nil, err
@@ -181,7 +193,7 @@ func (a *apiClient) releases(ctx context.Context) ([]apiRelease, error) {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		return nil, &statusError{url: url, status: resp.StatusCode, body: strings.TrimSpace(string(body))}
+		return nil, &statusError{url: url, status: resp.StatusCode, body: strings.TrimSpace(string(body)), noToken: a.token == ""}
 	}
 	var rels []apiRelease
 	if err := json.NewDecoder(resp.Body).Decode(&rels); err != nil {
