@@ -21,7 +21,8 @@
             [cljfmt.core :as cljfmt]
             [rewrite-clj.node :as n]
             [rewrite-clj.zip :as z]
-            [rewrite-clj.zip.seqz :as s]))
+            [rewrite-clj.zip.seqz :as s]
+            [rewrite-clj.zip.whitespace :as mw]))
 
 ;; --- legacy key surface ---
 
@@ -1230,11 +1231,39 @@
     (up-to-root (-> vz z/remove z/remove))
     ztop))
 
+(defn- entry-break
+  "The whitespace between entries of the map at zloc mz: the first
+  whitespace child containing a newline, so an appended entry can match
+  the map's layout. \"\\n \" for a map written on a single line."
+  [mz]
+  (or (some->> (z/down mz)
+               (iterate z/right)
+               (take-while identity)
+               (some (fn [zloc]
+                       (when (mw/whitespace? zloc)
+                         (let [s (z/string zloc)]
+                           (when (str/includes? s "\n") s))))))
+      "\n "))
+
 (defn- assoc-entry
-  "Add entry k to the map at path."
+  "Add entry k to the map at path. A NEW entry is moved onto its own line:
+  rewrite-clj appends it right after the map's last child, which glues
+  `:k v` onto the line that closes the last (often nested) entry — in a
+  multi-line manifest that reads as if the new key belonged to that nested
+  map (valid EDN, misleading layout; hand-reformatted in every migrated
+  workspace so far)."
   [ztop path k v]
   (if-let [mz (map-zloc ztop path)]
-    (up-to-root (s/assoc mz k v))
+    (let [fresh? (nil? (s/get mz k))
+          ws     (entry-break mz)
+          zt     (up-to-root (s/assoc mz k v))]
+      (if-let [kz (when fresh? (some-> (map-zloc zt path) (key-node k)))]
+        (if-let [wz (z/left kz)]
+          (if (mw/whitespace? wz)
+            (up-to-root (z/edit wz (fn [_] (n/whitespace-node ws))))
+            (up-to-root (mw/insert-newline-left kz)))
+          zt)
+        zt))
     ztop))
 
 (defn- sync-entries
