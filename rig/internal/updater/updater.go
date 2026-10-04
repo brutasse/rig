@@ -15,6 +15,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/brutasse/rig/internal/ghtoken"
 )
 
 // DefaultAPI is the GitHub API base for the rig repository.
@@ -93,13 +95,21 @@ func getRelease(ctx context.Context, client *http.Client, apiBase, path string) 
 		return nil, err
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
+	token := ghtoken.Token()
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("updater: %s: status %d", path, resp.StatusCode)
+		hint := ""
+		if resp.StatusCode == http.StatusForbidden && token == "" {
+			hint = " (" + ghtoken.Hint + ")"
+		}
+		return nil, fmt.Errorf("updater: %s: status %d%s", path, resp.StatusCode, hint)
 	}
 	var g ghRelease
 	if err := json.NewDecoder(resp.Body).Decode(&g); err != nil {

@@ -410,7 +410,10 @@ re-locks.
 
 Update the Rig binary from the GitHub releases (hash-verified against the
 release `SHA256SUMS`, atomic replace). `--check` reports only;
-`--version vX.Y.Z` targets an exact release. Release builds only.
+`--version vX.Y.Z` targets an exact release. Release builds only. GitHub
+limits unauthenticated release lookups to 60 requests per hour per IP
+address; when you set `GH_TOKEN` or `GITHUB_TOKEN`, Rig authenticates the
+lookup with it.
 
 ## JVM management
 

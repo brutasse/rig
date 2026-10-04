@@ -132,6 +132,14 @@ commands reject v1 locks with an unsupported-version error. `rig lock`,
   major of the workspace to the newest release, and they replace it.
   They install the newest release when the store holds none. They no
   longer write `deps.lock`, and `--frozen` no longer applies to them.
+- **The GitHub API lookup uses a token.** `rig graalvm install` and
+  `rig self-update` resolve releases through the GitHub API, which allows
+  60 requests per hour per IP address. Shared CI runners exhaust that
+  pool. Rig sends the bearer token of `GH_TOKEN` or `GITHUB_TOKEN` (the
+  `gh` CLI's names, in that order) on the API request, and sends it to no
+  other host. GitHub Actions exports `GITHUB_TOKEN` for every step, so CI
+  needs no configuration. Downloads and their `.sha256` sidecars carry no
+  token.
 - In a container, the declared JDK in the image base *is* the build JVM.
   The [Production launch](workflows/production-launch.md#the-docker-image)
   image builds on the `eclipse-temurin` base with Rig copied in — no
