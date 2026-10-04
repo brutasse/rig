@@ -20,6 +20,12 @@ dir. Set options in `:rig/javac-opts`. When the workspace pins `:rig/jvm`,
 Rig prepends `--release <n>`. Rig skips this when your opts already set the
 source level.
 
+The class dir also rides on the module's own classpath, after its `:paths`:
+`rig test`, `rig run` and `rig check` see the module's compiled Java
+classes, the way Lein puts `target/classes` on the classpath. A module that
+declares `:rig/java-src-dirs` does not need to list its class dir in
+`:paths` — and listing it never duplicates the entry.
+
 ## Local dependency modules
 
 This feature exists for this situation: module `b` depends on module `a` by
@@ -36,10 +42,12 @@ Two declarations make it work, both in `a`:
  :rig/java-src-dirs ["src"]}                             ;; (2)
 ```
 
-1. `:paths` must include the class dir. Rig flows a local dependency's
-   `:paths` into every dependent's classpath. That is how `b` sees
-   `a/target/classes`. Without this entry, the consumer compiles against an
-   empty (or absent) directory.
+1. The class dir must reach the classpath. A module that declares
+   `:rig/java-src-dirs` gets its class dir appended automatically, so the
+   `:paths` entry below is not needed. When the classes come from a prep
+   function instead, `:paths` must include the class dir: Rig flows a local
+   dependency's `:paths` into every dependent's classpath, and that is how
+   `b` sees `a/target/classes`.
 2. `:rig/java-src-dirs` points at `a`'s Java sources.
 
 With that, `rig build`, `rig test`, and `rig run` of `b` (or of anything
@@ -82,7 +90,8 @@ own class dir, Rig already does that natively. How to migrate:
 
 1. add `:rig/java-src-dirs` to the proto module (point it at the Java
    sources);
-2. keep the class dir in `:paths`;
+2. drop the class dir from `:paths` (Rig appends a Java module's class dir
+   for consumers; keeping the entry is harmless);
 3. delete `:deps/prep-lib`, the `:prep` alias, the `build.clj`, and the
    tools.build git dependency from the prep classpath;
 4. `rig lock` again (the lock records `java-src-dirs` and drops the

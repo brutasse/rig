@@ -541,3 +541,70 @@ func TestBuildPrepEndToEnd(t *testing.T) {
 		t.Fatalf("build out = %q, want prep boom", out)
 	}
 }
+
+// TestCompiledJavaVisibleToCheckTestRun: a module with :rig/java-src-dirs
+// that does NOT declare its class-dir in :paths. rig compiles the java into
+// target/classes, so check, test and run must all see those classes on the
+// module's classpath (a Clojure source importing one of them used to die
+// with a ClassNotFoundException).
+func TestCompiledJavaVisibleToCheckTestRun(t *testing.T) {
+	jar := kernelJarPath(t)
+	if _, err := jvm.Find(); err != nil {
+		t.Skipf("no java available: %v", err)
+	}
+	sha, err := digest.File(jar)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldSHA := kernel.Current.JARSHA
+	kernel.Current.JARSHA = sha
+	os.Setenv("RIG_KERNEL_JAR", jar)
+	os.Setenv("RIG_RUNNER_JAR", runnerJarPath(t))
+	t.Cleanup(func() {
+		kernel.Current.JARSHA = oldSHA
+		os.Unsetenv("RIG_KERNEL_JAR")
+		os.Unsetenv("RIG_RUNNER_JAR")
+	})
+
+	dir := t.TempDir()
+	t.Chdir(dir)
+	cacheDir := t.TempDir()
+	writeFile(t, "VERSION", "0.0.1\n")
+	writeFile(t, "deps.edn",
+		`{:rig/lib "probe/probe"
+		  :rig/main "probe"
+		  :deps {org.clojure/clojure {:mvn/version "1.12.5"}}
+		  :rig/java-src-dirs ["java"]
+		  :aliases {:test {:extra-paths ["test"] :exec-fn test-exec/exec}}}`+"\n")
+	writeFile(t, "java/probe/Thing.java", "package probe;\n\npublic class Thing {\n  public static String hi() {\n    return \"java-hi\";\n  }\n}\n")
+	writeFile(t, "src/probe.clj", "(ns probe\n  (:import [probe Thing]))\n(defn hi [] (Thing/hi))\n(defn -main [] (println (hi)))\n")
+	writeFile(t, "src/test_exec.clj", "(ns test-exec\n  (:require [clojure.test :as t]))\n\n(defn exec [opts]\n  (let [ns (symbol (or (:ns opts) \"probe-test\"))]\n    (require ns)\n    (let [summary (t/run-tests ns)]\n      (and (zero? (:fail summary 0)) (zero? (:error summary 0))))))\n")
+	writeFile(t, "test/probe_test.clj", "(ns probe-test\n  (:require [clojure.test :refer :all] [probe :as p]))\n(deftest hi-works (is (= (p/hi) \"java-hi\")))\n")
+
+	code, out := runCLI(t, "lock", "--cache-dir", cacheDir)
+	if code != 0 && strings.Contains(out, "status 429") {
+		time.Sleep(10 * time.Second)
+		code, out = runCLI(t, "lock", "--cache-dir", cacheDir)
+	}
+	if code != 0 {
+		t.Fatalf("lock exit = %d, want 0; out: %s", code, out)
+	}
+
+	// check: the AOT load of probe.clj must see the javac'd probe.Thing.
+	code, out = runCLI(t, "check", "--cache-dir", cacheDir)
+	if code != 0 || !strings.Contains(out, "check: ok") {
+		t.Fatalf("check exit = %d, want 0 with ok; out: %s", code, out)
+	}
+
+	// test: the exec-fn loads probe.clj on the :test alias classpath.
+	code, out = runCLI(t, "test", "--cache-dir", cacheDir)
+	if code != 0 || !strings.Contains(out, "Ran 1 tests") {
+		t.Fatalf("test exit = %d, want 0 with one green test; out: %s", code, out)
+	}
+
+	// run: -main calls into the java class.
+	code, out = runCLI(t, "run", "--cache-dir", cacheDir)
+	if code != 0 || !strings.Contains(out, "java-hi") {
+		t.Fatalf("run exit = %d, want 0 printing java-hi; out: %s", code, out)
+	}
+}

@@ -96,7 +96,7 @@ func (e *hotEnv) ensurePreps(ctx context.Context, m string, mod lockfile.Module,
 		}
 		if jst != nil {
 			fmt.Printf("prep %s: javac (%s)\n", dir, jst.reason)
-			if err := e.runJavaPrep(ctx, dir, pmod); err != nil {
+			if err := e.runJavaPrep(ctx, dir, pmod, filepath.Join(e.modDir(dir), pmod.Build.ClassDir)); err != nil {
 				return fmt.Errorf("prep %s: %w", dir, err)
 			}
 		}
@@ -413,11 +413,13 @@ func (e *hotEnv) writeStamp(m string, mod lockfile.Module, st prepState, prep, f
 	return os.WriteFile(p, append(b, '\n'), 0o644)
 }
 
-// runJavaPrep compiles m's declared :rig/java-src-dirs into its class-dir
+// runJavaPrep compiles m's declared :rig/java-src-dirs into classes
 // through the kernel build path — the same b/javac a full module build
 // runs — on the module's locked base classpath. No re-resolution: the
 // classpath is rig-fetched and locked, so no in-JVM maven resolution runs.
-func (e *hotEnv) runJavaPrep(ctx context.Context, m string, mod lockfile.Module) error {
+// classes is the module's class-dir for the prep flows; check passes a
+// temp dir instead, keeping the module's target dir untouched.
+func (e *hotEnv) runJavaPrep(ctx context.Context, m string, mod lockfile.Module, classes string) error {
 	// run and repl open the environment without a kernel (hot ctx, false);
 	// fetch it lazily here, only when a javac actually has to run.
 	k := e.kernel
@@ -442,7 +444,7 @@ func (e *hotEnv) runJavaPrep(ctx context.Context, m string, mod lockfile.Module)
 		"classpath":     cps,
 		"artifact-dirs": []string{},
 		"java-src-dirs": absJoin(dir, mod.Build.JavaSrcDirs),
-		"class-dir":     filepath.Join(dir, mod.Build.ClassDir),
+		"class-dir":     classes,
 	}
 	// Same protection as the module build: the javac must not destroy the
 	// module's prep output (a prep may own the class-dir).
