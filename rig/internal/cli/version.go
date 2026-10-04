@@ -48,10 +48,14 @@ func newVersionCmd(o *opts) *cobra.Command {
 				}
 			}
 			if root.Lock != nil {
-				if mod, err := root.Lock.Module(m); err == nil {
+				// An empty locked version (a workspace with no VERSION
+				// file resolves to "") is no version: printing it would
+				// emit a blank line and exit 0.
+				if mod, err := root.Lock.Module(m); err == nil && mod.Version != "" {
 					fmt.Println(mod.Version)
 					return nil
 				}
+				return exitf(1, "no version found (no VERSION file, and the lock records none for %s)", m)
 			}
 			return exitf(1, "no version found (no VERSION file and no lock)")
 		},
