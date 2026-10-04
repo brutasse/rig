@@ -141,6 +141,112 @@ func TestBuildLocalModule(t *testing.T) {
 	}
 }
 
+func TestBuildJavaModuleClassDir(t *testing.T) {
+	// A module that declares java sources compiles them into its class-dir;
+	// that dir joins its paths (after the declared ones, so sources shadow
+	// stale compiled classes) — and the same for a local dependency that
+	// declares java sources.
+	ws := t.TempDir()
+	doc := lockfile.ForTest(".", "modules/app")
+	setPaths(t, doc, ".", "src")
+	setPaths(t, doc, "modules/app", "src")
+	root := doc.Modules["."]
+	root.Build.JavaSrcDirs = []string{"java"}
+	app := "modules/app"
+	root.Classpath = append(root.Classpath, lockfile.ClasspathEntry{Local: &app})
+	doc.Modules["."] = root
+	mapp := doc.Modules[app]
+	mapp.Build.JavaSrcDirs = []string{"java"}
+	doc.Modules[app] = mapp
+	store := storeWithArtifact(t, doc)
+
+	es, err := Build(context.Background(), fetch.New(false), store, "", "", ws, doc, ".", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		filepath.Join(ws, "src"),
+		filepath.Join(ws, "target", "classes"),
+		store.ArtifactPath(doc.Artifacts[0].SHA256, doc.Artifacts[0].Extension),
+		filepath.Join(ws, "modules", "app", "src"),
+		filepath.Join(ws, "modules", "app", "target", "classes"),
+	}
+	got := Flatten(es)
+	if len(got) != len(want) {
+		t.Fatalf("got %d entries, want %d: %v", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("entry %d = %s, want %s", i, got[i], want[i])
+		}
+	}
+}
+
+func TestBuildJavaModuleClassDirDeclared(t *testing.T) {
+	// A module that already declares its class-dir in :paths gets it once.
+	ws := t.TempDir()
+	doc := lockfile.ForTest(".")
+	setPaths(t, doc, ".", "src", "target/classes")
+	mod := doc.Modules["."]
+	mod.Build.JavaSrcDirs = []string{"java"}
+	doc.Modules["."] = mod
+	store := storeWithArtifact(t, doc)
+
+	es, err := Build(context.Background(), fetch.New(false), store, "", "", ws, doc, ".", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		filepath.Join(ws, "src"),
+		filepath.Join(ws, "target", "classes"),
+		store.ArtifactPath(doc.Artifacts[0].SHA256, doc.Artifacts[0].Extension),
+	}
+	got := Flatten(es)
+	if len(got) != len(want) {
+		t.Fatalf("got %d entries, want %d: %v", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("entry %d = %s, want %s", i, got[i], want[i])
+		}
+	}
+}
+
+func TestBuildJavaModuleClassDirAlias(t *testing.T) {
+	// The class-dir rides the alias classpath too, after the alias's
+	// extra-paths and the module's declared paths (test mode reads the
+	// module's own compiled java through the :test alias).
+	ws := t.TempDir()
+	doc := lockfile.ForTest(".")
+	setPaths(t, doc, ".", "src")
+	mod := doc.Modules["."]
+	mod.Build.JavaSrcDirs = []string{"java"}
+	ref := doc.Artifacts[0].ID
+	mod.Aliases = map[string]lockfile.Alias{"test": {Paths: []string{"test"}, Classpath: []lockfile.ClasspathEntry{{Ref: &ref}}}}
+	doc.Modules["."] = mod
+	store := storeWithArtifact(t, doc)
+
+	es, err := Build(context.Background(), fetch.New(false), store, "", "", ws, doc, ".", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		filepath.Join(ws, "test"),
+		filepath.Join(ws, "src"),
+		filepath.Join(ws, "target", "classes"),
+		store.ArtifactPath(doc.Artifacts[0].SHA256, doc.Artifacts[0].Extension),
+	}
+	got := Flatten(es)
+	if len(got) != len(want) {
+		t.Fatalf("got %d entries, want %d: %v", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("entry %d = %s, want %s", i, got[i], want[i])
+		}
+	}
+}
+
 func TestBuildGitDep(t *testing.T) {
 	ws := t.TempDir()
 	gitlibs := t.TempDir()

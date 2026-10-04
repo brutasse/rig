@@ -55,6 +55,24 @@ func Flatten(es []Entry) []string {
 	return cp
 }
 
+// appendClassDir appends the module's compiled class dir to its own paths
+// when the module declares :rig/java-src-dirs and the dir is not already
+// among them: rig javacs those sources into the class dir, so those classes
+// belong on the module's classpath even when the manifest does not name the
+// dir (the way lein puts target/classes on the classpath). It goes last, so
+// a module's sources shadow its stale compiled classes.
+func appendClassDir(paths []string, mod lockfile.Module) []string {
+	if len(mod.Build.JavaSrcDirs) == 0 || mod.Build.ClassDir == "" {
+		return paths
+	}
+	for _, p := range paths {
+		if p == mod.Build.ClassDir {
+			return paths
+		}
+	}
+	return append(append([]string{}, paths...), mod.Build.ClassDir)
+}
+
 // Build resolves the ordered classpath of module m (alias a, "" = base) of
 // lock. mvn artifacts are secured in the store (cache, m2, repository); git
 // deps must be present under the gitlibs root; local refs expand to the
@@ -80,9 +98,10 @@ func Build(ctx context.Context, client *fetch.Client, store *cache.Store, m2root
 		// then the alias's merged classpath.
 		paths = append(paths, al.Paths...)
 		paths = append(paths, mod.Paths...)
+		paths = appendClassDir(paths, mod)
 		entries = al.Classpath
 	} else {
-		paths = mod.Paths
+		paths = appendClassDir(mod.Paths, mod)
 		entries = mod.Classpath
 	}
 
@@ -131,8 +150,9 @@ func Build(ctx context.Context, client *fetch.Client, store *cache.Store, m2root
 			if !ok {
 				return nil, fmt.Errorf("classpath: module %q references unknown module %q", m, *e.Local)
 			}
-			p := make([]string, len(lm.Paths))
-			for i, d := range lm.Paths {
+			lp := appendClassDir(lm.Paths, lm)
+			p := make([]string, len(lp))
+			for i, d := range lp {
 				p[i] = filepath.Join(ws, *e.Local, d)
 			}
 			out = append(out, Entry{ID: "local:" + *e.Local, Paths: p})

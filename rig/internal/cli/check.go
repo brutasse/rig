@@ -238,6 +238,15 @@ func checkModuleLoads(ctx context.Context, e *hotEnv, m string) (*checkProblem, 
 		return nil, err
 	}
 	defer os.RemoveAll(classDir)
+	// The load must see the module's own compiled java: javac its declared
+	// :rig/java-src-dirs into the temp class dir (first on the classpath)
+	// through the same kernel javac a prep runs — into the temp dir, not
+	// the module's, so the workspace stays untouched.
+	if hasJava(mod) {
+		if err := e.runJavaPrep(ctx, m, mod, classDir); err != nil {
+			return nil, err
+		}
+	}
 	full := classDir + string(filepath.ListSeparator) + cp + string(filepath.ListSeparator) + e.runner
 	// The AOT JVM is a build/validate JVM: it gets the workspace's
 	// :rig/compile-jvm-opts (same flags as the AOT build — a namespace that
