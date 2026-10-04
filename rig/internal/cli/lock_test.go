@@ -40,6 +40,23 @@ func statOK(p string) bool {
 	return err == nil
 }
 
+func TestLockFrozenRejected(t *testing.T) {
+	// --frozen means "never write the lock"; rig lock writes it. The
+	// combination used to silently ignore the flag and rewrite
+	// deps.lock anyway — a CI trap. It is a usage error now, refused
+	// before anything resolves or reads the workspace.
+	dir := t.TempDir()
+	t.Chdir(dir)
+	writeFile(t, "deps.edn", "{}\n")
+	code, out := runCLI(t, "lock", "--frozen", "--cache-dir", t.TempDir())
+	if code != 2 || !strings.Contains(out, "--frozen") {
+		t.Fatalf("lock --frozen exit = %d, want 2 with the flag named; out: %s", code, out)
+	}
+	if statOK("deps.lock") {
+		t.Errorf("lock --frozen wrote deps.lock anyway")
+	}
+}
+
 func TestLockVerifyEndToEnd(t *testing.T) {
 	jar := kernelJarPath(t)
 	if _, err := jvm.Find(); err != nil {
