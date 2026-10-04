@@ -76,8 +76,11 @@ func moduleCompletions(cmd *cobra.Command, args []string, toComplete string) ([]
 // aliasCompletions suggests the target module's locked aliases for --alias.
 func aliasCompletions(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 	path := ""
-	if f := cmd.Flag("path"); f != nil {
-		path = f.Value.String()
+	// -p is a StringArray (repeat detection lives in PersistentPreRunE);
+	// the flag's String() renders the whole slice, so read the values and
+	// use the last — completion is lenient, the run will refuse repeats.
+	if vals, err := cmd.Flags().GetStringArray("path"); err == nil && len(vals) > 0 {
+		path = vals[len(vals)-1]
 	}
 	root, err := workspace.Find(".")
 	if err != nil || root.Lock == nil {

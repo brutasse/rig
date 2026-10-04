@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -17,6 +18,7 @@ import (
 
 type opts struct {
 	path         string
+	pathVals     []string
 	offline      bool
 	frozen       bool
 	force        bool
@@ -101,8 +103,22 @@ func Execute() int {
 	root.SetFlagErrorFunc(func(cmd *cobra.Command, err error) error {
 		return exitf(2, "%v", err)
 	})
+	// -p/--path is one module per command: a repeat used to silently
+	// keep the last value (rig build -p a -p b built only b). Repeats
+	// are refused here, before any command runs. A parse-time check
+	// would break shell completion, which parses the same flags twice.
+	root.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
+		if len(o.pathVals) > 1 {
+			return exitf(2, "-p/--path may be given only once (one module per command); got: %s",
+				strings.Join(o.pathVals, ", "))
+		}
+		if len(o.pathVals) == 1 {
+			o.path = o.pathVals[0]
+		}
+		return nil
+	}
 	pf := root.PersistentFlags()
-	pf.StringVarP(&o.path, "path", "p", "", "target module")
+	pf.StringArrayVarP(&o.pathVals, "path", "p", nil, "target module")
 	pf.BoolVar(&o.offline, "offline", false, "never use the network")
 	pf.BoolVar(&o.frozen, "frozen", false, "never modify the lock; fail if it is stale")
 	pf.BoolVar(&o.force, "force", false, "bypass cooldowns")
