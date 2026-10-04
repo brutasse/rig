@@ -48,7 +48,10 @@ func (o *opts) hotLock(ctx context.Context) (*workspace.Root, *lockfile.Document
 		if err != nil {
 			return nil, nil, err
 		}
-		fmt.Printf("relocked (stale: %s)\n", strings.Join(stale, ", "))
+		// Loud, because this rewrote deps.lock under the caller: CI wants
+		// --frozen, which fails (exit 3) instead of relocking.
+		fmt.Printf("relocked (stale: %s) — deps.lock rewritten; use --frozen to fail instead of relocking\n",
+			strings.Join(stale, ", "))
 		return root, lock, nil
 	}
 	return root, root.Lock, nil

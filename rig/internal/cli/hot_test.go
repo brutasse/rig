@@ -411,9 +411,36 @@ func TestHotReadOnlyStore(t *testing.T) {
 	}
 }
 
+func TestHotRelockNoticesTheRewrite(t *testing.T) {
+	// A stale lock under the default policy is relocked and deps.lock is
+	// rewritten — a mutation CI must not get as a surprise. The line must
+	// say so and point at --frozen.
+	hotSetup(t)
+	manifest, err := os.ReadFile("deps.edn")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile("deps.edn", append(append([]byte{}, manifest...), "\n; touched\n"...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// The warm-up run also warms the store for the fixture's pins.
+	code, out := runCLI(t, "test", "--cache-dir", t.TempDir())
+	if !strings.Contains(out, "relocked (stale:") || !strings.Contains(out, "deps.lock rewritten") ||
+		!strings.Contains(out, "--frozen") {
+		t.Fatalf("relock line not loud enough (exit %d): %s", code, out)
+	}
+	// --frozen on a stale workspace fails instead of rewriting.
+	if err := os.WriteFile("deps.edn", append(append([]byte{}, manifest...), "\n; touched again\n"...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code, out = runCLI(t, "test", "--frozen", "--cache-dir", t.TempDir())
+	if code != 3 || !strings.Contains(out, "stale") {
+		t.Fatalf("frozen test exit = %d, want 3; out: %s", code, out)
+	}
+}
+
 // chmodTree sets dir and everything under it to dirMode/fileMode.
-func chmodTree(dir string, dirMode, fileMode os.FileMode) error {
-	return filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
+func chmodTree(dir string, dirMode, fileMode os.FileMode) error {	return filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
