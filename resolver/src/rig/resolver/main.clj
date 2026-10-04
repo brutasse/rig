@@ -42,17 +42,26 @@
 
 (defn- run-op
   "Run op f, printing the result JSON and exiting. A manifest that still
-  uses legacy keys exits 3 with the guard message on stderr; any other
-  failure prints the stack trace and exits 1."
+  uses legacy keys exits 3 with the guard message on stderr; a
+  :rig/friendly? error (bad user input with a message fit to show as-is)
+  exits 1 with just its message; any other failure prints the stack trace
+  and exits 1."
   [f]
   (try
     (let [result (with-quiet-out f)]
       (println (json/generate-string result))
       (System/exit 0))
     (catch Exception e
-      (if (true? (get (ex-data e) :rig/legacy?))
+      (cond
+        (true? (get (ex-data e) :rig/legacy?))
         (do (.println (System/err) (.getMessage e))
             (System/exit 3))
+
+        (true? (get (ex-data e) :rig/friendly?))
+        (do (.println (System/err) (.getMessage e))
+            (System/exit 1))
+
+        :else
         (let [w (java.io.PrintWriter. (System/err))]
           (.printStackTrace e w)
           (.flush w)

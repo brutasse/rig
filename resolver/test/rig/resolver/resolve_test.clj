@@ -33,6 +33,18 @@
     (spit (io/file base "sibling" "deps.edn") sibling-text)
     [(str (io/file base "ws")) (str (io/file base "sibling"))]))
 
+(deftest malformed-mvn-repos-fail-with-a-plain-message
+  (doseq [spec ["{:deps {}\n :mvn/repos {\"internal\" {:url \"https://repo.invalid/mvn\" :snapshots true}}}\n"
+                "{:deps {}\n :mvn/repos {\"internal\" \"https://repo.invalid/mvn\"}}\n"]]
+    (let [ws (temp-ws spec)
+          e (is (thrown? clojure.lang.ExceptionInfo (resolve/resolve-lock {:workspace ws})))]
+      (when e
+        (is (true? (get (ex-data e) :rig/friendly?)))
+        (is (str/starts-with? (.getMessage e) "invalid manifest"))
+        (is (re-find #"mvn/repos \"internal\"" (.getMessage e)) (.getMessage e))
+        (when (str/includes? spec ":snapshots")
+          (is (re-find #"SNAPSHOT" (.getMessage e)) (.getMessage e)))))))
+
 (deftest jvm-pin-is-copied-into-the-lock
   (let [ws (temp-ws "{:rig/lib x/y\n :rig/jvm \"21\"}\n")
         lock (-> (resolve/resolve-lock {:workspace ws})
