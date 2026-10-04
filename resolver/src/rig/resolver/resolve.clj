@@ -27,6 +27,21 @@
 (defn- m2dir [] (str (io/file (home-dir) ".m2" "repository")))
 (defn- gitlibs-dir [] (str (io/file (home-dir) ".gitlibs" "libs")))
 
+(defn- clean-basis-error
+  "tools.deps validates the manifest while reading it and throws an
+  ExceptionInfo (ex-data carries :path) whose message is spec-speak with
+  internal path indices — which the op runner prints as a full stack.
+  Rewrap manifest-validation failures as a one-line error the runner
+  prints plainly; anything else (network, transfer) rethrows untouched."
+  [e]
+  (if (get (ex-data e) :path)
+    (ex-info (cond-> (.getMessage e)
+               true (str/replace #"^Error validating deps in " "invalid manifest ")
+               (str/includes? (.getMessage e) ":snapshots")
+               (str " — :snapshots is lein syntax: SNAPSHOT versions resolve from an :url repo without it"))
+             {:rig/friendly? true})
+    e))
+
 (defn resolve-basis
   "The module's basis. project-config is the manifest map (or nil to read
   the deps.edn file). override-deps are basis ARGS (:args, i.e. the
@@ -34,10 +49,13 @@
   only from the argmap, and they force a lib's version wherever it sits
   in the graph without adding it as a root."
   [dir aliases project-config override-deps]
-  (td/create-basis {:dir (io/file dir)
-                    :project (or project-config "deps.edn")
-                    :aliases aliases
-                    :args (when (seq override-deps) {:override-deps override-deps})}))
+  (try
+    (td/create-basis {:dir (io/file dir)
+                      :project (or project-config "deps.edn")
+                      :aliases aliases
+                      :args (when (seq override-deps) {:override-deps override-deps})})
+    (catch Exception e
+      (throw (clean-basis-error e)))))
 
 (defn- repos-of
   "The module's repos: the standard repos (any redeclared id replaced by the
