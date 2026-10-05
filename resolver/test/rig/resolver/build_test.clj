@@ -4,7 +4,8 @@
             [clojure.string :as str]
             [clojure.test :refer :all]
             [clojure.tools.build.tasks.process :as process]
-            [rig.resolver.build :as build]))
+            [rig.resolver.build :as build]
+            [rig.resolver.test-util :refer [delete-tree temp-dir]]))
 
 (defn- dep-jars
   "The dependency jars of the running JVM's classpath (directories excluded).
@@ -25,21 +26,6 @@
 (defn- java
   []
   (str (System/getProperty "java.home") "/bin/java"))
-
-(defn- temp-dir
-  []
-  (doto (java.io.File. (str (java.nio.file.Files/createTempDirectory "rig-build-test"
-                                                                     (into-array java.nio.file.attribute.FileAttribute []))))
-    (.deleteOnExit)))
-
-(defn- delete-tree
-  "Recursively delete dir (children first). Best effort."
-  [dir]
-  (when-let [fs (file-seq dir)]
-    (dorun (map (fn [f]
-                  (when-not (.delete f)
-                    (.println (System/err) (str "rig build-test: could not delete " f))))
-                (reverse fs)))))
 
 (defn- run-cmd
   "Run a command. Returns {:exit int :out string :err string}."

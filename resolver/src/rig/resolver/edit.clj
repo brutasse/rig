@@ -235,7 +235,7 @@
           (nil? (:version sel))
           {"refused" [{:coord (symbol coord-str)
                        :reason "cooldown"
-                       :cooldown (or (get (resolve/cooldown-of args root-data) :default) "48h")}]}
+                       :cooldown (or (get (resolve/cooldown-of args root-data) :default) versions/default-cooldown)}]}
           :else
           (apply-edit (assoc-in request [:args :requirement] (:version sel))
                       (:skipped sel)))))))

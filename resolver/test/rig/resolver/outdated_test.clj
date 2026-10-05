@@ -1,15 +1,8 @@
 (ns rig.resolver.outdated-test
   (:require [clojure.java.io :as io]
             [clojure.test :refer :all]
-            [rig.resolver.outdated :as outdated])
-  (:import [java.io File]))
-
-(defn- rm!
-  [dir]
-  (when-let [f (File. dir)]
-    (when (.exists f)
-      (doseq [c (.listFiles f)] (rm! (.getPath c)))
-      (.delete f))))
+            [rig.resolver.outdated :as outdated]
+            [rig.resolver.test-util :refer [delete-tree]]))
 
 (deftest update-entry-up-to-date
   (let [md {:by-version {"1.2.4" {:published-at nil :repo "central"}} :latest #{}}]
@@ -56,7 +49,7 @@
           (is (= {"updates" []}
                  (outdated/outdated {:workspace (str dir) :args {}}))
               "no pins -> no updates, no network"))
-      (finally (rm! (str dir))))))
+      (finally (delete-tree (str dir))))))
 
 (deftest outdated-offline-with-pins-throws
   (let [dir (io/file (System/getProperty "java.io.tmpdir")
@@ -70,4 +63,4 @@
               (outdated/outdated {:workspace (str dir)
                                   :lock "deps.lock"
                                   :args {:offline true}}))))
-      (finally (rm! (str dir))))))
+      (finally (delete-tree (str dir))))))

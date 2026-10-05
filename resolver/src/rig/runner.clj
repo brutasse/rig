@@ -31,9 +31,9 @@
   runtime errors (e.g. as 'Syntax error macroexpanding'), so the
   top-level message alone can hide the real problem."
   [e]
-  (apply str (interpose "\n  caused by: "
-                        (map (fn [x] (str (.getMessage x)))
-                             (take-while identity (iterate #(.getCause ^java.lang.Throwable %) e))))))
+  (str/join "\n  caused by: "
+            (map #(str (.getMessage %))
+                 (take-while identity (iterate #(.getCause ^java.lang.Throwable %) e)))))
 
 (defn apply-exec-fn
   "Resolve exec-fn (e.g. \"kaocha.runner/exec-fn\"), loading its namespace
@@ -76,6 +76,18 @@
   (let [[preloads dropped] (split-with (complement #{"--"}) args)]
     [preloads (next dropped)]))
 
+(defn- attempt
+  "Apply (op ns-str), reporting the failure and returning ns-str when it
+  throws, nil on success. The some-based loops use it as a find-first:
+  the first failure short-circuits, nil means all succeeded."
+  [op ns-str]
+  (try
+    (op ns-str)
+    nil
+    (catch Exception e
+      (println (str "rig: failed to load " ns-str ": " (failure-message e)))
+      ns-str)))
+
 (defn- dispatch
   [mode rest]
   (case mode
@@ -94,15 +106,7 @@
           (System/exit 1))))
 
     "load"
-    (let [failed (some (fn [ns-str]
-                         (try
-                           (require (symbol ns-str) :reload)
-                           nil
-                           (catch Exception e
-                             (println (str "rig: failed to load " ns-str ": "
-                                           (failure-message e)))
-                             ns-str)))
-                       rest)]
+    (let [failed (some (partial attempt #(require (symbol %) :reload)) rest)]
       (flush)
       (System/exit (if (nil? failed) 0 1)))
 
@@ -128,37 +132,20 @@
                                                    #"[\\/]"))))
                        distinct
                        sort)
-          failed (some (fn [ns-str]
-                         (try
-                           (require (symbol ns-str) :reload)
-                           nil
-                           (catch Exception e
-                             (println (str "rig: failed to load " ns-str ": "
-                                           (failure-message e)))
-                             ns-str)))
-                       ns-strs)]
+          failed (some (partial attempt #(require (symbol %) :reload)) ns-strs)]
       (flush)
       (System/exit (if (nil? failed) 0 1)))
 
     "aot"
     (let [[class-dir & args] rest
           [preloads compiles] (aot-args args)
-          fail (fn [op ns-str]
-                 (try (op ns-str) nil
-                      (catch Exception e
-                        (println (str "rig: failed to load " ns-str ": "
-                                      (failure-message e)))
-                        ns-str)))
           failed (binding [*compile-files* true
                            *compile-path* class-dir]
                    (let [preload-fail
-                         (some (fn [ns-str] (fail #(require (symbol %)) ns-str))
-                               preloads)]
+                         (some (partial attempt #(require (symbol %))) preloads)]
                      (or preload-fail
-                         (some (fn [ns-str]
-                                 (fail #(when-not (find-ns (symbol %))
-                                          (compile (symbol %)))
-                                       ns-str))
+                         (some (partial attempt #(when-not (find-ns (symbol %))
+                                                   (compile (symbol %))))
                                compiles))))]
       (flush)
       (System/exit (if (nil? failed) 0 1)))

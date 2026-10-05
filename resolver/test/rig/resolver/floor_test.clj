@@ -4,7 +4,8 @@
   multi-release entry at or below the floor above it either."
   (:require [clojure.java.io :as io]
             [clojure.test :refer :all]
-            [rig.resolver.floor :as floor])
+            [rig.resolver.floor :as floor]
+            [rig.resolver.test-util :refer [delete-tree temp-dir]])
   (:import [java.util.zip ZipEntry ZipOutputStream]))
 
 (defn- class-bytes
@@ -12,21 +13,6 @@
   scanner reads only the header."
   [major]
   (byte-array [0xCA 0xFE 0xBA 0xBE 0 0 0 major 0 0 0 0]))
-
-(defn- temp-dir
-  []
-  (doto (java.io.File. (str (java.nio.file.Files/createTempDirectory "rig-floor-test"
-                                                                      (into-array java.nio.file.attribute.FileAttribute []))))
-    (.deleteOnExit)))
-
-(defn- delete-tree
-  "Recursively delete dir (children first). Best effort."
-  [dir]
-  (when-let [fs (file-seq dir)]
-    (dorun (map (fn [f]
-                  (when-not (.delete f)
-                    (println (str "rig floor-test: could not delete " f))))
-                (reverse fs)))))
 
 (defn- fixture-jar
   "A jar at dir/fixture.jar with one entry per {name major} pair."

@@ -66,36 +66,27 @@
 (defn map-classpath
   [roots modules-abs m2dir gitlibs]
   (reduce (fn [acc e]
-            (cond
-              (not (str/starts-with? e "/"))
+            (if-not (str/starts-with? e "/")
               (update acc :paths (fnil conj []) e)
-
-              (some? (m2-parse m2dir e))
-              (let [a (m2-parse m2dir e)]
+              (if-let [a (m2-parse m2dir e)]
                 (-> acc
                     (update :classpath (fnil conj []) (:id a))
-                    (update :artifacts (fnil conj []) a)))
-
-              (some? (git-parse gitlibs e))
-              (let [g (git-parse gitlibs e)]
-                (if (some #(= (:id g) %) (:classpath acc))
-                  (update acc :artifacts (fnil conj []) g)
-                  (-> acc
-                      (update :classpath (fnil conj []) (:id g))
-                      (update :artifacts (fnil conj []) g))))
-
-              (some? (local-module modules-abs e))
-              (let [m (local-module modules-abs e)]
-                (if (some #(and (map? %) (= m (get % "local"))) (:classpath acc))
-                  acc
-                  (update acc :classpath (fnil conj []) {"local" m})))
-
-              :else
-              (throw (ex-info
-                     (str "unclassified classpath root " e
-                          " — not an artifact, git dep, or workspace module; "
-                          "declare it under :rig/modules or :deps")
-                     {:path e}))))
+                    (update :artifacts (fnil conj []) a))
+                (if-let [g (git-parse gitlibs e)]
+                  (if (some #(= (:id g) %) (:classpath acc))
+                    (update acc :artifacts (fnil conj []) g)
+                    (-> acc
+                        (update :classpath (fnil conj []) (:id g))
+                        (update :artifacts (fnil conj []) g)))
+                  (if-let [m (local-module modules-abs e)]
+                    (if (some #(and (map? %) (= m (get % "local"))) (:classpath acc))
+                      acc
+                      (update acc :classpath (fnil conj []) {"local" m}))
+                    (throw (ex-info
+                            (str "unclassified classpath root " e
+                                 " — not an artifact, git dep, or workspace module; "
+                                 "declare it under :rig/modules or :deps")
+                            {:path e})))))))
           {:classpath [] :paths [] :artifacts []}
           roots))
 
