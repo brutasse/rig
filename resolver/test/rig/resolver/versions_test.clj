@@ -2,47 +2,10 @@
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.test :refer :all]
+            [rig.resolver.test-util :refer [delete-tree sha1-hex minimal-pom ts]]
             [rig.resolver.versions :as versions])
   (:import [java.io File]
            [com.sun.net.httpserver HttpServer]))
-
-(defn- rm!
-  [dir]
-  (when-let [f (File. dir)]
-    (when (.exists f)
-      (doseq [c (.listFiles f)] (rm! (.getPath c)))
-      (.delete f))))
-
-(defn- ts
-  "Maven timestamp: yyyyMMddHHmmss in UTC."
-  [ms]
-  (let [fmt (doto (java.text.SimpleDateFormat. "yyyyMMddHHmmss")
-              (.setTimeZone (java.util.TimeZone/getTimeZone "UTC")))]
-    (.format fmt (java.util.Date. ms))))
-
-(defn- sha1-hex
-  [f]
-  (let [md (java.security.MessageDigest/getInstance "SHA-1")
-        in (io/input-stream f)
-        buf (byte-array 65536)]
-    (with-open [in in]
-      (loop []
-        (let [n (.read in buf)]
-          (when (pos? n)
-            (do (.update md buf 0 n)
-                (recur)))))
-      (apply str (for [b (.digest md)] (format "%02x" (bit-and b 0xff)))))))
-
-(defn- minimal-pom
-  [group name version]
-  (str "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
-       "<project xmlns=\"http://maven.apache.org/POM/4.0.0\">\n"
-       "  <modelVersion>4.0.0</modelVersion>\n"
-       "  <groupId>" group "</groupId>\n"
-       "  <artifactId>" name "</artifactId>\n"
-       "  <version>" version "</version>\n"
-       "  <packaging>jar</packaging>\n"
-       "</project>\n"))
 
 (defn- empty-jar!
   [f]
@@ -102,7 +65,7 @@
                      "</metadata>\n"))
           (write-artifacts base group name versions))
          (f (str "file://" (.getPath dir))))
-      (finally (rm! (str dir))))))
+      (finally (delete-tree (str dir))))))
 
 (deftest apply-versions-substitutes-only-floating
   (let [data {:deps {'org.clojure/test.check {:mvn/version "1.1.0"}}
@@ -294,7 +257,7 @@
             (is (= "f" id) "m2-recorded repo id wins")
             (is (= "https://example.com/f/com/rig/test/art/0.1.0/art-0.1.0.jar" url)
                 (str "url built from the repo spec: " url))))
-      (finally (rm! (str m2))))))
+      (finally (delete-tree (str m2))))))
 
 (deftest resolve-repo-probes-with-bearer-token
   (binding [versions/*oidc-tokens* {"f" "tok-456"}]

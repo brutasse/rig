@@ -5,6 +5,7 @@
             [clojure.test :refer :all]
             [cljfmt.core :as cljfmt]
             [rig.resolver.edit :as edit]
+            [rig.resolver.test-util :refer [delete-tree]]
             [rig.resolver.versions :as versions]
             [rig.resolver.versions-test :as vtest])
   (:import [java.io File]))
@@ -32,13 +33,6 @@
    :aliases {:test {:extra-deps {lambdaisland/kaocha {:mvn/version \"1.66.1034\"}}
                     :exec-fn kaocha.runner/exec-fn}}}
   ")
-
-(defn- rm!
-  [dir]
-  (when-let [f (File. dir)]
-    (when (.exists f)
-      (doseq [c (.listFiles f)] (rm! (.getPath c)))
-      (.delete f))))
 
 (defn- git
   "Run git in dir; returns the trimmed output, throws on non-zero exit."
@@ -83,7 +77,7 @@
           (let [ws (str dir)]
             (write-fixture ws root lib app)
             (f ws)))
-      (finally (rm! (str dir))))))
+      (finally (delete-tree (str dir))))))
 
 (deftest update-shared-req-propagates
   (with-ws root-text lib-text app-text
@@ -453,7 +447,7 @@
                       "the forced pick is recorded"))
                 (is (cljfmt-clean? (slurp (io/file dir "modules/app/deps.edn")))
                     "the manifest stays cljfmt-clean"))
-            (finally (rm! (str dir)))))))))
+            (finally (delete-tree (str dir)))))))))
 
 (deftest latest-file-repo-refused-when-everything-is-fresh
   (let [now (System/currentTimeMillis)
@@ -488,7 +482,7 @@
                   (is (= "cooldown" (get-in resp ["refused" 0 :reason])))
                   (is (= orig (slurp (io/file dir "modules/app/deps.edn")))
                       "manifest untouched on refusal")))
-            (finally (rm! (str dir)))))))))
+            (finally (delete-tree (str dir)))))))))
 
 (deftest update-tolerates-git-dep-in-alias
   "A :tasks alias holding a git dep must not block rig update — the
@@ -533,6 +527,6 @@
                                   ["modules" "." :aliases :tasks :classpath]))
                     "the git dep is on the :tasks alias classpath")))))
       (finally
-        (rm! (str (System/getenv "HOME")
+        (delete-tree (str (System/getenv "HOME")
                   "/.gitlibs/libs/example/gitlib"))
-        (rm! (str git-ws))))))
+        (delete-tree (str git-ws))))))

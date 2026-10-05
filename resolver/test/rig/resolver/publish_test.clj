@@ -1,27 +1,7 @@
 (ns rig.resolver.publish-test
-  (:require [clojure.java.io :as io]
-            [clojure.test :refer :all]
-            [rig.resolver.publish :as publish])
-  (:import [java.io File]))
-
-(defn- rm!
-  [dir]
-  (when-let [f (File. dir)]
-    (when (.exists f)
-      (doseq [c (.listFiles f)] (rm! (.getPath c)))
-      (.delete f))))
-
-(defn- with-ws
-  [files f]
-  (let [dir (File. (System/getProperty "java.io.tmpdir")
-                   (str "rig-publish-test-" (java.util.UUID/randomUUID)))]
-    (try
-      (do (.mkdirs dir)
-          (doseq [[rel text] files]
-            (io/make-parents (io/file dir rel))
-            (spit (io/file dir rel) text))
-          (f (str dir)))
-      (finally (rm! (str dir))))))
+  (:require [clojure.test :refer :all]
+            [rig.resolver.publish :as publish]
+            [rig.resolver.test-util :refer [with-ws]]))
 
 (defn- entry [resp] (first (get resp "published")))
 

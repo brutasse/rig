@@ -18,7 +18,7 @@
   candidate sharing current's major (current itself when none is newer)."
   [[coord current] md]
   (let [byv (get md :by-version)
-        cands (if (seq (:latest md)) (into #{} (:latest md)) (keys byv))
+        cands (if (seq (:latest md)) (set (:latest md)) (keys byv))
         latest (when (seq cands) (newest (seq cands)))]
     (when (and latest (pos? (versions/vcmp latest current)))
       (let [cm (major-of current)

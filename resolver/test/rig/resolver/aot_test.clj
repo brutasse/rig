@@ -1,14 +1,8 @@
 (ns rig.resolver.aot-test
   (:require [clojure.java.io :as io]
             [clojure.test :refer :all]
-            [rig.resolver.aot :as aot]))
-
-(defn- temp-dir
-  []
-  (doto (io/file (str (java.nio.file.Files/createTempDirectory
-                       "rig-aot-test"
-                       (into-array java.nio.file.attribute.FileAttribute []))))
-    (.deleteOnExit)))
+            [rig.resolver.aot :as aot]
+            [rig.resolver.test-util :refer [temp-dir]]))
 
 (deftest plan-skips-data-sources-and-reports-them
   "A .clj under :paths without a readable ns form is data (a config map

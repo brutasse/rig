@@ -315,8 +315,8 @@
   (when (seq patterns)
     (let [jar-entries (fn [^java.io.File f]
                         (with-open [zf (ZipFile. f)]
-                          (doall (map #(.getName ^ZipEntry %)
-                                      (enumeration-seq (.entries zf))))))
+                          (mapv #(.getName ^ZipEntry %)
+                                (enumeration-seq (.entries zf)))))
           root-names (fn [root]
                        (let [f (io/file root)]
                          (cond

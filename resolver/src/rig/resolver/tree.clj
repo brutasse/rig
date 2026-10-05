@@ -90,7 +90,6 @@
                                 :aliases (when (seq alias) [(keyword alias)])}))]
     (if (seq refused)
       (throw (ex-info (str "tree: cannot resolve floating version(s): "
-                           (apply str (interpose ", " (map str (map :coord refused))))
+                           (str/join ", " (map (comp str :coord) refused))
                            " — run `rig lock` (online) to pin them first") {}))
-      {"tree" (apply str (interpose \newline
-                                    (into [root] (render-lines t "" ws))))})))
+      {"tree" (str/join \newline (into [root] (render-lines t "" ws)))})))

@@ -236,14 +236,18 @@
   [ms]
   (when ms (.toString (java.time.Instant/ofEpochMilli ms))))
 
+(def default-cooldown
+  "The cooldown applied when no policy (request or manifest) declares one."
+  "48h")
+
 (defn cooldown-for
   [repo cooldown]
   (or (get (or (get cooldown :repos) {}) repo)
-      (or (get cooldown :default) "48h")))
+      (or (get cooldown :default) default-cooldown)))
 
 (defn- all-cooldowns-zero?
   [cooldown]
-  (let [d (parse-duration-ms (or (get cooldown :default) "48h"))
+  (let [d (parse-duration-ms (or (get cooldown :default) default-cooldown))
         rs (map parse-duration-ms (vals (or (get cooldown :repos) {})))]
     (every? zero? (cons d rs))))
 
@@ -314,7 +318,7 @@
                                                             :published-at (iso (get-in byv [chosen :published-at]))
                                                             :cooldown (cooldown-str (get-in byv [chosen :repo]))}))
                                    (update st :refused conj {:coord c :reason "cooldown"
-                                                             :cooldown (or (get cooldown :default) "48h")}))]
+                                                             :cooldown (or (get cooldown :default) default-cooldown)}))]
                          (update st1 :skipped
                                  (fn [sk]
                                    (into sk

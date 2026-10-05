@@ -51,10 +51,7 @@
 
 (defn modules-of
   [root-data]
-  (vec (concat ["."]
-               (some->> (get root-data :rig/modules)
-                        (map str)
-                        (vec)))))
+  (into ["."] (map str (get root-data :rig/modules))))
 
 (defn lib [data] (get data :rig/lib))
 (defn main-ns [data] (get data :rig/main))
@@ -132,7 +129,7 @@
 (defn- version-from-file
   [data dir wsroot]
   (some (fn [base]
-          (when-let [f (io/file base (or (get data :rig/version-file) "VERSION"))]
+          (let [f (io/file base (or (get data :rig/version-file) "VERSION"))]
             (when (.exists f)
               (first (remove str/blank? (str/split-lines (slurp f)))))))
         [dir wsroot]))
@@ -148,7 +145,7 @@
   (cond
     (= vfn :git-count-revs)
     (some (fn [base]
-            (when-let [f (io/file base (or (get data :rig/version-template-file) "VERSION_TEMPLATE"))]
+            (let [f (io/file base (or (get data :rig/version-template-file) "VERSION_TEMPLATE"))]
               (when (.exists f)
                 ;; trim-newline: a template is a text file, so its trailing
                 ;; LF is an artifact of editing, not part of the version —

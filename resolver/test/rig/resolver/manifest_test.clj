@@ -2,14 +2,8 @@
   (:require [clojure.java.io :as io]
             [clojure.test :refer :all]
             [clojure.tools.build.api :as b]
-            [rig.resolver.manifest :as manifest]))
-
-(defn- temp-dir
-  []
-  (doto (io/file (str (java.nio.file.Files/createTempDirectory
-                       "rig-manifest-test"
-                       (into-array java.nio.file.attribute.FileAttribute []))))
-    (.deleteOnExit)))
+            [rig.resolver.manifest :as manifest]
+            [rig.resolver.test-util :refer [temp-dir]]))
 
 (deftest version-fn-template-trailing-newline-is-not-the-version
   "A newline-terminated template file is the normal case; the LF must not

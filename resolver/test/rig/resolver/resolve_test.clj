@@ -5,9 +5,9 @@
             [clojure.tools.deps.extensions :as ext]
             [rig.resolver.manifest :as manifest]
             [rig.resolver.resolve :as resolve]
+            [rig.resolver.test-util :refer [delete-tree sha1-hex start-serving repo-metadata! repo-artifacts! m2-dir-of]]
             [rig.resolver.versions :as versions])
-  (:import [java.lang ProcessBuilder]
-           [com.sun.net.httpserver HttpServer]))
+  (:import [java.lang ProcessBuilder]))
 
 (defn- temp-ws
   "A single-module workspace with the given root deps.edn text."
@@ -472,115 +472,6 @@
 ;; --- _remote.repositories and the lock's attribution still point at the
 ;; --- original repo.
 
-(defn- rm!
-  [dir]
-  (when-let [f (java.io.File. (str dir))]
-    (when (.exists f)
-      (doseq [c (.listFiles f)] (rm! (.getPath c)))
-      (.delete f))))
-
-(defn- ts
-  "Maven timestamp: yyyyMMddHHmmss in UTC."
-  [ms]
-  (let [fmt (doto (java.text.SimpleDateFormat. "yyyyMMddHHmmss")
-              (.setTimeZone (java.util.TimeZone/getTimeZone "UTC")))]
-    (.format fmt (java.util.Date. ms))))
-
-(defn- sha1-hex
-  [f]
-  (let [md (java.security.MessageDigest/getInstance "SHA-1")
-        in (io/input-stream f)
-        buf (byte-array 65536)]
-    (with-open [in in]
-      (loop []
-        (let [n (.read in buf)]
-          (when (pos? n)
-            (do (.update md buf 0 n)
-                (recur)))))
-      (apply str (for [b (.digest md)] (format "%02x" (bit-and b 0xff)))))))
-
-(defn- minimal-pom
-  [group name version]
-  (str "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
-       "<project xmlns=\"http://maven.apache.org/POM/4.0.0\">\n"
-       "  <modelVersion>4.0.0</modelVersion>\n"
-       "  <groupId>" group "</groupId>\n"
-       "  <artifactId>" name "</artifactId>\n"
-       "  <version>" version "</version>\n"
-       "  <packaging>jar</packaging>\n"
-       "</project>\n"))
-
-(defn- repo-artifacts!
-  "Builds a maven repo under root serving group/name at version v (pom, jar
-  and .sha1 sidecars). Returns the repo base path (\"/g/p/name\")."
-  [root group name v]
-  (let [base (io/file root (str/replace group "." "/") name v)]
-    (.mkdirs base)
-    (let [pom (io/file base (str name "-" v ".pom"))
-          jar (io/file base (str name "-" v ".jar"))]
-      (spit pom (minimal-pom group name v))
-      (with-open [zos (java.util.zip.ZipOutputStream. (io/output-stream jar))]
-        (.putNextEntry zos (doto (java.util.zip.ZipEntry. "META-INF/MANIFEST.MF")
-                             (.setTime 0)))
-        (.write zos (.getBytes "Manifest-Version: 1.0\n" "UTF-8"))
-        (.closeEntry zos))
-      (spit (io/file base (str name "-" v ".pom.sha1")) (sha1-hex pom))
-      (spit (io/file base (str name "-" v ".jar.sha1")) (sha1-hex jar)))
-    (str "/" (str/replace group "." "/") "/" name)))
-
-(defn- repo-metadata!
-  "Writes maven-metadata.xml for group/name under root listing only
-  version, with last-updated ms."
-  [root group name version last-updated-ms]
-  (let [base (io/file root (str/replace group "." "/") name)]
-    (.mkdirs base)
-    (spit (io/file base "maven-metadata.xml")
-          (str "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
-               "<metadata>\n"
-               "  <versioning>\n"
-               "    <versions><version>" version "</version></versions>\n"
-               "    <latest>" version "</latest>\n"
-               "    <release>" version "</release>\n"
-               "    <lastUpdated>" (ts last-updated-ms) "</lastUpdated>\n"
-               "  </versioning>\n"
-               "</metadata>\n"))))
-
-(defn- start-serving
-  "A local HTTP server serving files under root by path: 401 when tok is
-  given and the request lacks \"Bearer <tok>\", 404 for missing files.
-  Records [method path auth] per request. Returns [base-url seen server]."
-  [root tok]
-  (let [seen (atom [])
-        server (HttpServer/create (java.net.InetSocketAddress. "127.0.0.1" 0) 0)]
-    (.createContext
-     server "/"
-     (reify com.sun.net.httpserver.HttpHandler
-       (handle [_ exchange]
-         (let [path (.getPath (.getRequestURI exchange))
-               method (.getRequestMethod exchange)
-               auth (first (.get (.getRequestHeaders exchange) "Authorization"))
-               bad-auth (and tok (not= auth (str "Bearer " tok)))
-               f (when-not bad-auth (io/file (str root path)))]
-           (swap! seen conj [method path auth])
-           (cond
-             bad-auth (.sendResponseHeaders exchange 401 -1)
-             (and f (.exists f))
-             (if (= method "HEAD")
-               (.sendResponseHeaders exchange 200 -1)
-               (do (.sendResponseHeaders exchange 200 (long (.length f)))
-                   (with-open [os (.getResponseBody exchange)
-                               is (io/input-stream f)]
-                     (io/copy is os))))
-             :else (.sendResponseHeaders exchange 404 -1))))))
-    (.start server)
-    [(str "http://" (.substring (str (.getAddress server)) 1) "/")
-     seen server]))
-
-(defn- m2-dir-of
-  [group name]
-  (io/file (System/getProperty "user.home") ".m2" "repository"
-           (str/replace group "." "/") name))
-
 (deftest resolve-lock-resolves-authed-repo-deps-via-proxy
   (let [group "rig.ktest.proxy" name "exact"
         v (str "1.0." (mod (System/currentTimeMillis) 1000000))
@@ -594,14 +485,14 @@
         [proxy-base proxy-seen proxy-srv] (start-serving (str proxy-root) nil)
         base-path (repo-artifacts! (str proxy-root) group name v)
         m2 (m2-dir-of group name)]
-    (rm! m2)
+    (delete-tree m2)
     (try
       (binding [versions/*proxy-repos* {"oidc" proxy-base}]
         (let [ws (temp-ws (str "{:rig/lib x/y\n"
                                " :deps {" group "/" name " {:mvn/version \"" v "\"}}\n"
                                " :mvn/repos {\"oidc\" {:url \"" orig-base "\" :auth :oidc}}}\n"))
               lock (-> (resolve/resolve-lock {:workspace ws}) (get "lock"))
-              art (first (filter #(= group (:group %)) (get lock "artifacts")))]
+              art (some #(when (= group (:group %)) %) (get lock "artifacts"))]
           (is (some? art) "the dep is in the lock")
           (is (= v (:version art)))
           (is (= "oidc" (:repository art)) "repo attribution kept")
@@ -616,9 +507,9 @@
       (finally
         (.stop orig-srv 0)
         (.stop proxy-srv 0)
-        (rm! m2)
-        (rm! (str orig-root))
-        (rm! (str proxy-root))))))
+        (delete-tree m2)
+        (delete-tree (str orig-root))
+        (delete-tree (str proxy-root))))))
 
 (deftest resolve-lock-selects-floating-version-via-proxy
   (let [group "rig.ktest.proxy" name "floatsel" v "1.2.0"
@@ -634,7 +525,7 @@
         base-path (repo-artifacts! (str proxy-root) group name v)
         _ (repo-metadata! (str orig-root) group name v old-ms)
         m2 (m2-dir-of group name)]
-    (rm! m2)
+    (delete-tree m2)
     (try
       (binding [versions/*proxy-repos* {"oidc" proxy-base}
                 versions/*oidc-tokens* {"oidc" "tok-e2e"}]
@@ -642,7 +533,7 @@
                                " :deps {" group "/" name " {:mvn/version \"RELEASE\"}}\n"
                                " :mvn/repos {\"oidc\" {:url \"" orig-base "\" :auth :oidc}}}\n"))
               lock (-> (resolve/resolve-lock {:workspace ws}) (get "lock"))
-              art (first (filter #(= group (:group %)) (get lock "artifacts")))]
+              art (some #(when (= group (:group %)) %) (get lock "artifacts"))]
           (is (some? art) "the dep is in the lock")
           (is (= v (:version art)) "the kernel picks the candidate older than the cooldown")
           (is (= "oidc" (:repository art)))
@@ -656,9 +547,9 @@
       (finally
         (.stop orig-srv 0)
         (.stop proxy-srv 0)
-        (rm! m2)
-        (rm! (str orig-root))
-        (rm! (str proxy-root))))))
+        (delete-tree m2)
+        (delete-tree (str orig-root))
+        (delete-tree (str proxy-root))))))
 
 (deftest resolve-lock-resolves-floating-native-via-proxy
   (let [group "rig.ktest.proxy" name "floatnative" v "1.2.0"
@@ -673,7 +564,7 @@
         base-path (repo-artifacts! (str proxy-root) group name v)
         _ (repo-metadata! (str proxy-root) group name v (System/currentTimeMillis))
         m2 (m2-dir-of group name)]
-    (rm! m2)
+    (delete-tree m2)
     (try
       (binding [versions/*proxy-repos* {"oidc" proxy-base}]
         (let [ws (temp-ws (str "{:rig/lib x/y\n"
@@ -682,7 +573,7 @@
               lock (-> (resolve/resolve-lock {:workspace ws
                                               :args {:cooldown {:default "0s"}}})
                        (get "lock"))
-              art (first (filter #(= group (:group %)) (get lock "artifacts")))]
+              art (some #(when (= group (:group %)) %) (get lock "artifacts"))]
           (is (some? art) "the dep is in the lock")
           (is (= v (:version art)) "MIMA resolved RELEASE from the proxy metadata")
           (is (= "oidc" (:repository art)))
@@ -692,9 +583,9 @@
       (finally
         (.stop orig-srv 0)
         (.stop proxy-srv 0)
-        (rm! m2)
-        (rm! (str orig-root))
-        (rm! (str proxy-root))))))
+        (delete-tree m2)
+        (delete-tree (str orig-root))
+        (delete-tree (str proxy-root))))))
 
 ;; --- Single repository: a manifest that redeclares the standard repo ids
 ;; --- (central, clojars) routes every probe, fetch and lock attribution
@@ -709,14 +600,14 @@
         [base seen srv] (start-serving (str root) nil)
         base-path (repo-artifacts! (str root) group name v)
         m2 (m2-dir-of group name)]
-    (rm! m2)
+    (delete-tree m2)
     (try
       (let [ws (temp-ws (str "{:rig/lib x/y\n"
                              " :deps {" group "/" name " {:mvn/version \"" v "\"}}\n"
                              " :mvn/repos {\"central\" {:url \"" base "\"}\n"
                              "            \"clojars\" {:url \"" base "\"}}}\n"))
             lock (-> (resolve/resolve-lock {:workspace ws}) (get "lock"))
-            art (first (filter #(= group (:group %)) (get lock "artifacts")))]
+            art (some #(when (= group (:group %)) %) (get lock "artifacts"))]
         (is (some? art) "the dep is in the lock")
         (is (= v (:version art)))
         (is (= "central" (:repository art)) "attributed to the redeclared central")
@@ -727,8 +618,8 @@
         (is (.exists (io/file m2 v (str name "-" v ".jar"))) "jar in m2"))
       (finally
         (.stop srv 0)
-        (rm! m2)
-        (rm! (str root))))))
+        (delete-tree m2)
+        (delete-tree (str root))))))
 
 (deftest resolve-lock-selects-floating-from-the-redeclared-standard-repos
   (let [group "rig.ktest.single" name "floatsel" v "1.2.0"
@@ -740,14 +631,14 @@
         base-path (repo-artifacts! (str root) group name v)
         _ (repo-metadata! (str root) group name v old-ms)
         m2 (m2-dir-of group name)]
-    (rm! m2)
+    (delete-tree m2)
     (try
       (let [ws (temp-ws (str "{:rig/lib x/y\n"
                              " :deps {" group "/" name " {:mvn/version \"RELEASE\"}}\n"
                              " :mvn/repos {\"central\" {:url \"" base "\"}\n"
                              "            \"clojars\" {:url \"" base "\"}}}\n"))
             lock (-> (resolve/resolve-lock {:workspace ws}) (get "lock"))
-            art (first (filter #(= group (:group %)) (get lock "artifacts")))]
+            art (some #(when (= group (:group %)) %) (get lock "artifacts"))]
         (is (some? art) "the dep is in the lock")
         (is (= v (:version art)) "the kernel selected the version from the redeclared repos' metadata")
         (is (= "central" (:repository art)))
@@ -755,8 +646,8 @@
             "the metadata was probed on the redeclared repo"))
       (finally
         (.stop srv 0)
-        (rm! m2)
-        (rm! (str root))))))
+        (delete-tree m2)
+        (delete-tree (str root))))))
 
 ;; --- Local vs published coordinate: a workspace module referenced by a
 ;; --- published transitive POM under its published coordinates enters a
@@ -785,8 +676,8 @@
         parent-pom (io/file (str root parent-path "/" pv "/parent-" pv ".pom"))
         m2p (m2-dir-of group "parent")
         m2i (m2-dir-of group "inner")]
-    (rm! m2p)
-    (rm! m2i)
+    (delete-tree m2p)
+    (delete-tree m2i)
     (try
       (do
         (spit parent-pom (str "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
@@ -831,9 +722,9 @@
               "the published parent resolved normally")))
       (finally
         (.stop srv 0)
-        (rm! m2p)
-        (rm! m2i)
-        (rm! (str root))))))
+        (delete-tree m2p)
+        (delete-tree m2i)
+        (delete-tree (str root))))))
 
 (defn- repo-pom-deps!
   "repo-artifacts!, but the pom declares the given [group name version]
@@ -898,8 +789,8 @@
                          " :deps {" declared "}\n"
                          " :rig/deps {rig.ktest.pool/lib {:mvn/version \"" v-old "\"}}\n"
                          " :mvn/repos {\"central\" {:url \"" base "\"}}}\n"))]
-    (rm! m2-lib)
-    (rm! m2-dep)
+    (delete-tree m2-lib)
+    (delete-tree m2-dep)
     (try
       (let [lock (-> (resolve/resolve-lock {:workspace ws}) (get "lock"))]
         {:arts (into {} (for [a (get lock "artifacts")
@@ -908,9 +799,9 @@
          :v-new v-new :v-old v-old :v-own v-own :v-dep v-dep})
       (finally
         (.stop srv 0)
-        (rm! m2-lib)
-        (rm! m2-dep)
-        (rm! (str root))))))
+        (delete-tree m2-lib)
+        (delete-tree m2-dep)
+        (delete-tree (str root))))))
 
 (deftest pool-pin-force-pins-an-undeclared-transitive
   "A shared pool pin applies workspace-wide, transitive consumers included —
@@ -957,7 +848,7 @@
                          " :deps {rig.ktest.sib/lib {:local/root \"../lib\"}}}\n")))
         _ (do (.mkdirs (io/file ws "lib"))
               (spit (io/file ws "lib" "deps.edn") "{:rig/lib rig.ktest.sib/lib}\n"))]
-    (rm! m2-dep)
+    (delete-tree m2-dep)
     (try
       (let [lock (-> (resolve/resolve-lock {:workspace ws}) (get "lock"))
             mvn-lib (some #(when (= "lib" (:name %)) %) (get lock "artifacts"))]
@@ -967,5 +858,5 @@
             "the classpath carries the local module in its place"))
       (finally
         (.stop srv 0)
-        (rm! m2-dep)
-        (rm! (str root))))))
+        (delete-tree m2-dep)
+        (delete-tree (str root))))))

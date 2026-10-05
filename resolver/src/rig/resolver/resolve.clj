@@ -73,9 +73,9 @@
       (let [d (get data :rig/cooldown)
             r (get data :rig/cooldown-repos)]
         (when (or d r)
-          {:default (or (some-> d str) "48h")
+          {:default (or (some-> d str) versions/default-cooldown)
            :repos (or r {})}))
-      {:default "48h"}))
+      {:default versions/default-cooldown}))
 
 (defn- qualify-sym
   [c]
@@ -371,7 +371,7 @@
         lock-doc {"version" 2
                   "workspace" {"modules" module-dirs
                                "manifest_sha256" (some-> root-man :sha256)}
-                  "cooldown" {"default" (or (get cooldown :default) "48h")
+                  "cooldown" {"default" (or (get cooldown :default) versions/default-cooldown)
                               "repos" (or (get cooldown :repos) {})}
                   "jvm" (when-let [r (get root-data :rig/jvm)]
                           {"vendor" "temurin"
