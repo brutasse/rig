@@ -1,0 +1,27 @@
+/* Rig brand palette — slate #22303a primary, Clojure green #63b131 accent
+   (source: logo-proposals/index.html). Links use a darkened green that
+   clears WCAG AA on white; hovers keep the bright brand green.
+   The `> *` selectors are deliberate: zensical defines its own palette
+   defaults on the document element's children (see the `:root > *` form in
+   https://zensical.org/docs/setup/colors/), so brand overrides must match
+   that specificity. */
+:root > * {
+  --md-primary-fg-color: #22303a;
+  --md-primary-fg-color--light: #3a4f63;
+  --md-primary-fg-color--dark: #16202a;
+  --md-accent-fg-color: #63b131;
+  --md-typeset-a-color: #4c8a25;
+}
+
+[data-md-color-scheme="slate"] {
+  --md-hue: 210;
+  --md-primary-fg-color: #1c2530;
+  --md-accent-fg-color: #63b131;
+  --md-typeset-a-color: #8bc85e;
+}
+
+[data-md-color-scheme="slate"] > * {
+  --md-primary-fg-color: #1c2530;
+  --md-accent-fg-color: #63b131;
+  --md-typeset-a-color: #8bc85e;
+}
