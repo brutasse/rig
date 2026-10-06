@@ -139,6 +139,8 @@ jobs:
         run: make dev
 
       - name: Install GraalVM with rig
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           REQ=$(python3 -c "import json; print(json.load(open('rig/internal/cli/testdata/native/deps.lock'))['graalvm']['requested'])")
           rig/dist/rig graalvm install "$REQ"
