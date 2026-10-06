@@ -111,7 +111,6 @@
                                     {})))
                 (name f)))
       (throw (ex-info (str "bad :deps/prep-lib :fn " (pr-str f) " (want a symbol)") {})))))
-(defn clean-dirs [data] (get data :rig/clean-dirs))
 (defn test? [data]
   (if (contains? data :rig/test?)
     (true? (get data :rig/test?))

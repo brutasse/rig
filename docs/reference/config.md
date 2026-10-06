@@ -14,11 +14,11 @@ Set in the root `deps.edn` of a workspace (a `deps.edn` containing
 | Key | Default | Meaning |
 |---|---|---|
 | `:rig/modules` | — | The workspace's module directories (relative to the root). A `deps.edn` with this key is a workspace. |
-| `:rig/deps` | — | Shared requirements: the single place to bump a cross-module version. Values are plain requirement maps (`{:mvn/version …}`, optionally with `:exclusions`, `:local/root`, `:git`). `rig update` keeps this in sync with the modules, and `rig check` reports drift. It is not merged into module classpaths: modules keep declaring their own `:deps`. |
+| `:rig/deps` | — | Shared requirements: the single place to bump a cross-module version. Values are plain requirement maps (`{:mvn/version …}`, optionally with `:exclusions`, `:local/root`, `:git`). `rig update` keeps this in sync with the modules, and `rig check` reports drift. It is not merged into module classpaths: modules keep declaring their own `:deps`. But the pool force-pins: a pooled coordinate that reaches a module transitively gets the pool's version, like Leiningen's managed pool. |
 | `:rig/cooldown` | `"48h"` | Minimum age of a version before it may be selected. `"0s"` disables. See [cooldowns](../concepts/security.md#cooldowns-the-adoption-window). |
 | `:rig/cooldown-repos` | — | Per-repository cooldown overrides, keyed by `:mvn/repos` id: `{"corp" "72h"}`. |
 | `:rig/jvm` | — | The JVM the project runs on, as a major (feature) version: `"21"` (Temurin). Rig manages the exact release — the newest one installed in the state dir matching the major, or the newest release when online (see [JVMs](#jvms-rigjvm)). Minimum supported value: `8` — the kernel jar is built for Java 8, so older JVMs cannot load it. |
-| `:rig/compile-jvm-opts` | `[]` | JVM flags for the build/validate JVMs: the AOT build — the kernel JVM and the compile fork it launches — and the check namespace load/AOT-compile (see [JVM flags](#jvm-flags)). Version-sensitive flags like `--enable-preview` require a `:rig/jvm` pin. |
+| `:rig/compile-jvm-opts` | `[]` | JVM flags for the build/validate JVMs: the AOT build — the kernel JVM and the compile fork it launches — and the check namespace load/AOT-compile (see [JVM flags](#jvm-flags)). `--enable-preview` requires a `:rig/jvm` pin; Rig rejects a lock carrying the flag without one. |
 | `:rig/version-file` | `"VERSION"` | Root version file recorded in the lock for the root module. |
 
 The root `deps.edn` can also carry its own `:deps`/`:aliases`/`:paths`.
@@ -170,10 +170,10 @@ Fields:
 | `client-id` | no | The OAuth client identifier (default `rig`). |
 | `redirect-uri` | no | A fixed `http://127.0.0.1:PORT/callback` redirect for the browser flow. Without it Rig listens on an ephemeral loopback port. |
 
-Rig binds a marked repo to the gate that fronts its `:url`
-(longest-prefix match, on the URL). When exactly one gate matches, Rig
-uses it. When several gates match, the command fails fast ("tighten the
-gate urls"). When no gate matches by prefix, Rig falls back to the single
+Rig binds a marked repo to the gate that fronts its `:url` (prefix
+match, on the URL). When exactly one gate matches, Rig uses it. When
+several gates match — overlapping prefixes are not resolved by length —
+the command fails fast ("tighten the gate urls"). When no gate matches by prefix, Rig falls back to the single
 url-less gate. When there is no match at all, the command fails fast,
 before any resolution work, and names the repo, the config file, and the
 missing prefix.
@@ -186,8 +186,8 @@ Rig resolves the bearer of each gate once per command, per repo:
    dashes into underscores (`pier` → `RIG_TOKEN_PIER`). This is the CI
    path: the runner injects the token.
 2. Else the cached token of the gate in the state dir
-   (`~/.local/share/rig/oidc/`, one file per gate, valid until 30s before
-   its expiry).
+   (`~/.local/share/rig/oidc/`, one file per gate identity — the issuer,
+   audience and client-id — valid until 30s before its expiry).
 3. Else a fresh negotiation with the issuer of the gate. Rig uses the
    browser flow (authorization code + PKCE, opened in your browser) when
    a browser is available. Otherwise Rig uses the device-code flow
@@ -432,8 +432,9 @@ the container, also override `-Djava.rmi.server.hostname=…` and the
 
 ### The launch descriptor
 
-`rig build` bakes the launch plan of the artifact into every jar and
-uberjar as `META-INF/rig/launch.json`:
+For a module that declares a main, `rig build` bakes the launch plan of
+the artifact into the jar as `META-INF/rig/launch.json` (uberjars carry
+it too):
 
 ```json
 {"version": 1, "rig": "0.4.0", "main": "app.core",
@@ -480,10 +481,9 @@ workspace.
   `deps.edn` next to where you run the command, and resolves it by
   walking up.
 
-!!! note "Legacy keys are read as fallback"
-    During migration, the resolver still accepts the old
-    `:exoscale.project/*` keys as fallbacks for the `:rig/*` keys above.
-    The resolver recognizes `:slipset.deps-deploy/exec-args` only to
-    detect a publish-enabled module; use `:rig/publish` for the actual
-    deploy target. Prefer `:rig/*`; the migration guides remove the
-    legacy keys entirely.
+!!! note "Legacy keys are refused, not read"
+    A manifest still carrying `:exoscale.project/*`, `:exoscale.deps/*`
+    or `:slipset.deps-deploy/*` keys is rejected outright: the resolver
+    names the file and tells you to run `rig migrate`. The migration
+    renames the legacy keys — `:slipset.deps-deploy/exec-args` becomes
+    `:rig/publish` — and the migration guides remove them entirely.

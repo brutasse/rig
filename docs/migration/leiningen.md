@@ -89,8 +89,8 @@ path.
 | `:parent-project` | `:managed-dependencies` inherited via `:inherit [:managed-dependencies]` materialized from the parent manifest (parent pool as base, own entries win); other inherited keys drop with a warning; a missing parent path is a blocking problem |
 | `:sub` | root `:rig/modules`, one `deps.edn` per module (`project.clj` files untouched); sibling-module deps → `:local/root` (module-relative, winning over any declared version); the root's `:managed-dependencies` pins move to the root's `:rig/deps`; nested `:sub` is a blocking problem (flatten the module hierarchy) |
 | `:repositories` | `:mvn/repos` |
-| `:deploy-repositories` | `:rig/publish` (only the first entry is migrated; the rest are dropped with a warning; the `:clojars` shorthand maps to the Rig `clojars` repo) |
-| `:source-paths` / `:resource-paths` | `:paths` (omitted at the `["src" "resources"]` default) |
+| `:deploy-repositories` | `:rig/publish` (only the first entry is migrated; the rest are dropped with a warning; the `:clojars` shorthand maps to the Rig `clojars` repo) — migrate does not set `:rig/publish?`; enable the modules you want to publish yourself |
+| `:source-paths` / `:resource-paths` | `:paths` — omitted when the dirs are just `["src"]`; a dir set other than `src` + `resources` is also carried as `:rig/artifact-dirs` |
 | `:java-source-paths` | `:rig/java-src-dirs` |
 | `:javac-options` | `:rig/javac-opts` |
 | `:test-paths` | the `:test` alias's `:extra-paths` |
@@ -99,8 +99,9 @@ path.
 | `:profiles` → `:provided` | merged into the base manifest — `:dependencies` → `:deps` (a base declaration wins the version conflict), path keys → `:paths`, `:jvm-opts` → `:jvm-opts`; lein keeps `:provided` active by default, so it belongs to the base build |
 | `:uberjar-name` | `:rig/uberjar-file` — `target/` + the name; a missing `.jar` suffix is appended |
 
-Rig expands single-segment coordinates (`aero` → `aero/aero`), the same
-rule `rig new` applies.
+Rig expands single-segment coordinates (`aero` → `aero/aero`), the way
+Leiningen reads them — `rig new` by contrast requires the full
+`group/name` form.
 
 ## The `:test` alias
 

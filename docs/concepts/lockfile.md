@@ -120,9 +120,9 @@ A real lockfile from a multi-module workspace, trimmed:
   resource directories of that module. Rig rejects a lockfile that breaks
   this rule.
 - **`modules[].aliases`** — the resolved form of your `:aliases`: classpath,
-  jvm-opts, env, and `exec`. The `exec` key says how to launch the alias:
-  an `exec-fn`, a main, or plain. `rig test` reads this key. It does not
-  parse the manifest.
+  jvm-opts, env, and `exec`. The `exec` key is present only for
+  `:exec-fn` aliases and records the function; `rig test` launches
+  through it. `rig test` never parses the manifest.
 - **`manifest_sha256`** — the sha256 hash of the raw `deps.edn` bytes of
   each module (and of the root) at lock time. Rig detects staleness with
   this cheap file hash. It does not parse the EDN.
@@ -137,8 +137,10 @@ Every command that builds a classpath (`test`, `run`, `repl`, `exec`,
 
 1. **No lockfile** → Rig exits with code 3 and hints: `run 'rig lock'`.
 2. **Lockfile with an unsupported schema version** (an older Rig wrote it) →
-   Rig exits and hints: `run 'rig lock'`. When you re-lock, Rig reads the
-   old lockfile, keeps its pins, and writes the current schema.
+   Rig exits with an "unsupported lock version" error. Re-lock: `rig
+   lock`, `rig add`, `rig remove` and `rig update` read the old lockfile
+   without schema-checking it, keep its pins, and write the current
+   schema.
 3. **A manifest changed** (its `manifest_sha256` no longer matches):
    - Default (development): Rig re-resolves, refreshes the lockfile, prints
      one line — `relocked (stale: modules/orchestrator)` — and continues.

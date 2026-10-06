@@ -28,7 +28,7 @@ This page lists every command, what it does, and its flags.
 | `fmt [--check]` | hot | cljfmt on the module, pinned version (no lock needed). |
 | `new <group/name>` | — | Scaffold a new project. |
 | `new-module <name>` | cold | Scaffold a module in the workspace, add it, re-lock. |
-| `migrate [--dry-run]` | cold | Convert a legacy (`:exoscale.*` / `:slipset.*`) workspace to `:rig/*` in place. |
+| `migrate [--dry-run]` | cold | Convert a legacy (`:exoscale.*` / `:slipset.*`) or Leiningen (`project.clj`) workspace to `:rig/*` in place. |
 | `jvm install <major>` | — | Install the newest Temurin JDK for a major version into the Rig state dir. |
 | `jvm list` | — | Installed JDKs + the system `java`. |
 | `jvm uninstall <version>` | — | Remove an installed JDK. |
@@ -47,7 +47,8 @@ only when the lock is stale and `--frozen` is not set. *Cold* commands do
 deeper kernel work (resolve, build, publish, edit). They can write the lock
 or the manifests. `launch` is hot because it never touches the kernel. It
 treats the lock as inert data: it never checks staleness, never re-locks,
-and never uses the network.
+and never uses the network. `clean`, `version` and `info` read the
+workspace and the lock — they never write the lock, stale or not.
 
 ## Locking and dependency changes
 
@@ -62,8 +63,13 @@ artifact, and write `deps.lock`. The command prints skipped version
 selections (cooldowns, forces) and a summary:
 
 ```
-wrote deps.lock: 528 artifacts, 8 modules
+wrote /home/dev/app/deps.lock: 528 artifacts, 8 modules
 ```
+
+`rig lock` refuses `--frozen` (exit 2): writing the lock is its whole
+job. CI modes that must not modify the lock belong on the commands that
+consume it. `--frozen` on `rig lock` used to be silently ignored while
+the command rewrote the lock anyway.
 
 When a cooldown refuses a requirement, the command aborts with exit 5:
 
@@ -72,10 +78,13 @@ refused org.clojure/tools.logging (cooldown 48h)
 1 requirement(s) refused by cooldowns (retry with --force)
 ```
 
-Before resolution, Rig seeds the Maven requirements that live only in
-`:auth :oidc` repos into the local `~/.m2/repository`, and every request
-bears the token. A cold m2 locks this way, and tools.deps never talks to
-an authenticated repo. See [authenticated
+Requests to an `:auth :oidc` repository are routed through a local proxy
+that injects the gate's bearer token; tools.deps itself never talks to
+an authenticated repo. An artifact Maven already downloaded into
+`~/.m2/repository` is accepted at lock time without refetching — Rig
+verifies it against the published SHA1. A cold m2 therefore locks as
+well, and every request that does go out bears the token. See
+[authenticated
 repositories](config.md#authenticated-repositories-auth-oidc).
 
 ### `rig update`
@@ -86,7 +95,7 @@ rig update [coord [version]]
 
 | Form | Effect |
 |---|---|
-| `rig update` | Re-resolve keeping existing pins; floating versions re-select (cooldown-gated). |
+| `rig update` | Full re-resolve: floating requirements re-select the newest eligible version (cooldown-gated). Exact versions declared in the manifests stay put; the lock's current pins do not. |
 | `rig update <coord> <version>` | Pin the exact version (explicit, recorded in the lock). |
 | `rig update <coord>` | Newest eligible version (cooldown-gated, exit 5 if refused). |
 
@@ -137,16 +146,25 @@ What it does, mechanically:
   never rewrites such a key.
 - Drops `:exoscale.deps/managed-aliases` (only the `:project` alias exists;
   Rig has no alias inheritance) and the `:project` aliases themselves.
-- Rewrites `:slipset.deps-deploy/exec-args` into `:rig/publish?` +
-  `:rig/publish` (`:repo`, `:sign-releases?`); a deploy repo with an
-  `s3p://` URL is a blocking problem (Rig publishes to http/https
-  repositories only).
+- Rewrites `:slipset.deps-deploy/exec-args` into `:rig/publish`
+  (`:repo`); publish enablement comes from the
+  `:exoscale.project/deploy?` → `:rig/publish?` rename. A deploy repo
+  with an `s3p://` URL is a blocking problem (Rig publishes to
+  http/https repositories only).
 
 `--dry-run` runs the same analysis and reports per-file changes without
 writing anything. A blocking problem aborts the whole migration with exit
 1, and Rig writes nothing. Blocking problems are, for example, an
 inherit-only coord that is absent from the managed map, or
 `:sign-releases? true`.
+
+The same verb also converts a **Leiningen** workspace: `project.clj` →
+root and per-module `deps.edn` — profiles become `:aliases`,
+`:deploy-repositories` becomes `:rig/publish`, `~var` version shorthands
+resolve, `:sub` monorepos decompose into sibling
+`:local/root` modules. See
+[Migrating from Leiningen](../migration/leiningen.md) for the full key
+mapping.
 
 After `rig migrate`, run `rig lock` and `rig check`. The check reports the
 remaining drift between the module requirements and the lock (cross-module
@@ -175,12 +193,15 @@ Two stages, one exit code:
    requirements). `drift` (a module requirement differs from the workspace
    requirement — a warning). `floating-version` (`RELEASE`/`LATEST` in a
    manifest — an error; fix it with `rig update <coord>`). `no-lib`
-   (publish or build without `:rig/lib`). `unknown-repo` (the lock pins
-   via a repo that no manifest declares).
+   (publish without `:rig/lib`). `unknown-repo` (the lock pins
+   via a repo that no manifest declares). `pool-unpinned` (a
+   `:rig/deps` entry the lock does not pin — a warning).
 2. **Namespace load and AOT-compile**: Rig preloads the non-project
    requires on the locked base classpath of each target module, then
    AOT-compiles its namespaces in dependency order. A failing load or
-   compile produces a `load-fail` error. Rig reports a module that pins
+   compile produces a `load-fail` error; a source the AOT plan left
+   out — a data file without an `ns` form, a namespace whose name does
+   not match its path — is a `plan-skip` warning. Rig reports a module that pins
    `org.clojure/clojure` below the 1.8.0 floor as `clojure-floor`, before
    it launches any JVM (the runner entry point cannot load on Clojure
    1.7.x). Stage 2 launches on the locked classpath as-is: on Clojure ≥
@@ -199,6 +220,8 @@ or, clean:
 ```
 check: ok
 ```
+
+A missing lock is the exception: one message, exit 3.
 
 `-p` restricts stage 2 only. `check` never re-locks and never exits 3 for
 a stale lock — it reports staleness as a problem and exits 1.
@@ -231,21 +254,24 @@ module version.
 ### `rig test`
 
 ```
-rig test [opt value…]
+rig test [--timeout <dur>] [opt value…]
 ```
 
 Run the test exec-fn of each target module (from the lock) on its locked
 test classpath. Without `-p`, every module with a test exec-fn runs, in
-dependency order. The arguments are EDN literals, and Rig forwards them
-to the runner:
+the declaration order of `:rig/modules`. The arguments are EDN literals,
+and Rig forwards them to the runner:
 
 ```
 rig test :kaocha.filter/focus '[:unit]'
 ```
 
-Rig exits with the exit code of the runner. A module that pins
-`org.clojure/clojure` below the 1.8.0 floor fails before anything runs
-(the same `clojure-floor` gate as check).
+When a runner fails, Rig exits 1 and names the failing modules. A hung
+run does not wedge CI: `rig test` kills a runner that has not finished
+in 30 minutes and fails — `--timeout <dur>` configures the watchdog,
+`0` disables it. A module that pins `org.clojure/clojure` below the
+1.8.0 floor fails before anything runs (the same `clojure-floor` gate as
+check).
 
 ### `rig run`
 
@@ -294,16 +320,18 @@ output of the target module from the lock (the uberjar when the module
 declares one).
 
 The launch plan (main, `:rig/launch-opts`, build JVM) comes from
-`META-INF/rig/launch.json` — the descriptor `rig build` bakes into every
-jar — so `rig launch <jar>` works outside the workspace (a standalone
-container). Without the descriptor, the lock is the plan.
+`META-INF/rig/launch.json` — the descriptor `rig build` bakes into the
+jar of a module that declares a main (uberjars carry it too) — so
+`rig launch <jar>` works outside the workspace (a standalone container).
+Without the descriptor, the lock is the plan.
 
 `rig launch` is offline by definition: it runs what is already in the
 cache, from a previous build. The lock is inert data for it: it ignores a
 stale lock, and `--frozen` has no effect. Classpath artifacts must already
 be in the cache. The major version of the launch JVM must exactly match
-the major version of the build JVM. A different major fails, and a
-missing artifact fails, with exit 2.
+the major version of the build JVM; a different major fails with exit 2.
+A missing artifact fails too — it is not fetched — as a plain error
+(exit 1).
 
 ### `rig repl`
 
@@ -316,12 +344,12 @@ rig repl [--alias <a>]
 ### `rig exec`
 
 ```
-rig exec <command> [args…]
+rig exec [--alias <a>] <command> [args…]
 ```
 
 Run any command with the locked classpath that Rig exports as `CLASSPATH`
 (and `JAVA_OPTS` from the module/alias JVM options), in the module
-directory. Rig exits with the exit code of the command. Use it for
+directory. `--alias <a>` selects the classpath. Rig exits with the exit code of the command. Use it for
 scripts and tools Rig has no verb for.
 
 ## Authentication
@@ -337,8 +365,9 @@ gate config (`~/.config/rig/auth.yaml`): pass a gate name or a repository
 URL the gate fronts, or nothing when the config holds a single gate. Rig
 uses the `RIG_TOKEN_<GATE>` environment variable of the gate when you set
 it, else the cached token of the gate, else a fresh negotiation with the
-issuer of the gate. Rig verifies that token against the JWKS. The output
-is machine-friendly: script it into a `curl`, or pipe it anywhere a
+issuer of the gate. Rig verifies a freshly negotiated token against the
+JWKS before caching it; a token you supply in the environment is used as
+you supplied it. The output is machine-friendly: script it into a `curl`, or pipe it anywhere a
 bearer belongs. See
 [authenticated repositories](config.md#authenticated-repositories-auth-oidc).
 
@@ -521,7 +550,7 @@ newest build. The command does not touch the manifest or the lock.
 
 | Flag | Meaning |
 |---|---|
-| `-p, --path <module>` | Target one module (default: all, in dependency order; `.` = root module). |
+| `-p, --path <module>` | Target one module (default: all workspace modules, in `:rig/modules` order; `.` = root module). One module per command — a repeated `-p` is a usage error (exit 2). |
 | `--offline` | Never use the network. Artifacts come from the cache or a checksum-checked `~/.m2`; fail if in neither. |
 | `--frozen` | Never modify the lock; fail (exit 3) if it is missing or stale. The CI mode. `rig lock` refuses it — writing the lock is its whole job. |
 | `--force` | Bypass cooldowns (the decision is recorded in the lock). |
@@ -550,7 +579,9 @@ rig --autocomplete | Invoke-Expression  # PowerShell
 | 4 | security failure — artifact hash mismatch / not in the lock |
 | 5 | cooldown refused — retry with `--force` |
 
-Commands that launch a child process (`test`, `run`, `repl`, `exec`,
-`lint`, `fmt`) propagate the exit code of the child verbatim, above
-these. `launch` is the exception: it execs the JVM, so the exit code of
-the JVM is the exit code of the process.
+Commands that launch a child process (`run`, `repl`, `exec`, `lint`,
+`fmt`) propagate the exit code of the child verbatim, above these.
+`launch` is the purest form of it: it execs the JVM, so the exit code of
+the JVM is the exit code of the process. `test` and `check` interpret
+their runner instead: a failing runner makes Rig exit 1 with its own
+message; any other runner exit code becomes a plain Rig error (exit 1).

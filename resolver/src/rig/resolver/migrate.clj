@@ -39,7 +39,6 @@
    :exoscale.project/uberjar? :rig/uberjar?
    :exoscale.project/uber-opts :rig/uber-opts
    :exoscale.project/ns-compile :rig/ns-compile
-   :exoscale.project/extra-clean-targets :rig/clean-dirs
    :exoscale.project/deploy? :rig/publish?
    :exoscale.project/version-file :rig/version-file
    :exoscale.project/version-template-file :rig/version-template-file})

@@ -19,8 +19,9 @@ curl -fsSL …/scripts/install-rig.sh | sh -s -- v0.1.0
 
 The binary does not include the resolver kernel. The resolver kernel is a
 pinned Clojure jar. Rig uses it for the cold commands. On first use, Rig
-fetches the jar from the matching GitHub release, verifies its hash, and
-stores it in the Rig state directory. Cold commands resolve, build, publish,
+fetches the kernel jar — and the runner jar that matches it, for the hot
+commands — from the pinned GitHub release, verifies their hashes, and
+stores them in the Rig state directory. Cold commands resolve, build, publish,
 or edit manifests (`lock`, `update`, `build`, `check`, …). The day-to-day
 commands (`test`, `run`, `repl`, …) run on the binary and the lockfile
 alone.

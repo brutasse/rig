@@ -32,7 +32,7 @@ pinned at the git sha of the latest release; the release workflow re-pins it
 after each release):
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/brutasse/rig/29b0bb60817c7ce2db5d3a2775a3b64859f214f5/scripts/install-rig.sh | sh
+curl -fsSL https://raw.githubusercontent.com/brutasse/rig/1357c1500e43de592cbbfa24b4ac3e4500f530f8/scripts/install-rig.sh | sh
 ```
 
 Installs to `~/.local/bin` (override: `INSTALL_DIR=…`), verifies the binary
@@ -51,7 +51,8 @@ rig self-update --version v0.1.0   # update to a specific release
 
 Rig also checks for new releases at most once per 24h (TTL in the state dir;
 skipped under `--offline` and on local/dev builds) and prints one line on
-stderr when a newer release exists.
+stderr when a newer release exists. `RIG_UPDATE_CHECK=0` silences the
+check.
 
 Releasing Rig: tag `vX.Y.Z` and push it. The CI workflow
 (`.github/workflows/ci.yml`) runs the test suite, and once it is green the

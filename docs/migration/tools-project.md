@@ -196,16 +196,19 @@ rig migrate             # apply
 Per `deps.edn` it:
 
 1. It renames the `:exoscale.project/*` keys to `:rig/*` (see the table
-   above). `:slipset.deps-deploy/exec-args` becomes `:rig/publish`, with
-   the default `{:repo "clojars" :sign-releases? false}`.
+   above). `:slipset.deps-deploy/exec-args` becomes `:rig/publish` —
+   the `:repo` of the deploy target, as a `:mvn/repos` id; with no
+   explicit target, publishing falls back to the built-in `clojars`
+   repo.
 2. It deletes every `:project` alias — all of them. The copies drift,
    and there is no canonical one to keep.
 3. It deletes the `:exoscale.deps/inherit` markers from every coordinate.
 4. In the root, it renames `:exoscale.project/modules` to `:rig/modules`,
-   moves the managed versions into `:rig/deps` as plain requirements, and
    deletes `:exoscale.deps/managed-dependencies`,
    `:exoscale.deps/managed-aliases`, and
-   `:exoscale.project/extra-deps-files`.
+   `:exoscale.project/extra-deps-files`. The managed pool is not carried
+   over as `:rig/deps` — its pins are already materialized in the module
+   manifests — and dropping it is reported with a warning.
 
 It reproduces the effective dependencies of the legacy merge exactly. It
 introduces no version drift, and it fixes none. The `check` step below

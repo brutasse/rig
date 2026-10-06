@@ -106,8 +106,8 @@ The next example shows a migrated module (trimmed). A comment notes the
 pool values the merge used to inject:
 
 ```edn
-;; pool: org.clojure/clojure {:mvn/version "1.11.0"}
-;;       com.example/thing-core {:mvn/version "2.0.0" :exclusions [something/else]}
+;; pool: org.clojure/clojure {:mvn/version "1.10.2"}
+;;       com.example/thing-core {:mvn/version "1.0.0"}
 
 ;; before
 :deps {org.clojure/clojure {:exoscale.deps/inherit :all}
@@ -115,8 +115,8 @@ pool values the merge used to inject:
                                :exclusions [something/else]}}
 
 ;; after
-:deps {org.clojure/clojure {:mvn/version "1.11.0"}
-       com.example/thing-core {:mvn/version "2.0.0"
+:deps {org.clojure/clojure {:mvn/version "1.10.2"}
+       com.example/thing-core {:mvn/version "1.0.0"
                                :exclusions [something/else]}}
 ```
 

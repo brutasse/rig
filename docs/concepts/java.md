@@ -55,10 +55,11 @@ downstream of `a`) compile `a` with javac automatically before `b`
 compiles. Rig runs javac on `a`'s **locked** base classpath, into `a`'s
 class dir. This javac is the same one a full build of `a` runs. It carries
 the same staleness tracking as everything else in Rig. A stamp under
-`a/target/` records the manifest hash, a content digest of the sources, and
-a digest of the locked dependencies. If any of these three changes, or if
-Rig re-preps a dependency of `a`, the javac runs again. `rig clean` removes
-the output and the stamp.
+`a/target/` (`.rig-javac.json`, separate from the prep stamp) records the
+manifest hash, a content digest of the sources, and a digest of the
+locked dependencies. If any of these changes, if the class dir is found
+missing, or if Rig re-preps a dependency of `a`, the javac runs again.
+`rig clean` removes the output and the stamp.
 
 Rig does not re-resolve: the classpath javac uses is the locked one Rig
 already fetched and hashed. There is no in-JVM Maven step, so the prep

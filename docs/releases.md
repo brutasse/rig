@@ -3,9 +3,9 @@
 Changelog for Rig. The full commit-level history between versions:
 [compare on GitHub](https://github.com/brutasse/rig/compare/v0.1.0...HEAD).
 
-## Pending release
+## Unreleased — since v0.1.0
 
-*Unreleased — everything since v0.1.0.*
+*Everything merged since the first release.*
 
 ### New
 
@@ -18,11 +18,12 @@ loopback-only JMX on port 10101. You can override these per module via
 (appended last, same override rules). It replaces its own process with
 the JVM (process exec) — in a container the app is PID 1 and signals
 reach the JVM directly. `rig build` bakes the launch plan (main, launch
-opts, build JVM) into every jar and uberjar as
-`META-INF/rig/launch.json`. So `rig launch <jar>` works standalone,
-outside the workspace — for example as a container `ENTRYPOINT`. It runs
-what Rig already built and cached. The major version of the launch JVM
-must match the major version of the build JVM. See
+opts, build JVM) into the jar of a module that declares a main, as
+`META-INF/rig/launch.json` (uberjars pick it up too). So
+`rig launch <jar>` works standalone, outside the workspace — for example
+as a container `ENTRYPOINT`. It runs what Rig already built and cached.
+The major version of the launch JVM must match the major version of the
+build JVM. See
 [Configuration — Production launch](reference/config.md#production-launch-rig-launch)
 and [Docker](workflows/docker.md).
 
@@ -132,6 +133,16 @@ commands reject v1 locks with an unsupported-version error. `rig lock`,
   major of the workspace to the newest release, and they replace it.
   They install the newest release when the store holds none. They no
   longer write `deps.lock`, and `--frozen` no longer applies to them.
+- **The shared pool force-pins.** A `:rig/deps` entry now pins the
+  coordinate's version workspace-wide: a module that consumes it
+  transitively gets the pool version, like Leiningen's managed pool.
+  A pool entry nothing consumed no longer holds `rig check` red.
+- **A hung test run now dies.** `rig test` kills the runner JVM when an
+  exec-fn has not finished in 30 minutes and fails the run — `--timeout`
+  configures it, `0` disables it.
+- **Stricter CLI.** `rig lock --frozen` is refused (writing the lock is
+  `rig lock`'s job), and a repeated `-p/--path` is refused — both usage
+  errors (exit 2). Before, both quietly did something else.
 - **The GitHub API lookup uses a token.** `rig graalvm install` and
   `rig self-update` resolve releases through the GitHub API, which allows
   60 requests per hour per IP address. Shared CI runners exhaust that
@@ -170,13 +181,28 @@ commands reject v1 locks with an unsupported-version error. `rig lock`,
   produces — dependency classes included — against the pinned JVM, and
   fails listing the offending entries. (javac does not receive
   `--release` on Java < 9 hosts, where the flag does not exist.)
-- **Sources in built jars.** Jars and uberjars no longer bundle the
-  `.clj`/`.cljc` sources of the module itself. A source next to its AOT
-  `__init.class` in the jar is a load-time recompile hazard (two class
-  identities, `ClassCastException`). Jars also drop sources whose class
-  file is present, and the build fails in the unlikely case a `.class`
-  is older than its source. The build never drops prep output under an
-  `:ensure` path — it is an input of the build, not its output.
+- **Sources in built jars.** The drop-sources step ran before the
+  compile and wiped every `.clj`/`.cljc` from the class dir, so a
+  source shipped as payload — a clj-kondo hook export, a `deps-new`
+  template — vanished from the published jar. It now runs after the
+  compile and drops only the sources paired with their AOT
+  `__init.class` — the load-time recompile hazard (two class identities,
+  `ClassCastException`) it exists to kill. Everything else ships as the
+  data it is. The build never drops prep output under an `:ensure`
+  path — it is an input of the build, not its output.
+- **What the AOT plan compiles.** Every `.clj` under the `:paths` roots
+  was treated as a namespace. A data source (a config map without an
+  `ns` form), a file nested under a resources root, or a namespace
+  requiring itself killed `rig check` and `rig build` outright. The plan
+  now keeps only the files whose declared namespace matches their path,
+  ignores self-requires, and reports what it left out — `rig check`
+  shows a `plan-skip` warning instead of dying.
+- **Java modules ran without their own classes.** Rig compiled a module
+  declaring `:rig/java-src-dirs` into its class dir, then kept that dir
+  off the dev classpath unless `:paths` named it too: `rig check`, `rig
+  test` and `rig run` died with a `ClassNotFoundException` on the
+  module's own Java classes. The class dir now follows the module's
+  sources onto the classpath.
 - **Class-dir clean.** The clean step of the build now deletes only
   class-dir content that is not under a declared `:ensure` path. A
   module whose prep owned the class dir previously lost the whole dir on
@@ -220,6 +246,17 @@ commands reject v1 locks with an unsupported-version error. `rig lock`,
   - `rig check` reports a module that pins `org.clojure/clojure` below
     1.8.0 as `clojure-floor`, before it launches any JVM (the same gate
     applies to `rig test`).
+  - with no lock at all, one message, exit 3 (the lock-problem code) —
+    previously one stale-lock problem per module, exit 1.
+- **Cache entries carry their extension.** An artifact sat in the cache
+  at `<sha256>` with no suffix, so the JDK handed consumers `file:` URLs
+  for classpath jars and resource copying out of them broke (a
+  kaocha-cljs run died on `ENOENT`). Cache names now end in the lock's
+  extension; existing caches rename into the layout on first hit.
+- **`rig test` prints like the REPL.** Runner code saw
+  `*print-namespace-maps*` false where the same classpath under
+  `clojure -M` or lein sees true — the runner now runs under
+  `clojure.main`'s bindings.
 - **Publishing.** Rig drops direct-to-S3 publishing (`s3p://`
   repositories): publishing targets http/https Maven repositories only
   (S3 is what Pier provides). `rig migrate` reports a deploy repository
@@ -227,6 +264,22 @@ commands reject v1 locks with an unsupported-version error. `rig lock`,
 - **Manifest parsing.** The compact macro for namespaced maps
   (`{ns/…}`) now parses; `rig migrate` normalizes it to the non-compact
   form.
+- **`rig version`** no longer prints a blank line (exit 0) when the lock
+  records an empty version — it reports "no version found" (exit 1).
+- **`:rig/version-fn :git-count-revs`** trims the version template's
+  trailing newline out of the version — it used to name the artifact
+  `app-1.0.1<newline>.jar`.
+- **Leiningen migration, continued.** A bare exclusion symbol
+  (`:exclusions [foo]`) now migrates to `foo/foo`, like Leiningen reads
+  it — verbatim, tools.deps silently excluded nothing. Dropped Leiningen
+  keys are warned about on the profile that carries them, and an entry
+  appended to a manifest lands on its own line.
+- **`rig build` warns when `:rig/uber-opts :exclude` excludes
+  nothing.** `tools.build` matches patterns with `re-matches` (full
+  match), so a prefix-style `^clojure/` silently shipped everything;
+  only `dir/.*` actually excludes a dir. Every pattern that matches no
+  entry, and every `:rig/uber-opts` key Rig does not consume, now gets
+  named in a warning.
 
 ### Docs
 
@@ -245,8 +298,10 @@ commands reject v1 locks with an unsupported-version error. `rig lock`,
 - Hot commands (`rig test`, `rig check` stage 2) now run on a separate
   pinned **runner jar** (`rig-runner`), an install-time artifact shipped
   next to the kernel jar. The Docker image pre-seeds it, so `test` and
-  `check` work on read-only stores. The exit code of the runner is the
-  exit code of Rig.
+  `check` work on read-only stores. When the runner fails, Rig fails:
+  exit 1 for `rig test` and `rig check` — any other runner exit code
+  becomes a plain Rig error; the dev commands (`run`, `repl`, `exec`)
+  pass the child code through verbatim.
 - CI now builds the kernel and runs its test suite on Temurin 8 — the
   floor gate that keeps the kernel jar loadable on the oldest supported
   JVM. CI fixed the tag-trigger behavior.
@@ -258,6 +313,9 @@ commands reject v1 locks with an unsupported-version error. `rig lock`,
   commit plus `rig publish` plus a tag — the version history and the tag
   are yours, and Rig does the publish. See
   [Build, publish, release](workflows/build-publish.md#releasing).
+- `rig migrate` drops the legacy `:exoscale.project/extra-clean-targets`
+  with a warning: Rig has no `:rig/clean-dirs` key, `rig clean` removes
+  the target dirs and nothing else.
 
 ## v0.1.0 — 2026-09-25
 

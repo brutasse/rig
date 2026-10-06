@@ -81,7 +81,9 @@ cooldown window before the resolve time:
   `:rig/cooldown`, for example `"48h"`, `"72h"`, or `"0s"` to disable.
 - set per-repository overrides in `:rig/cooldown-repos`, for example
   `{"corp" "72h"}`;
-- Rig takes the version age from repository metadata (`Last-Modified`).
+- Rig takes the version age from the repository's `maven-metadata.xml`
+  timestamps — the metadata it already reads to list versions, not an
+  HTTP header.
 
 When Rig refuses a fresh version, Rig reports it and picks the newest
 *older* eligible version:
@@ -101,8 +103,10 @@ prints it:
   wins.
 
 Rig never re-applies a cooldown to an already-locked version: cooldowns
-apply at selection time only. `rig update` with no changes keeps the
-existing pins.
+apply at selection time only. A plain `rig lock` keeps the pins already
+in the lock; newly selected versions face the window. (`rig update` with
+no arguments does not keep the lock's pins — it re-selects floating
+requirements.)
 
 ## Reproducibility
 

@@ -16,7 +16,7 @@ rig lock
 ```
 
 ```
-wrote deps.lock: 41 artifacts, 1 modules
+wrote /home/dev/demo/deps.lock: 41 artifacts, 1 modules
 ```
 
 Commit `deps.lock`. That is the whole security core: full-tree pinning,

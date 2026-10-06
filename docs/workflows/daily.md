@@ -93,7 +93,7 @@ lockfile.
 `test`, `run`, `repl`, `exec`, and `build` apply the same lockfile
 discipline before they launch anything:
 
-1. no lockfile → `no lock at deps.lock (run 'rig lock')`, exit 3;
+1. no lockfile → `no lock at /home/dev/app/deps.lock (run 'rig lock')`, exit 3;
 2. manifest changed → in development, Rig re-locks silently and prints
    `relocked (stale: <modules>)`; with `--frozen`, Rig fails with exit 3
    instead;

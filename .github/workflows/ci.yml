@@ -243,13 +243,21 @@ jobs:
             -e "s#brutasse/rig/([0-9a-f]{40})/scripts#brutasse/rig/$sha/scripts#" \
             -e "s#sh -s -- v[0-9][0-9A-Za-z.+~-]*#sh -s -- $new#" \
             -e "s#--version v[0-9][0-9A-Za-z.+~-]*#--version $new#" \
-            README.md docs/getting-started.md
+            -e "s#rig-resolver v[0-9][0-9A-Za-z.+~-]*#rig-resolver $new#g" \
+            -e "s#rig-resolver-v[0-9][0-9A-Za-z.+~-]*\.jar#rig-resolver-$new.jar#g" \
+            -e "s#rig-runner-v[0-9][0-9A-Za-z.+~-]*\.jar#rig-runner-$new.jar#g" \
+            -e "s#version: v[0-9][0-9A-Za-z.+~-]*#version: $new#g" \
+            README.md docs/getting-started.md docs/workflows/ci.md
           # The version seds must have landed: fail loudly if the doc
           # wording drifted and the examples still show an old release.
           grep -q "sh -s -- $new" README.md
           grep -q "sh -s -- $new" docs/getting-started.md
           grep -q -- "--version $new" README.md
           grep -q -- "--version $new" docs/getting-started.md
+          grep -q "rig-resolver $new" docs/getting-started.md
+          grep -q "rig-resolver-$new.jar" README.md
+          grep -q "rig-runner-$new.jar" README.md
+          grep -q "version: $new" docs/workflows/ci.md
           if git diff --quiet; then
             echo "install one-liner already pinned at $sha; docs already at $new"
           else
