@@ -32,21 +32,21 @@ pinned at the git sha of the latest release; the release workflow re-pins it
 after each release):
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/brutasse/rig/1357c1500e43de592cbbfa24b4ac3e4500f530f8/scripts/install-rig.sh | sh
+curl -fsSL https://raw.githubusercontent.com/brutasse/rig/c7ec4b169f095a9a871498fd0aab33de16dfd7d3/scripts/install-rig.sh | sh
 ```
 
 Installs to `~/.local/bin` (override: `INSTALL_DIR=…`), verifies the binary
 against the release's `SHA256SUMS`. The resolver kernel jar is not
 installed: the Rig binary fetches its pinned kernel from the matching GitHub
 release on first use, hash-verified. Pass a version to install something
-other than the latest release: `sh -s -- v0.1.0`.
+other than the latest release: `sh -s -- v0.2.0`.
 
 Self-update:
 
 ```sh
 rig self-update                    # update to the latest release, if newer
 rig self-update --check            # report only
-rig self-update --version v0.1.0   # update to a specific release
+rig self-update --version v0.2.0   # update to a specific release
 ```
 
 Rig also checks for new releases at most once per 24h (TTL in the state dir;
@@ -142,8 +142,8 @@ How the kernel jar and runner jar reach the Rig binary:
   them exported.
 - The Go E2E tests find the jars via `RIG_TEST_KERNEL_JAR` /
   `RIG_TEST_RUNNER_JAR` (set by `make test`) or
-  `resolver/target/rig-resolver-v0.1.0.jar` /
-  `resolver/target/rig-runner-v0.1.0.jar` and **skip** (not fail) when
+  `resolver/target/rig-resolver-v0.2.0.jar` /
+  `resolver/target/rig-runner-v0.2.0.jar` and **skip** (not fail) when
   they are missing — build them first (`make kernel`) or they silently
   don't run.
 

@@ -5,7 +5,7 @@
 Run this command to install Rig from the GitHub release artifacts:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/brutasse/rig/1357c1500e43de592cbbfa24b4ac3e4500f530f8/scripts/install-rig.sh | sh
+curl -fsSL https://raw.githubusercontent.com/brutasse/rig/c7ec4b169f095a9a871498fd0aab33de16dfd7d3/scripts/install-rig.sh | sh
 ```
 
 The script installs `rig` to `~/.local/bin`. Set `INSTALL_DIR=…` to choose
@@ -14,7 +14,7 @@ of the release before it installs the binary. To install a specific release
 instead of the latest release, run:
 
 ```sh
-curl -fsSL …/scripts/install-rig.sh | sh -s -- v0.1.0
+curl -fsSL …/scripts/install-rig.sh | sh -s -- v0.2.0
 ```
 
 The binary does not include the resolver kernel. The resolver kernel is a
@@ -31,7 +31,7 @@ alone.
 ```sh
 rig self-update                    # update to the latest release, if newer
 rig self-update --check            # report only, change nothing
-rig self-update --version v0.1.0   # update to a specific release
+rig self-update --version v0.2.0   # update to a specific release
 ```
 
 `self-update` needs a writable directory for the binary. The installer puts
@@ -145,11 +145,11 @@ hello rig
 project:	/home/…/demo
 type:	workspace
 modules:	., modules/demo
-lock:	2026-09-18T10:00:00Z by io.github.brutasse/rig-resolver v0.1.0 (546d868c4d1c, 823c7b174dfe), 29 artifacts
+lock:	2026-09-18T10:00:00Z by io.github.brutasse/rig-resolver v0.2.0 (546d868c4d1c, 823c7b174dfe), 29 artifacts
 java:	/usr/bin/java (21.0.12.1)
 cache:	/home/…/.local/share/rig
 rig:	dev (dev)
-kernel:	io.github.brutasse/rig-resolver v0.1.0 (546d868c4d1c)
+kernel:	io.github.brutasse/rig-resolver v0.2.0 (546d868c4d1c)
 ```
 
 `rig version` prints the project version. Rig reads the `VERSION` file of the
