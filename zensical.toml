@@ -48,6 +48,8 @@ nav = [
 
 [project.theme]
 language = "en"
+logo = "assets/rig-light.svg"
+favicon = "assets/rig-favicon.svg"
 features = [
   "content.action.edit",
   "content.code.annotate",

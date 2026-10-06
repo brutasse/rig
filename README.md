@@ -1,3 +1,11 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/rig-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="docs/assets/rig-light.svg">
+    <img alt="Rig logo — derrick" src="docs/assets/rig-light.svg" width="140">
+  </picture>
+</p>
+
 # Rig
 
 Build and run Clojure projects, the obvious way: one binary, one manifest,

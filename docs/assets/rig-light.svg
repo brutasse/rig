@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none" stroke-linecap="round" stroke-linejoin="round">
+  <!-- derrick legs + crown -->
+  <g stroke="#63B131" stroke-width="26">
+    <path d="M108 436 L188 140"/>
+    <path d="M404 436 L324 140"/>
+    <path d="M188 140 L324 140"/>
+  </g>
+  <!-- lattice: ties -->
+  <g stroke="#63B131" stroke-width="12" opacity="0.55">
+    <path d="M128 360 H384"/>
+    <path d="M149 284 H363"/>
+    <path d="M170 208 H342"/>
+    <!-- X bracing -->
+    <path d="M108 436 L384 360"/><path d="M404 436 L128 360"/>
+    <path d="M128 360 L363 284"/><path d="M384 360 L149 284"/>
+    <path d="M149 284 L342 208"/><path d="M363 284 L170 208"/>
+    <path d="M170 208 L324 140"/><path d="M342 208 L188 140"/>
+  </g>
+  <!-- crown block + traveling block on the line -->
+  <rect x="234" y="90" width="44" height="42" rx="8" fill="#63B131"/>
+  <path d="M256 140 V192" stroke="#63B131" stroke-width="10"/>
+  <rect x="242" y="192" width="28" height="28" rx="6" fill="#63B131"/>
+</svg>
