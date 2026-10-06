@@ -1,9 +1,10 @@
 # Releases
 
-Changelog for Rig. The full commit-level history between versions:
-[compare on GitHub](https://github.com/brutasse/rig/compare/v0.1.0...HEAD).
+Changelog for Rig.
 
-## Unreleased — since v0.1.0
+## Unreleased — since v0.2.0
+
+## v0.2.0 — 2026-10-06
 
 *Everything merged since the first release.*
 
