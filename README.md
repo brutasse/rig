@@ -104,19 +104,21 @@ a slim image.
 
 ## Local development
 
-Prerequisites: JDK 21+, Clojure CLI, Go 1.27+, make.
+Prerequisites: Go 1.27+ and make. The JVM is rig's own business: it
+installs the Temurin 8 pinned in `resolver/deps.lock`.
 
 ```
 make dev    # build the kernel jar, build rig
-make test   # make dev + kernel kaocha suite + Go suite (E2E vs the fresh jar)
+make test   # make dev + kernel suite (rig test) + Go suite (E2E vs the fresh jar)
 make run WS=<workspace-dir> ARGS="lock"   # run the local rig in a workspace
 make image  # build the Docker image locally (no push)
 make release V=vX.Y.Z  # package a release in rig/dist/release/ (dry run)
 ```
 
 `make dev` is the whole loop: `resolver/target/rig-resolver-<V>.jar` and
-`resolver/target/rig-runner-<V>.jar` are built (tools.build) and
-`rig/dist/rig` is built. `V` is the release tag
+`resolver/runner/target/rig-runner-<V>.jar` are built by the rig binary
+(self-hosting: the rig runs its kernel pin, so the previous release's
+kernel builds the next one) and `rig/dist/rig` is built. `V` is the release tag
 form (vX.Y.Z) in both local and release builds, defaulting to the
 contents of `resolver/VERSION` locally. The kernel's identity (version, git sha) is baked into the jar
 at build time, so a lockfile's `resolver` block records the exact kernel
@@ -142,8 +144,9 @@ How the kernel jar and runner jar reach the Rig binary:
   them exported.
 - The Go E2E tests find the jars via `RIG_TEST_KERNEL_JAR` /
   `RIG_TEST_RUNNER_JAR` (set by `make test`) or
-  `resolver/target/rig-resolver-v0.3.0.jar` /
-  `resolver/target/rig-runner-v0.3.0.jar` and **skip** (not fail) when
+  `resolver/target/rig-resolver-<V>.jar` /
+  `resolver/runner/target/rig-runner-<V>.jar` (`V` = the contents of
+  `resolver/VERSION`) and **skip** (not fail) when
   they are missing — build them first (`make kernel`) or they silently
   don't run.
 

@@ -1,18 +1,33 @@
 {:paths ["src"]
-  :deps {org.clojure/clojure {:mvn/version "1.12.5"}
-         org.clojure/tools.deps {:mvn/version "0.31.1642"}
-         io.github.clojure/tools.build {:mvn/version "0.10.5"}
+ :deps {org.clojure/clojure {:mvn/version "1.12.5"}
+        org.clojure/tools.deps {:mvn/version "0.31.1642"}
+        io.github.clojure/tools.build {:mvn/version "0.10.5"}
          ;; Direct dependency of rig.resolver.aot (also pulled in by
          ;; tools.build; declared here at the same version).
-         org.clojure/tools.namespace {:mvn/version "1.5.0"}
+        org.clojure/tools.namespace {:mvn/version "1.5.0"}
          ;; tigris is a dead dep of cheshire (no cheshire class references
          ;; it) and ships one v55 class — the floor gate rejects it.
-         cheshire/cheshire {:mvn/version "5.10.2" :exclusions [tigris/tigris]}
-         rewrite-clj/rewrite-clj {:mvn/version "1.2.57"}
-         cljfmt/cljfmt {:mvn/version "0.9.2"}}
-  :aliases
-  {:test {:extra-deps {lambdaisland/kaocha {:mvn/version "1.66.1034"}}
-          :extra-paths ["test" "."]
-          :exec-fn kaocha.runner/exec-fn}
-   :build {:extra-paths ["."]
-           :exec-fn build/uber}}}
+        cheshire/cheshire {:mvn/version "5.10.2" :exclusions [tigris/tigris]}
+        rewrite-clj/rewrite-clj {:mvn/version "1.2.57"}
+        cljfmt/cljfmt {:mvn/version "0.9.2"}}
+
+  ;; A rig workspace: the kernel is the root module, the runner a module
+  ;; of its own, built by rig itself (make kernel) — the manifest keys
+  ;; rig reads:
+ :rig/modules ["runner"]
+ :rig/lib io.github.brutasse/rig-resolver
+ :rig/main "Main"
+ :rig/java-src-dirs ["java"]
+ :rig/uberjar? true
+  ;; AOT and javac run on a managed Temurin 8, not the host's JDK: the
+  ;; kernel jar must load on Java 8, Clojure 1.12's floor.
+ :rig/jvm "8"
+  ;; Deterministic jars: entries name-sorted under this fixed timestamp
+  ;; (byte-reproducible together with the :rig/jvm pin).
+ :rig/timestamp-string "2020-01-01T00:00:02Z"
+
+ :aliases
+ {:test {:extra-deps {lambdaisland/kaocha {:mvn/version "1.66.1034"}}
+          ;; "runner/src": the kernel suite exercises rig.runner.
+         :extra-paths ["test" "." "runner/src"]
+         :exec-fn kaocha.runner/exec-fn}}}

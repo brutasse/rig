@@ -9,21 +9,32 @@
 #   1. gofmt -w rig/ — fixes formatting in place; if anything changed,
 #      pushes a bot commit back to the branch (never fails)
 #   2. go vet
-#   3. make test — kernel kaocha + Go suite, E2E vs the freshly built jar
+#   3. make test — kernel suite (rig test, via the runner) + Go suite,
+#      E2E vs the freshly built jar
+#
+# Toolchain everywhere: setup-go + brutasse/setup-rig (installs the rig
+# binary, the Temurin 8 pinned in resolver/deps.lock, and caches the
+# artifact store) — no host JDK, no Clojure CLI.
 #
 # What test-jvm8 does:
-#   builds the kernel on a Temurin 8 and runs its suite there — the floor
-#   gate: the kernel jar must load and run on Java 8 (Clojure 1.12's floor)
+#   launches the built kernel jar directly on that pinned Temurin 8 (on
+#   PATH via setup-rig's java-on-path) — the floor gate: the release
+#   artifact loads and answers a request on Java 8 (Clojure 1.12's
+#   floor), outside rig's own jvm machinery
 #
 # Every build also scans both jars after assembly and fails on any class
-# above the Java 8 bytecode floor (class file v52). The release jar is
-# built on a JDK 21 runner, so this scan — not test-jvm8, which builds
-# its own jar — is what guarantees the released artifact stays loadable
-# on the floor.
+# above the Java 8 bytecode floor (class file v52). Both release jars are
+# built by rig on the pinned Temurin 8 (managed by rig), and the kernel
+# suite runs on that same floor JVM — the artifact is compiled at the
+# floor and exercised there.
 #
 # What release does:
-#   1. builds the kernel jar at the tag version, stamps it into the kernel
-#      pin (GitHub release URL + git sha + jar sha256)
+#   1. builds the release jars at the tag version (self-hosted: the rig
+#      built from the tag's sources fetches the previous release's pinned
+#      kernel and builds both new jars with it — see the Makefile
+#      'kernel' target; resolver/VERSION must equal the tag — bump it in
+#      the prepare-release commit), stamps the kernel into the kernel pin
+#      (GitHub release URL + git sha + jar sha256)
 #   2. cross-compiles rig for linux/darwin amd64/arm64 with version stamps
 #   3. builds and pushes the multi-arch Docker image (rig binary +
 #      hash-pinned kernel jar and runner jar) to ghcr.io/brutasse/rig
@@ -61,13 +72,10 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: "1.27.x"
-      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+      - uses: brutasse/setup-rig@v1
         with:
-          distribution: temurin
-          java-version: "21"
-      - uses: DeLaGuardo/setup-clojure@4c7a6f613e5089821bb3bb2a33a3ee115578580d # 13.6.1
-        with:
-          cli: "1.12.5.1664"
+          token: ${{ github.token }}
+          lockfile: resolver/deps.lock
       - name: gofmt (auto-fix)
         run: |
           gofmt -w rig/
@@ -90,19 +98,24 @@ jobs:
         run: make test
 
   test-jvm8:
-    # The kernel floor gate: build the jar on a Temurin 8 and run its suite
-    # there, so any class that only loads on a newer JVM fails the build.
+    # The kernel floor gate: run the built uber through a real check
+    # request on the exact Temurin 8 the workspace pins (setup-rig
+    # installs it and puts it on PATH) — outside rig's own jvm
+    # machinery, so any class that only loads on a newer JVM fails here.
+    # The suite itself runs on that same floor JVM in the test job, via
+    # rig test.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          distribution: temurin
-          java-version: "8"
-      - uses: DeLaGuardo/setup-clojure@4c7a6f613e5089821bb3bb2a33a3ee115578580d # 13.6.1
+          go-version: "1.27.x"
+      - uses: brutasse/setup-rig@v1
         with:
-          cli: "1.12.5.1664"
-      - name: Build kernel on Java 8
+          token: ${{ github.token }}
+          lockfile: resolver/deps.lock
+          java-on-path: "true"
+      - name: Build kernel
         run: make kernel
       - name: Kernel floor — the jar loads and runs on Java 8
         run: |
@@ -112,8 +125,6 @@ jobs:
             | java -jar resolver/target/rig-resolver-v0.1.0.jar --request -)
           echo "$out"
           echo "$out" | grep -q '"ok"'
-      - name: Kernel test suite on Java 8
-        run: cd resolver && CLOJURE_CLI_ALLOW_HTTP_REPO=1 clojure -X:test
 
   native-e2e:
     # Builds the testdata/native fixture into a GraalVM native binary and
@@ -127,13 +138,12 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: "1.27.x"
-      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+      - uses: brutasse/setup-rig@v1
         with:
-          distribution: temurin
-          java-version: "21"
-      - uses: DeLaGuardo/setup-clojure@4c7a6f613e5089821bb3bb2a33a3ee115578580d # 13.6.1
-        with:
-          cli: "1.12.5.1664"
+          token: ${{ github.token }}
+          lockfile: resolver/deps.lock
+      # (no enable-graalvm: the root lock pins no GraalVM — the fixture's
+      # own lock does, and the install step below fetches that major)
 
       - name: Build
         run: make dev
@@ -162,13 +172,10 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: "1.27.x"
-      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+      - uses: brutasse/setup-rig@v1
         with:
-          distribution: temurin
-          java-version: "21"
-      - uses: DeLaGuardo/setup-clojure@4c7a6f613e5089821bb3bb2a33a3ee115578580d # 13.6.1
-        with:
-          cli: "1.12.5.1664"
+          token: ${{ github.token }}
+          lockfile: resolver/deps.lock
 
       - name: Package release
         run: |
@@ -221,7 +228,7 @@ jobs:
         run: |
           v="${{ github.ref_name }}"
           jarsha=$(sha256sum "resolver/target/rig-resolver-$v.jar" | cut -d' ' -f1)
-          runnersha=$(sha256sum "resolver/target/rig-runner-$v.jar" | cut -d' ' -f1)
+          runnersha=$(sha256sum "resolver/runner/target/rig-runner-$v.jar" | cut -d' ' -f1)
           (cd rig/dist/release && sha256sum -c SHA256SUMS)
           gh release create "$v" \
             --title "$v" \
