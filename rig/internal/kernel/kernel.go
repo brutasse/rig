@@ -53,12 +53,12 @@ type Pin struct {
 // (trusted, not hash-checked).
 var Current = Pin{
 	Lib:       "io.github.brutasse/rig-resolver",
-	Version:   "v0.3.0",
-	GitSHA:    "f5eba1e448a746e1576933a534c4b184a005a080",
-	URL:       "https://github.com/brutasse/rig/releases/download/v0.3.0/rig-resolver-v0.3.0.jar",
-	JARSHA:    "ed3575773d9138707f4125df385db6f558fed1fc818952a52feaf22b13d16307",
-	RunnerURL: "https://github.com/brutasse/rig/releases/download/v0.3.0/rig-runner-v0.3.0.jar",
-	RunnerSHA: "084bd3074f15d1fe10199daf2b504ded22d61f49225f680add6ac5c7267b61dc",
+	Version:   "v0.3.1",
+	GitSHA:    "4fa9c46c6c8801d791fed0bae303fd97cdbcbc5e",
+	URL:       "https://github.com/brutasse/rig/releases/download/v0.3.1/rig-resolver-v0.3.1.jar",
+	JARSHA:    "ea03b818c284abc116e9ff9f63b3c39895546e475e366c392ff572ca640706ce",
+	RunnerURL: "https://github.com/brutasse/rig/releases/download/v0.3.1/rig-runner-v0.3.1.jar",
+	RunnerSHA: "891a89e027cc3ef371ecbca782ccef16963ba29350d7643da0522ac2db8544bf",
 }
 
 type Request struct {
