@@ -124,6 +124,7 @@ func (e *hotEnv) buildOne(ctx context.Context, m string, uber, native bool) (str
 		"java-src-dirs": absJoin(dir, mod.Build.JavaSrcDirs),
 		"class-dir":     filepath.Join(dir, mod.Build.ClassDir),
 		"jar?":          buildJar,
+		"native?":       buildNative,
 		"jar-file":      filepath.Join(dir, "target", jarFileName(mod)),
 		"uber?":         buildUber,
 	}
@@ -293,6 +294,15 @@ func (e *hotEnv) buildNative(ctx context.Context, m string, mod lockfile.Module,
 		"--no-fallback",
 		"--class-path", strings.Join(append(cp, shimDir), string(filepath.ListSeparator)),
 		"--initialize-at-build-time=" + strings.Join(init, ","),
+		// The image has no classpath to read resources from at run time:
+		// carry the build's maven coordinate entries in, so a native binary
+		// self-reports its version (the pom.properties idiom) exactly like
+		// its jar does. The -H: spelling: GraalVM for JDK 21 has no
+		// --include-resources, and -H: is accepted across every generation
+		// rig materializes — IncludeResources is experimental there, hence
+		// the unlock.
+		"-H:+UnlockExperimentalVMOptions",
+		"-H:IncludeResources=META-INF/maven/.*",
 		"-o", out,
 		"rig.NativeMain",
 	}

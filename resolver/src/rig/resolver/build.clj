@@ -12,7 +12,10 @@
             [clojure.tools.build.tasks.process :as process]
             [clojure.tools.build.util.file :as file]
             [rig.resolver.aot :as aot]
-            [rig.resolver.floor :as floor])
+            [rig.resolver.floor :as floor]
+            [rig.resolver.manifest :as manifest]
+            [rig.resolver.pom :as pom]
+            [rig.resolver.resolve :as resolve])
   (:import (java.nio.file Files)
            (java.nio.file StandardCopyOption)
            (java.nio.file.attribute FileAttribute)
@@ -45,6 +48,22 @@
       (do (io/make-parents f)
           (spit f (json/encode launch)))
       (when (.exists f) (io/delete-file f)))))
+
+(defn- write-pom-descriptors
+  "Writes the module's maven coordinate entries (see rig.resolver.pom) into
+  the class-dir — the same mechanism as the launch descriptor: the jar and
+  the uber pick the files up, and the native image carries them because the
+  class-dir is on the image classpath (an image reads resources from what it
+  is built from, never from the built jar). The clean-class-dir wipe before
+  every build makes this staleness-free: with coordinates removed, the old
+  descriptors are already gone, and payload resources under META-INF/maven
+  are only shadowed at the module's own two canonical paths — where what the
+  module declares is what ships."
+  [class-dir coords]
+  (doseq [[path content] coords]
+    (let [f (io/file class-dir path)]
+      (io/make-parents f)
+      (spit f content))))
 
 (defn- under-ensure?
   "True when path is one of the prep :ensure paths or lives under one.
@@ -333,7 +352,7 @@
                       "patterns are FULL matches against entry names "
                       "(re-matches): use \"dir/.*\", not \"^dir/\""))))))
 
-(defn- build-module [cfg]
+(defn- build-module [cfg coords]
   (let [ts (pinned-time-ms (get cfg :timestamp-string))
         basis (basis (get cfg :classpath))
         class-dir (get cfg :class-dir)
@@ -354,6 +373,12 @@
     ;; jar/uber. compile-clj only compiles .clj; it never copies.
     (when (seq copy-dirs)
       (b/copy-dir {:src-dirs copy-dirs :target-dir class-dir}))
+    ;; Before the compile, not just before the jar: an AOT'd (def v (io/resource
+    ;; ...)) bakes what the resource holds at compile time, so a version
+    ;; self-report reading pom.properties must already find it when the
+    ;; namespace loads under the AOT fork — and the same class-dir is on the
+    ;; image classpath, so the native build sees it too.
+    (write-pom-descriptors class-dir coords)
     ;; javac before the AOT compile: the module's own Java classes must
     ;; already sit in the class-dir (second on the compile classpath,
     ;; after the working class dir) so that Clojure code referencing
@@ -396,10 +421,34 @@
           (floor/assert-floor f floor)))
       result)))
 
+(defn- embedded-coords
+  "The module's maven coordinate entries (rig.resolver.pom/embedded) to
+  stamp into its build, or nil: the same reads publish makes — :rig/lib and
+  the version (:rig/version, a version file, :rig/version-fn) — with direct
+  mvn deps pinned from the request's lock. Requested for any output that
+  ships the module's own code — jar, uber or native image: the native
+  build's clean wipe makes the descriptors its own to write, not residue of
+  an earlier jar build. Lenient by design: no dir, no readable manifest, no
+  lib or no version means no coordinates, and the build is not where a
+  missing :rig/lib is an error — publish says so when publishing."
+  [request cfg]
+  (when-let [mdir (get cfg :dir)]
+    (when-let [data (try (:data (manifest/read-manifest mdir))
+                         (catch Exception _ nil))]
+      (let [parts (some-> (manifest/lib data) str (str/split #"/" 2))]
+        (when (second parts)
+          (when-let [version (manifest/read-version data mdir
+                                                    (or (get request :workspace) mdir))]
+            (pom/embedded (first parts) (second parts) version
+                          (pom/pom-deps data
+                                        (pom/pins-of (resolve/lock-of request))))))))))
+
 (defn build
   "Errors propagate: as a kernel op, rig.resolver/main maps them to exit 1."
   [request]
   (let [builds (get-in request [:args :builds])]
     {:results (vec
                (for [[module cfg] builds]
-                 (assoc (build-module cfg) :module module)))}))
+                 (let [coords (when (or (get cfg :jar?) (get cfg :uber?) (get cfg :native?))
+                                (embedded-coords request cfg))]
+                   (assoc (build-module cfg coords) :module module))))}))

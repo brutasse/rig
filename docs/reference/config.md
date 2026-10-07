@@ -30,7 +30,7 @@ Set in the `deps.edn` of each module. All keys are optional unless noted.
 
 | Key | Default | Meaning |
 |---|---|---|
-| `:rig/lib` | — (required to `install`/`publish`) | The module's Maven coordinate, e.g. `com.example/my-lib`. |
+| `:rig/lib` | — (required to `install`/`publish`) | The module's Maven coordinate, e.g. `com.example/my-lib`. When the module also has a version, every build stamps both into its artifacts — `META-INF/maven/<group>/<artifact>/pom.xml` and `pom.properties`, with the deployed POM's coordinates and pinned deps — the idiom jar scanners and self-versioning code read; native images carry them too. |
 | `:rig/version` | from the version file | An explicit version string; overrides the version file. |
 | `:rig/version-file` | `"VERSION"` | Path to the version file (module dir, then workspace root) used when the module's version is recorded in the lock. Commonly `"../../VERSION"` in submodules of a shared-version project. |
 | `:rig/version-fn` | — | Dynamic version, keyword only (the kernel jar cannot load user code): `:git-count-revs` — the template's `GENERATED_VERSION` marker replaced with the commit count since the repo root; or `:epoch` — the current unix time in seconds. Used when neither `:rig/version` nor a version file is present. The version moves with the repo, so the lock records the snapshot taken at lock time. |
@@ -353,7 +353,10 @@ binary (GraalVM):
 - **Arguments.** Rig passes the fixed arguments `--no-fallback`,
   `--class-path <class dir>:<locked classpath>`,
   `--initialize-at-build-time=<namespace packages>`, and
-  `-o <native-file>`; Rig appends `:rig/native-opts` after them. A
+  `-H:+UnlockExperimentalVMOptions -H:IncludeResources=META-INF/maven/.*`
+  (an image has no classpath: this carries the maven coordinate entries
+  of the module into it), and `-o <native-file>`; Rig appends
+  `:rig/native-opts` after them. A
   repeated `--initialize-at-build-time` in the opts adds to the list of
   Rig; `--fallback` conflicts with the `--no-fallback` of Rig.
 - **Prerequisites.** A full JDK (Rig compiles the shim with `javac`), a
