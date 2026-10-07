@@ -53,7 +53,7 @@ Set in the `deps.edn` of each module. All keys are optional unless noted.
 | `:deps/prep-lib` | — | The standard tools.deps prep-library key: a custom function that prepares the module (staleness-checked) before `rig build`, `rig test`, `rig run` or `rig repl` — e.g. compiling generated Java with an in-JVM Maven. Shape: `{:ensure "target/classes" :alias :prep :fn build/compile-java}`. See [prep functions](#prep-functions-depsprep-lib). |
 | `:jvm-opts` | `[]` | The standard tools.deps key: JVM flags for **dev execution** — `rig run`, `rig repl`, `rig exec`, `rig test` — and the module's prep function. It does not apply to `rig build`, `rig check` or `rig launch` (see [JVM flags](#jvm-flags)). |
 | `:rig/launch-opts` | `[]` | JVM flags for **`rig launch`** (the production entrypoint); baked into the artifact's launch descriptor at build time (see [JVM flags](#jvm-flags)). |
-| `:rig/ns-compile` | — | Extra namespaces to AOT-compile alongside the module's own sources, e.g. `[:entry.main]`. |
+| `:rig/ns-compile` | — | Extra namespaces to AOT-compile alongside the module's own sources, e.g. `[:entry.main]`. They compile even when a preload already loaded them. |
 
 ## Test alias convention
 

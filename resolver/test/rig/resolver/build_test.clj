@@ -120,24 +120,24 @@
       (let [jar-cfg (cfg ws src-root res-root false)
             jar-result (build/build {:args {:builds {"." jar-cfg}}})
             jar-file (str ws "/target/fixture.jar")]
-          (is (= jar-file (get-in jar-result [:results 0 :jar])))
-         (is (.exists (io/file jar-file)))
-         (is (contains? (zip-names jar-file) "msg.txt"))
-         (let [p (run-cmd (java) "-cp" (str jar-file ":" (System/getProperty "java.class.path"))
-                          "clojure.main" "-m" "example.core" "world")]
-           (is (zero? (:exit p)) (str "jar run failed: " (:out p) (:err p)))
-           (is (re-find #"hello world" (:out p)))))
+        (is (= jar-file (get-in jar-result [:results 0 :jar])))
+        (is (.exists (io/file jar-file)))
+        (is (contains? (zip-names jar-file) "msg.txt"))
+        (let [p (run-cmd (java) "-cp" (str jar-file ":" (System/getProperty "java.class.path"))
+                         "clojure.main" "-m" "example.core" "world")]
+          (is (zero? (:exit p)) (str "jar run failed: " (:out p) (:err p)))
+          (is (re-find #"hello world" (:out p)))))
       (let [uber-cfg (cfg ws src-root res-root true)
             uber-result (build/build {:args {:builds {"." uber-cfg}}})
             uber-file (str ws "/target/fixture-uber.jar")]
-         (is (= uber-file (get-in uber-result [:results 0 :uber])))
-         (is (.exists (io/file uber-file)))
-         (is (contains? (zip-names uber-file) "msg.txt"))
-         (let [p (run-cmd (java) "-jar" uber-file "there")]
-           (is (zero? (:exit p)) (str "uber run failed: " (:out p) (:err p)))
-           (is (re-find #"hello there" (:out p)))))
-         (finally
-           (delete-tree ws-dir)))))
+        (is (= uber-file (get-in uber-result [:results 0 :uber])))
+        (is (.exists (io/file uber-file)))
+        (is (contains? (zip-names uber-file) "msg.txt"))
+        (let [p (run-cmd (java) "-jar" uber-file "there")]
+          (is (zero? (:exit p)) (str "uber run failed: " (:out p) (:err p)))
+          (is (re-find #"hello there" (:out p)))))
+      (finally
+        (delete-tree ws-dir)))))
 
 (deftest uber-exclude-patterns-that-match-nothing-warn
   ;; tools.build full-matches :exclude patterns (re-matches), so a prefix
@@ -226,7 +226,7 @@
           (is (not (contains? names "example/other.cljc")) names))
         (build/build {:args {:builds {"."
                                       (assoc (cfg ws src-root res-root true)
-                                            :prep-ensure ensure)}}})
+                                             :prep-ensure ensure)}}})
         (let [names (zip-names uber-file)]
           (is (contains? names "example/core__init.class") names)
           (is (contains? names "prepped/prepped.clj") names)
@@ -355,9 +355,9 @@
                             #"(?s)STALE AOT.*dep/stale\.clj"
                             (build/build
                              {:args {:builds {"."
-                                               (-> (cfg ws src-root res-root true)
-                                                   (update :classpath
-                                                           conj {:id dep-jar
+                                              (-> (cfg ws src-root res-root true)
+                                                  (update :classpath
+                                                          conj {:id dep-jar
                                                                 :paths [dep-jar]}))}}}))
           "the build must fail before compiling")
       (finally
@@ -384,8 +384,8 @@
     (try
       (build/build
        {:args {:builds {"."
-                         (assoc (cfg ws src-root res-root false)
-                                :timestamp-string "2026-01-01T00:00:00Z")}}})
+                        (assoc (cfg ws src-root res-root false)
+                               :timestamp-string "2026-01-01T00:00:00Z")}}})
       (let [entries (zip-entries jar-file)
             names (map first entries)]
         (is (= names (sort names)) (str "entries not name-sorted: " names))
@@ -443,15 +443,15 @@
                             #"bad :rig/timestamp-string"
                             (build/build
                              {:args {:builds {"."
-                                               (assoc (cfg ws src-root res-root false)
-                                                      :timestamp-string "not-a-date")}}}))
+                                              (assoc (cfg ws src-root res-root false)
+                                                     :timestamp-string "not-a-date")}}}))
           "an unparseable pin must be refused")
       (is (thrown-with-msg? Exception
                             #"before 1980-01-01"
                             (build/build
                              {:args {:builds {"."
-                                               (assoc (cfg ws src-root res-root false)
-                                                      :timestamp-string "1979-12-31T23:59:59Z")}}}))
+                                              (assoc (cfg ws src-root res-root false)
+                                                     :timestamp-string "1979-12-31T23:59:59Z")}}}))
           "a pre-1980 pin must be refused")
       (finally
         (delete-tree ws-dir)))))
@@ -538,6 +538,81 @@
       (finally
         (delete-tree ws-dir)))))
 
+(deftest ns-compile-compiles-a-required-source-only-namespace
+  "A required namespace is preloaded by construction, and the preload never
+  compiles: a declared :rig/ns-compile entry that the module requires must
+  still be compiled (its top level re-run — what an explicit compile means)."
+  (let [ws-dir (temp-dir)
+        ws (str ws-dir)
+        src-root (io/file ws-dir "src")
+        dep-root (io/file ws-dir "dep-src")
+        src-file (io/file src-root "example" "core.clj")
+        dep-file (io/file dep-root "dep_only" "core.clj")]
+    (io/make-parents src-file)
+    (spit src-file
+          "(ns example.core\n  (:require [dep-only.core :as d]))\n(defn call [x] (d/ping x))\n")
+    (io/make-parents dep-file)
+    (spit dep-file
+          "(ns dep-only.core)\n(defprotocol Ping (ping [_]))\n(extend-protocol Ping\n  Long (ping [x] (inc x)))\n")
+    (try
+      (let [c (-> (cfg ws src-root src-root true)
+                  (update :classpath #(cons {:id "paths:dep" :paths [(str dep-root)]} %))
+                  (assoc :ns-compile ["dep-only.core"]))
+            uber-file (str ws "/target/fixture-uber.jar")]
+        (build/build {:args {:builds {"." c}}})
+        (is (contains? (zip-names uber-file) "dep_only/core__init.class")
+            "the required, declared entry point must reach the uber as classes")
+        ;; Link proof: run with only the uber — the dep source root is not
+        ;; on the classpath, so a source-only payload could not link the
+        ;; protocol reference in example.core/call even if RT.load found
+        ;; the .clj (it must not: finalize-jar pairs it with the __init).
+        (let [p (run-cmd (java) "-cp" uber-file "clojure.main"
+                         "-e" "(require 'example.core) (print (example.core/call 21))")]
+          (is (zero? (:exit p)) (str (:out p) (:err p)))
+          (is (= "22" (:out p)))))
+      (finally
+        (delete-tree ws-dir)))))
+
+(deftest uber-preloads-compile-source-only-deps-without-a-declaration
+  "No declaration needed: an uber build points the preload *compile-path*
+  at the working class dir, so Clojure's RT.load compiles exactly those
+  dependency namespaces it cannot find a class for (source-only jars and
+  roots — org.clojure/tools.namespace, rewrite-clj) into the uber. Their
+  absence makes the module's AOT protocol links die at load; the plain
+  lib jar of the same build must still carry no dependency classes."
+  (let [ws-dir (temp-dir)
+        ws (str ws-dir)
+        src-root (io/file ws-dir "src")
+        dep-root (io/file ws-dir "dep-src")
+        src-file (io/file src-root "example" "core.clj")
+        dep-file (io/file dep-root "dep_only" "core.clj")]
+    (io/make-parents src-file)
+    (spit src-file
+          "(ns example.core\n  (:require [dep-only.core :as d]))\n(defn call [x] (d/ping x))\n")
+    (io/make-parents dep-file)
+    (spit dep-file
+          "(ns dep-only.core)\n(defprotocol Ping (ping [_]))\n(extend-protocol Ping\n  Long (ping [x] (inc x)))\n")
+    (try
+      (doseq [uber? [false true]]
+        (let [c (-> (cfg ws src-root src-root uber?)
+                    (update :classpath #(cons {:id "paths:dep" :paths [(str dep-root)]} %)))]
+          (build/build {:args {:builds {"." c}}})
+          (let [names (zip-names (if uber? (str ws "/target/fixture-uber.jar")
+                                     (str ws "/target/fixture.jar")))]
+            (if uber?
+              (is (contains? names "dep_only/core__init.class")
+                  "the uber carries the source-only dep as classes")
+              (is (not (contains? names "dep_only/core__init.class"))
+                  "the lib jar carries no dep classes")))))
+      ;; Link proof: the uber alone — the dep source root is not on the
+      ;; classpath; example.core/call hard-references the Ping interface.
+      (let [p (run-cmd (java) "-cp" (str ws "/target/fixture-uber.jar") "clojure.main"
+                       "-e" "(require 'example.core) (print (example.core/call 21))")]
+        (is (zero? (:exit p)) (str (:out p) (:err p)))
+        (is (= "22" (:out p))))
+      (finally
+        (delete-tree ws-dir)))))
+
 (deftest build-bakes-launch-descriptor
   "A :launch config lands in the jar and the uber as META-INF/rig/launch.json;
   a build without one leaves no entry (a rebuild must not leave a stale one)."
@@ -556,7 +631,7 @@
       (build/build {:args {:builds {"." (assoc (cfg ws src-root res-root false) :launch launch)}}})
       (is (= launch (launch-entry jar-file)))
       (build/build {:args {:builds {"." (assoc (cfg ws src-root res-root true)
-                                              :launch (assoc launch "uber" true))}}})
+                                               :launch (assoc launch "uber" true))}}})
       (is (= (assoc launch "uber" true) (launch-entry uber-file)))
       (build/build {:args {:builds {"." (cfg ws src-root res-root false)}}})
       (is (nil? (launch-entry jar-file)))
@@ -586,10 +661,10 @@
                 jar-file (str ws "/target/fixture.jar")]
             (is (= jar-file (get-in result [:results 0 :jar])))
             (is (contains? (zip-names jar-file) "example/Greeter.class"))
-          (is (thrown? Exception
-                       (build/build {:args {:builds {"."
-                                                     (assoc cfg :javac-opts ["--definitely-not-a-javac-flag"])}}}))
-               "bogus javac opt must reach javac and fail the build"))
+            (is (thrown? Exception
+                         (build/build {:args {:builds {"."
+                                                       (assoc cfg :javac-opts ["--definitely-not-a-javac-flag"])}}}))
+                "bogus javac opt must reach javac and fail the build"))
           (finally
             (delete-tree ws-dir)))))))
 

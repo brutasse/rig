@@ -292,6 +292,60 @@ func TestResolve(t *testing.T) {
 	}
 }
 
+func TestReleaseVersion(t *testing.T) {
+	for name, want := range map[string]string{
+		"jdk-21.0.10+7":  "21.0.10+7",
+		"jdk8u492-b09":   "8.0.492+09", // the JDK 8 series' pre-9 naming
+		"jdk8u504-b01":   "8.0.504+01",
+		"openjdk-11.0.1": "",
+	} {
+		if got := releaseVersion(name); got != want {
+			t.Errorf("releaseVersion(%q) = %q, want %q", name, got, want)
+		}
+	}
+}
+
+// The JDK 8 series is served as "jdk8uNNN-bNN": resolving feature 8 must
+// satisfy it, not only the jdk-<version> naming of 9+.
+func TestResolveLegacyJDK8Naming(t *testing.T) {
+	osN, archN, ok := platform()
+	if !ok {
+		t.Skipf("no platform mapping for %s/%s", osN, archN)
+	}
+	rels := []apiRelease{{
+		ReleaseName: "jdk8u492-b09",
+		Binaries: []apiBinary{{
+			OS:           osN,
+			Architecture: archN,
+			ImageType:    "jdk",
+			HeapSize:     "normal",
+			Package: struct {
+				Name     string `json:"name"`
+				Link     string `json:"link"`
+				Checksum string `json:"checksum"`
+				Size     int64  `json:"size"`
+			}{Checksum: "ab", Size: 10},
+		}},
+	}}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(rels)
+	}))
+	t.Cleanup(srv.Close)
+	api := NewAPI(srv.URL)
+
+	a, err := api.Resolve(context.Background(), "8")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.Version != "8.0.492+09" {
+		t.Errorf("version = %q, want 8.0.492+09", a.Version)
+	}
+	if !Satisfies("8", a.Version) {
+		t.Errorf("resolved %q should satisfy \"8\"", a.Version)
+	}
+}
+
 func TestResolveUnknownFeature(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
