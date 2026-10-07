@@ -85,6 +85,7 @@ func newJVMCmd(o *opts) *cobra.Command {
 	c.AddCommand(
 		newJVMInstallCmd(o),
 		newJVMListCmd(o),
+		newJVMPathCmd(o),
 		newJVMUninstallCmd(o),
 		newJVMUpdateCmd(o),
 	)
@@ -192,6 +193,40 @@ func runJVMList(o *opts) error {
 func fileExists(p string) bool {
 	st, err := os.Stat(p)
 	return err == nil && !st.IsDir()
+}
+
+func newJVMPathCmd(o *opts) *cobra.Command {
+	return &cobra.Command{
+		Use:   "path <major>",
+		Short: "Print the JAVA_HOME of an installed JDK",
+		Long: `Prints the home directory (the JAVA_HOME Rig exports for launched processes)
+of the newest installed Temurin JDK satisfying <major> — a bare path on
+stdout, for scripts and CI. The store is read only: nothing is installed or
+downloaded, and the command needs no network. When no installed JDK
+satisfies <major>, this exits 2 with the install hint.
+
+<major> is a major (feature) version: "21".`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runJVMPath(o, args[0])
+		},
+	}
+}
+
+func runJVMPath(o *opts, requested string) error {
+	if !jdk.ValidRequested(requested) {
+		return exitf(2, "bad version %q (want a major version, e.g. \"21\")", requested)
+	}
+	store, err := o.store()
+	if err != nil {
+		return err
+	}
+	inst, err := jdk.NewStoreAt(store.Root).Best(requested)
+	if err != nil {
+		return exitf(2, "temurin %s not installed (run 'rig jvm install %s')", requested, requested)
+	}
+	fmt.Println(inst.Home)
+	return nil
 }
 
 func newJVMUninstallCmd(o *opts) *cobra.Command {

@@ -19,6 +19,7 @@ func newGraalVMCmd(o *opts) *cobra.Command {
 	c.AddCommand(
 		newGraalVMInstallCmd(o),
 		newGraalVMListCmd(o),
+		newGraalVMPathCmd(o),
 		newGraalVMUninstallCmd(o),
 		newGraalVMUpdateCmd(o),
 	)
@@ -104,6 +105,40 @@ func runGraalVMList(o *opts) error {
 	for _, i := range insts {
 		fmt.Printf("  %s %-14s %s/%s  %s\n", i.Vendor, i.Version, i.OS, i.Arch, i.Home)
 	}
+	return nil
+}
+
+func newGraalVMPathCmd(o *opts) *cobra.Command {
+	return &cobra.Command{
+		Use:   "path <major>",
+		Short: "Print the GRAALVM_HOME of an installed GraalVM",
+		Long: `Prints the home directory (the GRAALVM_HOME 'rig build --native' uses) of the
+newest installed GraalVM community JDK satisfying <major> — a bare path on
+stdout, for scripts and CI. The store is read only: nothing is installed or
+downloaded, and the command needs no network. When no installed GraalVM
+satisfies <major>, this exits 2 with the install hint.
+
+<major> is a major (feature) version: "21".`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runGraalVMPath(o, args[0])
+		},
+	}
+}
+
+func runGraalVMPath(o *opts, requested string) error {
+	if !jdk.ValidRequested(requested) {
+		return exitf(2, "bad version %q (want a major version, e.g. \"21\")", requested)
+	}
+	store, err := o.store()
+	if err != nil {
+		return err
+	}
+	inst, err := graal.NewStoreAt(store.Root).Best(requested)
+	if err != nil {
+		return exitf(2, "graalvm %s not installed (run 'rig graalvm install %s')", requested, requested)
+	}
+	fmt.Println(inst.Home)
 	return nil
 }
 

@@ -194,6 +194,46 @@ func TestJVMInstallOffline(t *testing.T) {
 	}
 }
 
+// TestJVMPath covers the script-facing lookup: the bare JAVA_HOME of the
+// newest install satisfying the major on stdout; exit 2 with the install
+// hint when nothing matches.
+func TestJVMPath(t *testing.T) {
+	cacheDir := t.TempDir()
+	fakeJDK(t, cacheDir, "21.0.10+7")
+	code, out := runCLI(t, "jvm", "path", "21", "--cache-dir", cacheDir)
+	if code != 0 {
+		t.Fatalf("path exit = %d; out: %s", code, out)
+	}
+	if want := filepath.Join(cacheDir, "jdks", "temurin-21.0.10+7", "jdk"); strings.TrimSpace(out) != want {
+		t.Errorf("path out = %q, want %q", out, want)
+	}
+
+	// The newest install is the one reported.
+	fakeJDK(t, cacheDir, "21.0.11+7")
+	code, out = runCLI(t, "jvm", "path", "21", "--cache-dir", cacheDir)
+	if code != 0 {
+		t.Fatalf("path exit = %d; out: %s", code, out)
+	}
+	if want := filepath.Join(cacheDir, "jdks", "temurin-21.0.11+7", "jdk"); strings.TrimSpace(out) != want {
+		t.Errorf("path out = %q, want %q", out, want)
+	}
+
+	// Nothing installed for the major: exit 2 with the install hint.
+	code, out = runCLI(t, "jvm", "path", "17", "--cache-dir", cacheDir)
+	if code != 2 {
+		t.Errorf("path exit = %d, want 2; out: %s", code, out)
+	}
+	if !strings.Contains(out, "rig jvm install 17") {
+		t.Errorf("out = %q", out)
+	}
+
+	// Patch versions are not requests.
+	code, out = runCLI(t, "jvm", "path", "21.0.10", "--cache-dir", cacheDir)
+	if code != 2 || !strings.Contains(out, "bad version") {
+		t.Errorf("path exit = %d, want 2; out: %s", code, out)
+	}
+}
+
 func TestJVMUpdate(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
