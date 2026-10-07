@@ -108,11 +108,19 @@ Stage 2 of `rig check` now AOT-compiles the namespaces of each module in
 dependency order, and it preloads the non-project requires first.
 `rig build` compiles AOT the same way. Rig does not compile a namespace
 again when a preload already loaded it, so its top level never runs
-twice. Code that references a namespace it does not require — a bare
-ns/var, or a class only produced by AOT-compiling a sibling namespace —
-previously failed with a `ClassNotFoundException`. Both paths now
-compile it. New key `:rig/ns-compile` lists extra namespaces to
-AOT-compile alongside the sources of the module itself.
+twice — except the namespaces you list in `:rig/ns-compile`, which
+compile unconditionally: asking for a compile means it. Code that
+references a namespace it does not require — a bare ns/var, or a class
+only produced by AOT-compiling a sibling namespace — previously failed
+with a `ClassNotFoundException`. Both paths now compile it. New key
+`:rig/ns-compile` lists extra namespaces to AOT-compile alongside the
+sources of the module itself. An uber build additionally loads its
+preloads through the working class dir, so dependencies that ship only
+sources and no classes (`org.clojure/tools.namespace`, `rewrite-clj`)
+land in the uber as classes: without them the module's AOT bytecode
+references interfaces that exist nowhere on the artifact's classpath,
+and the uber dies with a `ClassNotFoundException` when that code first
+loads.
 
 #### New configuration
 

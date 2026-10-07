@@ -198,6 +198,24 @@ type apiRelease struct {
 	Binaries    []apiBinary `json:"binaries"`
 }
 
+// legacyName matches the JDK 8 series' pre-9 release naming on the Adoptium
+// API ("jdk8u492-b09"): every 8 release ships this form, and none of 9+.
+var legacyName = regexp.MustCompile(`^jdk(\d+)u(\d+)-b(\d+)$`)
+
+// releaseVersion converts an Adoptium release_name into a version string:
+// "jdk-21.0.10+7" → "21.0.10+7"; the JDK 8 naming maps the old OpenJDK
+// scheme onto it (8u492-b09 → 8.0.492+09, what Adoptium's own version
+// endpoint reports as 8.0.492 build 9). "" when the name is in neither form.
+func releaseVersion(name string) string {
+	if v := strings.TrimPrefix(name, "jdk-"); v != name {
+		return v
+	}
+	if m := legacyName.FindStringSubmatch(name); m != nil {
+		return m[1] + ".0." + m[2] + "+" + m[3]
+	}
+	return ""
+}
+
 // Resolve returns the newest GA Temurin release satisfying requested that
 // ships a build for this platform.
 func (a *apiClient) Resolve(ctx context.Context, requested string) (Asset, error) {
@@ -214,8 +232,8 @@ func (a *apiClient) Resolve(ctx context.Context, requested string) (Asset, error
 		return Asset{}, err
 	}
 	for _, rel := range rels { // newest first
-		relVersion := strings.TrimPrefix(rel.ReleaseName, "jdk-")
-		if !Satisfies(requested, relVersion) {
+		relVersion := releaseVersion(rel.ReleaseName)
+		if relVersion == "" || !Satisfies(requested, relVersion) {
 			continue
 		}
 		for _, b := range rel.Binaries {

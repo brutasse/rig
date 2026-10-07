@@ -171,8 +171,8 @@
                               :else 0)]
                 (when (not (and (pos? ext)
                                 (contains? inits
-                                          (str (subs n 0 (- (count n) ext))
-                                               "__init.class"))))
+                                           (str (subs n 0 (- (count n) ext))
+                                                "__init.class"))))
                   (let [e2 (ZipEntry. n)]
                     (.setTime e2 (or ts (.getTime e)))
                     (.putNextEntry out e2)
@@ -181,7 +181,7 @@
         (Files/move (.toPath (io/file tmp))
                     (.toPath (io/file jar))
                     (into-array java.nio.file.CopyOption
-                               [StandardCopyOption/ATOMIC_MOVE])))
+                                [StandardCopyOption/ATOMIC_MOVE])))
       (finally
         (.close in)
         (when (.exists (io/file tmp)) (io/delete-file tmp))))
@@ -222,10 +222,10 @@
                                                (some? (get times init))
                                                (> (get times n)
                                                   (get times init)))]
-                                  n)]
+                                n)]
                     :when (seq bad)]
-                  (str p " ships " (str/join ", " bad)
-                       " strictly newer than its AOT class"))]
+                (str p " ships " (str/join ", " bad)
+                     " strictly newer than its AOT class"))]
     (when (seq stale)
       (throw (ex-info
               (str "STALE AOT — refusing to build. A dependency ships source\n"
@@ -236,20 +236,37 @@
               {:stale stale})))))
 
 (defn- script-text
-  "The two-phase compile script: the preloads run under AOT bindings whose
-   *compile-path* is a scratch dir — classes emitted by loading a
-   dependency are the dependency's own bytecode, already on the classpath
-   in its jar, and emitting them where the jar step packages would make
-   library jars ship other projects' classes. Each module namespace then
-   compiles into the class-dir staging dir — skipped when a preload
-   already loaded it, so its top level never runs twice. A module's
-   compile loads nothing the preloads did not already load, so only
-   pathological dynamic requires can emit to the staging dir."
-  [class-dir scratch-dir plan]
+  "The two-phase compile script: the preloads run under AOT bindings.
+   For a plain jar, their *compile-path* is a scratch dir — classes
+   emitted by loading a dependency are the dependency's own bytecode,
+   already on the classpath in its jar, and emitting them where the jar
+   step packages would make library jars ship other projects' classes.
+   For an UBER, the preload *compile-path* is the working class dir: a
+   source-only dependency (a jar shipping no classes, like
+   org.clojure/tools.namespace's or rewrite-clj's) is only LOADABLE —
+   never LINKABLE: the module's AOT bytecode hard-references the
+   dependency's protocol interfaces and classes, which exist as .class
+   files only once compiled, so an uber that merely bundles their source
+   dies with a ClassNotFoundException when that bytecode links. Pointing
+   the preload compile-path at the working class dir lets Clojure's own
+   RT.load decide — it compiles from source exactly when no class is on
+   the classpath — and the emitted classes ride into the uber with the
+   rest of the working class dir. (finalize-jar then drops the source
+   next to the compiled __init.class, so nothing loads twice.)
+
+   Each module namespace then compiles into the working class dir —
+   skipped when a preload already loaded it, so its top level never runs
+   twice. A module's compile loads nothing the preloads did not already
+   load, so only pathological dynamic requires can emit to the working
+   dir. The declared :rig/ns-compile entry points are the exception: they
+   compile unconditionally, even when the preload loaded them — a
+   required namespace is by construction preloaded, and running its top
+   level a second time is what an explicit compile request means."
+  [class-dir scratch-dir plan extras uber?]
   (str
    "(with-bindings\n"
    " {#'clojure.core/*compile-files* true\n"
-   "  #'clojure.core/*compile-path* " (pr-str scratch-dir) "}\n"
+   "  #'clojure.core/*compile-path* " (pr-str (if uber? class-dir scratch-dir)) "}\n"
    (when (seq (:preload plan))
      (str " (require "
           (str/join " " (map (fn [ns] (str "'" ns)) (:preload plan)))
@@ -259,9 +276,11 @@
    " {#'clojure.core/*compile-files* true\n"
    "  #'clojure.core/*compile-path* " (pr-str class-dir) "}\n"
    (str/join "\n" (map (fn [ns]
-                          (str " (when-not (find-ns '" ns ")\n"
-                               "   (compile '" ns "))"))
-                        (:compile plan)))
+                         (if (contains? extras ns)
+                           (str " (compile '" ns ")")
+                           (str " (when-not (find-ns '" ns ")\n"
+                                "   (compile '" ns "))")))
+                       (:compile plan)))
    "\n (System/exit 0)\n)"))
 
 (defn- java-exe
@@ -287,8 +306,10 @@
   preserved (script and command line included) for inspection. The
   fork runs on the kernel's own JVM (java-exe) and inherits the
   workspace's :rig/compile-jvm-opts as JVM flags — the flags must reach
-  the JVM that compiles, not just the kernel."
-  [basis class-dir artifact-dirs extra compile-jvm-opts]
+  the JVM that compiles, not just the kernel. Uber builds preload into
+  the working class dir (see script-text), so source-only dependency
+  namespaces reach the uber as classes."
+  [basis class-dir artifact-dirs extra compile-jvm-opts uber?]
   (let [plan (aot/plan artifact-dirs extra)]
     (when (seq (:compile plan))
       (let [working (.toFile (Files/createTempDirectory "rig-aot-"
@@ -297,7 +318,8 @@
             pdir (file/ensure-dir (io/file working "preload-classes"))
             script (io/file working "compile.clj")
             _ (io/make-parents class-dir)
-            _ (spit script (script-text (.getPath wdir) (.getPath pdir) plan))
+            _ (spit script (script-text (.getPath wdir) (.getPath pdir) plan
+                                        (into #{} (map str extra)) uber?))
             args (process/java-command {:java-cmd (java-exe)
                                         :cp [(.getPath wdir) (str class-dir)]
                                         :java-opts compile-jvm-opts
@@ -388,9 +410,10 @@
                 :javac-opts (get cfg :javac-opts)}))
     ;; Two-phase AOT compile: the module's non-project requires preload,
     ;; then its namespaces (plus the :ns-compile entry points) compile in
-    ;; dependency order.
+    ;; dependency order. An uber build preloads into the working class dir
+    ;; so source-only dependency namespaces arrive as classes (script-text).
     (aot-compile basis class-dir artifact-dirs extra
-                 (get cfg :compile-jvm-opts))
+                 (get cfg :compile-jvm-opts) (get cfg :uber?))
     ;; The copy dragged the module's Clojure sources into the class-dir;
     ;; now that the compile paired them with classes, drop them again
     ;; (see drop-sources).
