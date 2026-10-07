@@ -4,6 +4,8 @@ Changelog for Rig.
 
 ## Unreleased
 
+## v0.3.0 — 2026-10-07
+
 ### New
 
 #### Kernel checkpointing (CRaC)
@@ -25,6 +27,43 @@ Config that rides the JVM environment in cold runs
 restored runs and is authoritative there: a restored kernel never
 inherits the bootstrap run's tokens. See
 [Configuration — Kernel checkpointing](reference/config.md#kernel-checkpointing-crac).
+
+#### Maven coordinates in built artifacts
+
+A module with `:rig/lib` and a version now carries
+`META-INF/maven/<group>/<artifact>/pom.{xml,properties}` in everything
+it builds — jar, uberjar and native image. The pom is the deployed
+one: same coordinates, same lock-pinned dependencies, as
+`rig publish` deploys them. It is the convention every jar scanner
+attributes through, and the classic version-self-report
+(`io/resource` on `pom.properties`): an artifact built by Rig now
+reports about itself the coordinates it deploys under.
+
+#### `rig jvm path` and `rig graalvm path`
+
+`rig jvm path <major>` and `rig graalvm path <major>` print the
+`JAVA_HOME` / `GRAALVM_HOME` of the newest installed managed JDK or
+GraalVM satisfying the major — a bare path on stdout, for scripts and
+CI. The state dir is read only: the commands never install, never
+download, and need no network; when nothing matches they fail (exit 2)
+with the install hint. `setup-rig` uses them to expose the pinned
+JVM's homes as action outputs.
+
+### Fixed
+
+* **Ubers carried no classes their AOT bytecode linked against.**
+  Source-only dependencies (`org.clojure/tools.namespace`,
+  `rewrite-clj`) were loaded by the build's preloads without ever
+  emitting classes: the build went green while the uber died at first
+  use with a `ClassNotFoundException`. Uber preloads now run with the
+  compile path at the working class dir, so source-only
+  dependencies — and their transitive requires — ride into the uber
+  as classes, with no declaration. `:rig/ns-compile` entries now
+  compile unconditionally, even when a preload already loaded them:
+  asking for a compile means it.
+* **Temurin's legacy JDK 8 asset names** (`jdk8u492-b09`) did not
+  parse as a release version, so the managed-JDK resolver could not
+  match its own installed JDK 8. They now parse as `8.0.492+09`.
 
 ## v0.2.1 -- 2026-10-07
 
