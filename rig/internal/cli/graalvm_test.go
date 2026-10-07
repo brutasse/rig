@@ -190,6 +190,36 @@ func TestGraalVMInstallOffline(t *testing.T) {
 	}
 }
 
+// TestGraalVMPath covers the script-facing lookup: the bare GRAALVM_HOME of
+// the newest install satisfying the major on stdout; exit 2 with the
+// install hint when nothing matches.
+func TestGraalVMPath(t *testing.T) {
+	cacheDir := t.TempDir()
+	fakeGraalVM(t, cacheDir, "21.0.2")
+	code, out := runCLI(t, "graalvm", "path", "21", "--cache-dir", cacheDir)
+	if code != 0 {
+		t.Fatalf("path exit = %d; out: %s", code, out)
+	}
+	if want := filepath.Join(cacheDir, "graal", "graalvm-21.0.2", "graal"); strings.TrimSpace(out) != want {
+		t.Errorf("path out = %q, want %q", out, want)
+	}
+
+	// Nothing installed for the major: exit 2 with the install hint.
+	code, out = runCLI(t, "graalvm", "path", "17", "--cache-dir", cacheDir)
+	if code != 2 {
+		t.Errorf("path exit = %d, want 2; out: %s", code, out)
+	}
+	if !strings.Contains(out, "rig graalvm install 17") {
+		t.Errorf("out = %q", out)
+	}
+
+	// Patch versions are not requests.
+	code, out = runCLI(t, "graalvm", "path", "21.0.2", "--cache-dir", cacheDir)
+	if code != 2 || !strings.Contains(out, "bad version") {
+		t.Errorf("path exit = %d, want 2; out: %s", code, out)
+	}
+}
+
 func TestGraalVMUpdate(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)

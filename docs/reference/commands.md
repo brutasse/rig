@@ -31,10 +31,12 @@ This page lists every command, what it does, and its flags.
 | `migrate [--dry-run]` | cold | Convert a legacy (`:exoscale.*` / `:slipset.*`) or Leiningen (`project.clj`) workspace to `:rig/*` in place. |
 | `jvm install <major>` | — | Install the newest Temurin JDK for a major version into the Rig state dir. |
 | `jvm list` | — | Installed JDKs + the system `java`. |
+| `jvm path <major>` | — | Print the `JAVA_HOME` of an installed JDK (scripts/CI). |
 | `jvm uninstall <version>` | — | Remove an installed JDK. |
 | `jvm update` | — | Update the rig-managed JDK for the pinned major to the newest release. |
 | `graalvm install <major>` | — | Install the newest GraalVM community JDK for a major version into the Rig state dir. |
 | `graalvm list` | — | Installed GraalVMs. |
+| `graalvm path <major>` | — | Print the `GRAALVM_HOME` of an installed GraalVM (scripts/CI). |
 | `graalvm uninstall <version>` | — | Remove an installed GraalVM. |
 | `graalvm update` | — | Update the rig-managed GraalVM for the pinned major to the newest build. |
 | `crac install` | — | Install the rig-pinned Zulu CRaC JDK (kernel checkpointing). |
@@ -484,6 +486,18 @@ system:
   21.0.5  /usr/lib/jvm/java-21-openjdk/bin/java (JAVA_HOME)
 ```
 
+### `rig jvm path`
+
+```
+rig jvm path 21        # the JAVA_HOME of the installed 21.x
+```
+
+Prints the home directory of the newest installed managed JDK satisfying
+`<major>` — the `JAVA_HOME` value Rig exports for launched processes — as a
+bare path on stdout, for scripts and CI. The state dir is read only: the
+command never installs or downloads and needs no network. When no installed
+JDK satisfies `<major>`, it fails (exit 2) with the install hint.
+
 ### `rig jvm uninstall`
 
 ```
@@ -569,6 +583,18 @@ Installed managed GraalVMs:
 installed:
   graalvm 21.0.2  linux/x64  /home/…/.local/share/rig/graal/graalvm-21.0.2/graal
 ```
+
+### `rig graalvm path`
+
+```
+rig graalvm path 21        # the GRAALVM_HOME of the installed 21.x
+```
+
+Prints the home directory of the newest installed managed GraalVM
+satisfying `<major>` — the `GRAALVM_HOME` `rig build --native` uses — as a
+bare path on stdout, for scripts and CI. The state dir is read only: the
+command never installs or downloads and needs no network. When no installed
+GraalVM satisfies `<major>`, it fails (exit 2) with the install hint.
 
 ### `rig graalvm uninstall`
 
