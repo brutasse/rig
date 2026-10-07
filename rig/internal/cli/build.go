@@ -308,23 +308,27 @@ func (e *hotEnv) buildNative(ctx context.Context, m string, mod lockfile.Module,
 	return out, nil
 }
 
-// nativeInitPackages scans the image classpath for Clojure namespace init
-// classes (__init.class) and returns their packages, dot-separated and
-// sorted. The shim's static block loads namespaces at image build time, and
-// a class that initializes at build time must be marked for build-time
-// initialization; a package mark covers all of its subpackages, so the set
-// is the superset of packages that can hold a namespace loaded into the
-// image.
+// nativeInitPackages scans the image classpath for Clojure namespaces —
+// compiled (__init.class) or source (.clj, .cljc) — and returns their
+// packages, dot-separated and sorted. The shim's static block loads
+// namespaces at image build time, and loading one loads everything it
+// requires, so every namespace on the classpath can end up initialized at
+// build time; a class so initialized must be marked, and a package mark
+// covers the namespace class and every fn and eval closure under it.
+// Source entries are load-bearing: a jar that ships a namespace uncompiled
+// never yields an __init.class, yet the shim still loads it from source at
+// image build time, and the unmarked class fails the build with its objects
+// found in the image heap.
 func nativeInitPackages(cp []string) ([]string, error) {
 	pkgs := map[string]bool{}
 	initPkg := func(rel string) {
-		if !strings.HasSuffix(rel, "__init.class") {
+		if !isNamespaceEntry(rel) {
 			return
 		}
 		// The package is the entry's parent directory; an entry in the
 		// classpath root (single-segment namespace) has none.
 		if i := strings.LastIndex(rel, "/"); i >= 0 {
-			if pkg := strings.ReplaceAll(rel[:i], "/", "."); pkg != "" {
+			if pkg := strings.ReplaceAll(rel[:i], "/", "."); validPkg(pkg) {
 				pkgs[pkg] = true
 			}
 		}
@@ -368,6 +372,37 @@ func nativeInitPackages(cp []string) ([]string, error) {
 	sort.Strings(out)
 	return out, nil
 }
+
+// isNamespaceEntry reports whether a classpath entry is a Clojure namespace
+// file: its compiled marker, or its uncompiled source (.clj and .cljc; not
+// .cljs, which a JVM image never loads). META-INF holds resources, not
+// namespaces.
+func isNamespaceEntry(rel string) bool {
+	if strings.HasPrefix(rel, "META-INF/") {
+		return false
+	}
+	return strings.HasSuffix(rel, "__init.class") ||
+		strings.HasSuffix(rel, ".clj") ||
+		strings.HasSuffix(rel, ".cljc")
+}
+
+// validPkg rejects packages that could not come from a namespace, such as
+// data directories holding .clj files under names the JVM would reject
+// (dashes, leading digits): each mark is parsed as a class or package name,
+// so a stray one fails the native build.
+func validPkg(pkg string) bool {
+	if pkg == "" {
+		return false
+	}
+	for _, seg := range strings.Split(pkg, ".") {
+		if !pkgSeg.MatchString(seg) {
+			return false
+		}
+	}
+	return true
+}
+
+var pkgSeg = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 // nativeShim is the source of the entry point rig compiles for a Clojure
 // namespace main: the native image's main class, delegating to clojure.main

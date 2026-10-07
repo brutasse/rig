@@ -110,6 +110,14 @@ func TestNativeInitPackages(t *testing.T) {
 	write("clojure/core__init.class")
 	write("clojure/core/server__init.class")
 	write("core__init.class")
+	// Source-only namespaces mark their package too: the shim loads them
+	// at image build time even though they never become __init.class.
+	write("my_src/core.clj")
+	write("root_data.clj")
+	// Directories .clj files can live in without being namespaces must
+	// not produce marks: dashes and leading digits are not JVM names.
+	write("clj-kondo/exports/app/x.clj")
+	write("2024/notes.cljc")
 
 	// A classpath jar contributes its namespace packages too.
 	jar := filepath.Join(dir, "lib.jar")
@@ -118,7 +126,7 @@ func TestNativeInitPackages(t *testing.T) {
 		t.Fatal(err)
 	}
 	zw := zip.NewWriter(f)
-	for _, name := range []string{"hello_world/main__init.class", "java/util/Other.class"} {
+	for _, name := range []string{"hello_world/main__init.class", "java/util/Other.class", "taoensso/encore.cljc", "hello_world/main.clj", "META-INF/leiningen/proj/proj.clj"} {
 		w, err := zw.Create(name)
 		if err != nil {
 			t.Fatal(err)
@@ -138,7 +146,7 @@ func TestNativeInitPackages(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"app", "clojure", "clojure.core", "hello_world"}
+	want := []string{"app", "clojure", "clojure.core", "hello_world", "my_src", "taoensso"}
 	if len(got) != len(want) {
 		t.Fatalf("packages = %v, want %v", got, want)
 	}
