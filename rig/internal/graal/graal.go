@@ -283,7 +283,7 @@ func (s *Store) Lookup(version string) (*Inst, error) {
 	if err := json.Unmarshal(b, &m); err != nil || m.Version != version {
 		return nil, ErrNotInstalled
 	}
-	home := filepath.Join(s.Dir(version), "graal")
+	home := jdk.ResolveHome(filepath.Join(s.Dir(version), "graal"), binName("native-image"))
 	native := filepath.Join(home, "bin", binName("native-image"))
 	if st, err := os.Stat(native); err != nil || st.IsDir() {
 		return nil, fmt.Errorf("graal: %s: corrupt install (missing bin/native-image)", s.Dir(version))
