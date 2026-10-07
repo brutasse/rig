@@ -779,3 +779,52 @@
             "no floor in the config: no scan")
         (finally
           (delete-tree ws-dir))))))
+
+(deftest build-embeds-maven-coordinates
+  (let [ws-dir (temp-dir)
+        ws (str ws-dir)
+        src-root (io/file ws-dir "src")
+        src-file (io/file src-root "example" "core.clj")
+        res-root (io/file ws-dir "resources")
+        payload (io/file res-root "META-INF" "maven" "other" "lib" "pom.xml")
+        stale (io/file res-root "META-INF" "maven" "acme" "widget" "pom.xml")]
+    (io/make-parents src-file)
+    (spit src-file "(ns example.core)\n")
+    (io/make-parents payload)
+    (spit payload "dependency-payload")
+    (io/make-parents stale)
+    (spit stale "stale-shipped-pom")
+    (spit (io/file ws-dir "deps.edn")
+          "{:deps {org/dep {:mvn/version \"1.x\"}} :rig/lib acme/widget :rig/version \"9.9.9\"}")
+    (let [request (fn [cfg]
+                    {:workspace ws
+                     :lock {:artifacts [{:kind "mvn" :group "org" :name "dep" :version "2.0.0"}]}
+                     :args {:builds {"." cfg}}})]
+      (try
+        (doseq [uber? [false true]]
+          (let [jar-file (str ws "/target/" (if uber? "fixture-uber.jar" "fixture.jar"))
+                pom-path "META-INF/maven/acme/widget/pom.xml"
+                props-path "META-INF/maven/acme/widget/pom.properties"
+                _ (build/build (request (cfg ws src-root res-root uber?)))
+                pom (entry-string jar-file pom-path)]
+            (is (contains? (zip-names jar-file) props-path) (str "uber?=" uber?))
+            (is (= "version=9.9.9\ngroupId=acme\nartifactId=widget\n"
+                   (entry-string jar-file props-path))
+                (str "uber?=" uber?))
+            (is (str/includes? pom "<groupId>acme</groupId>") (str "uber?=" uber?))
+            (is (str/includes? pom "<version>9.9.9</version>") (str "uber?=" uber?))
+            (is (str/includes? pom "<version>2.0.0</version>")
+                "dependency takes the lock pin, not the declared requirement")
+            (is (not (str/includes? pom "stale-shipped"))
+                "the canonical path is replaced, not shipped alongside")
+            (is (= "dependency-payload" (entry-string jar-file "META-INF/maven/other/lib/pom.xml"))
+                "another coordinate's payload passes through")))
+        ;; A module that declares no coordinates ships no coordinates — and the
+        ;; previous build's embedding leaves no residue (the zip is rebuilt).
+        (spit (io/file ws-dir "deps.edn") "{:deps {}}")
+        (build/build (request (cfg ws src-root res-root false)))
+        (is (not (contains? (zip-names (str ws "/target/fixture.jar"))
+                            "META-INF/maven/acme/widget/pom.properties"))
+            "the previous embedding left no residue")
+        (finally
+          (delete-tree ws-dir))))))
