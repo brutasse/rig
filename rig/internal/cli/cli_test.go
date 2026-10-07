@@ -37,6 +37,18 @@ func TestMain(m *testing.M) {
 	}
 	defer os.Remove(bin)
 	rigTestBin = bin
+	// Checkpointing must stay out of the test side effects no matter what
+	// the machine has installed: a nonexistent RIG_CRAC_JDK fails the
+	// capability probe (dormant), and RIG_CRAC_DIR keeps any stray write out
+	// of the real state dir. Subprocess tests inherit both.
+	os.Setenv("RIG_CRAC_JDK", filepath.Join(os.TempDir(), "rig-test-no-crac-java"))
+	cracDir, err := os.MkdirTemp("", "rig-test-crac-")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "TestMain: %v\n", err)
+		os.Exit(1)
+	}
+	os.Setenv("RIG_CRAC_DIR", cracDir)
+	defer os.RemoveAll(cracDir)
 	os.Exit(m.Run())
 }
 

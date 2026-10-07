@@ -322,8 +322,12 @@ type Store struct{ Root string }
 // NewStoreAt returns the store rooted at the rig state dir.
 func NewStoreAt(root string) *Store { return &Store{Root: filepath.Join(root, "jdks")} }
 
-func (s *Store) Dir(version string) string {
-	return filepath.Join(s.Root, Vendor+"-"+version)
+func (s *Store) Dir(version string) string { return s.dir(Vendor, version) }
+
+// dir is the install dir for any vendor; directory names carry the vendor
+// so namespaced installs (CRaCVendor) can share the store root.
+func (s *Store) dir(vendor, version string) string {
+	return filepath.Join(s.Root, vendor+"-"+version)
 }
 
 func javaName() string {
@@ -335,23 +339,35 @@ func javaName() string {
 
 // Lookup returns the install of the exact version, or ErrNotInstalled.
 func (s *Store) Lookup(version string) (*Inst, error) {
-	b, err := os.ReadFile(filepath.Join(s.Dir(version), "rig-jdk.json"))
+	return s.LookupVendor(Vendor, version)
+}
+
+// LookupVendor returns the install of the exact version for one vendor, or
+// ErrNotInstalled. Beyond the workspace vendor (Best, List), it serves the
+// namespaced installs (CRaCVendor) that must not satisfy workspace pins.
+func (s *Store) LookupVendor(vendor, version string) (*Inst, error) {
+	dir := s.dir(vendor, version)
+	b, err := os.ReadFile(filepath.Join(dir, "rig-jdk.json"))
 	if err != nil {
 		return nil, ErrNotInstalled
 	}
 	var m marker
-	if err := json.Unmarshal(b, &m); err != nil || m.Version != version {
+	if err := json.Unmarshal(b, &m); err != nil || m.Version != version || m.Vendor != vendor {
 		return nil, ErrNotInstalled
 	}
-	home := filepath.Join(s.Dir(version), "jdk")
+	home := filepath.Join(dir, "jdk")
 	java := filepath.Join(home, "bin", javaName())
 	if st, err := os.Stat(java); err != nil || st.IsDir() {
-		return nil, fmt.Errorf("jdk: %s: corrupt install (missing bin/java); run 'rig jvm install %s'", s.Dir(version), version)
+		install := fmt.Sprintf("'rig jvm install %s'", version)
+		if vendor != Vendor {
+			install = "'rig crac install'"
+		}
+		return nil, fmt.Errorf("jdk: %s: corrupt install (missing bin/java); run %s", dir, install)
 	}
 	return &Inst{
 		Vendor: m.Vendor, Version: m.Version, OS: m.OS, Arch: m.Arch,
 		Archive: m.Archive, URL: m.URL, SHA256: m.SHA256, InstalledAt: m.InstalledAt,
-		Dir: s.Dir(version), Home: home, JavaPath: java,
+		Dir: dir, Home: home, JavaPath: java,
 	}, nil
 }
 
@@ -376,7 +392,9 @@ func (s *Store) Best(requested string) (*Inst, error) {
 	return best, nil
 }
 
-// List returns all installed JDKs, newest first.
+// List returns all installed workspace JDKs, newest first. Namespaced
+// vendors (CRaCVendor) are deliberately excluded: they can never satisfy a
+// workspace JVM request, only the checkpoint machinery uses them.
 func (s *Store) List() ([]Inst, error) {
 	entries, err := os.ReadDir(s.Root)
 	if errors.Is(err, os.ErrNotExist) {
@@ -451,19 +469,19 @@ func Ensure(ctx context.Context, st *Store, requested string, offline bool) (*In
 // Install downloads a, verifies its sha256, and extracts it under the store.
 // Concurrent installs of the same version are serialized with a marker file.
 func (s *Store) Install(ctx context.Context, a Asset) (*Inst, error) {
-	if inst, err := s.Lookup(a.Version); err == nil {
+	if inst, err := s.LookupVendor(a.Vendor, a.Version); err == nil {
 		return inst, nil
 	}
 	if err := os.MkdirAll(s.Root, 0o755); err != nil {
 		return nil, err
 	}
-	lockPath := filepath.Join(s.Root, ".install-"+a.Version+".lock")
+	lockPath := filepath.Join(s.Root, ".install-"+a.Vendor+"-"+a.Version+".lock")
 	lf, err := os.OpenFile(lockPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
 	if err == nil {
 		lf.Close()
 		defer os.Remove(lockPath)
 	} else if errors.Is(err, os.ErrExist) {
-		return s.waitForInstall(ctx, a.Version)
+		return s.waitForInstall(ctx, a.Vendor, a.Version)
 	} else {
 		return nil, err
 	}
@@ -476,7 +494,7 @@ func (s *Store) Install(ctx context.Context, a Asset) (*Inst, error) {
 	if err != nil {
 		return nil, err
 	}
-	dir := s.Dir(a.Version)
+	dir := s.dir(a.Vendor, a.Version)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}
@@ -488,7 +506,7 @@ func (s *Store) Install(ctx context.Context, a Asset) (*Inst, error) {
 		return nil, err
 	}
 	m := marker{
-		Vendor: Vendor, Version: a.Version, OS: a.OS, Arch: a.Arch,
+		Vendor: a.Vendor, Version: a.Version, OS: a.OS, Arch: a.Arch,
 		Archive: a.Archive, URL: a.URL, SHA256: a.SHA256,
 		InstalledAt: time.Now().UTC().Format(time.RFC3339),
 	}
@@ -499,13 +517,13 @@ func (s *Store) Install(ctx context.Context, a Asset) (*Inst, error) {
 	if err := os.WriteFile(filepath.Join(dir, "rig-jdk.json"), b, 0o644); err != nil {
 		return nil, err
 	}
-	return s.Lookup(a.Version)
+	return s.LookupVendor(a.Vendor, a.Version)
 }
 
-func (s *Store) waitForInstall(ctx context.Context, version string) (*Inst, error) {
+func (s *Store) waitForInstall(ctx context.Context, vendor, version string) (*Inst, error) {
 	deadline := time.Now().Add(10 * time.Minute)
 	for {
-		if inst, err := s.Lookup(version); err == nil {
+		if inst, err := s.LookupVendor(vendor, version); err == nil {
 			return inst, nil
 		}
 		if time.Now().After(deadline) {

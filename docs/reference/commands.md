@@ -37,6 +37,9 @@ This page lists every command, what it does, and its flags.
 | `graalvm list` | — | Installed GraalVMs. |
 | `graalvm uninstall <version>` | — | Remove an installed GraalVM. |
 | `graalvm update` | — | Update the rig-managed GraalVM for the pinned major to the newest build. |
+| `crac install` | — | Install the rig-pinned Zulu CRaC JDK (kernel checkpointing). |
+| `crac status` | — | Pinned CRaC JDK, installed?, active override. |
+| `crac clean` | — | Prune checkpoint chains that can no longer be restored. |
 | `self-update [--check]` | — | Update the Rig binary from the GitHub releases. |
 | `auth get [gate\|url]` | — | Print the bearer token of an OIDC gate (env, cache, or negotiated). |
 | `version` | hot | Print the project version. |
@@ -496,6 +499,44 @@ release, and replaces the installed one. Rig keeps one JDK per major
 version. When no JDK for the major exists, the command installs the
 newest release. The command does not touch the manifest or the lock.
 `--offline` refuses (updating needs the network).
+
+## Kernel checkpointing (CRaC)
+
+Cold kernel forks cost 1–3 seconds per command. On Linux, Rig can
+instead restore the kernel JVM from a checkpoint of a warmed run
+(~0.3 s) and refresh the checkpoint with every command, so it stays
+warm with use. Checkpointing is opportunistic: without a CRaC-capable
+JVM every command takes the cold path, unchanged. See
+[Configuration — Kernel checkpointing](config.md#kernel-checkpointing-crac).
+
+### `rig crac install`
+
+```
+rig crac install        # the Zulu CRaC JDK pinned by this Rig release
+```
+
+Downloads the exact CRaC JDK build (Azul Zulu) pinned by the Rig
+release into the state dir
+(`~/.local/share/rig/jdks/zulu-crac-<version>/`), verifying the sha256
+against the pin. The kernel picks it up automatically for
+checkpointing; nothing else changes. `--offline` refuses (installing
+needs the network).
+
+### `rig crac status`
+
+The pinned build, whether it is installed, and whether `RIG_CRAC_JDK`
+currently overrides the managed install.
+
+### `rig crac clean`
+
+Image chains are keyed to the kernel jar bytes, the JVM build and the
+CPU features: after a kernel or JDK rotation the old chains can never
+restore again. This prunes them, plus interrupted-run leftovers.
+Chains rebuild themselves — pruning one that was still live costs one
+cold command. Old-kernel chains actually clean themselves up: a daily
+boot sweep prunes chains bootstrapped from a different kernel jar.
+`clean` covers what that sweep cannot see (JVM rotations, leftovers).
+It refuses to run while `RIG_KERNEL_JAR` is set.
 
 ## GraalVM management
 

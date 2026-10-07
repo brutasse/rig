@@ -81,8 +81,8 @@
               n (ZipEntry. (.getName e))]
           (.setTime n (if (or (.endsWith (.getName e) ".clj")
                               (.endsWith (.getName e) ".cljc"))
-                       src-ts
-                       other-ts))
+                        src-ts
+                        other-ts))
           (.putNextEntry out n)
           (io/copy (.getInputStream in e) out)
           (.closeEntry out)))
@@ -101,7 +101,10 @@
     (try
       (doseq [f (sort-by (memfn getName)
                          (file-seq (io/file class-dir "rig")))]
+        ;; (.getName f) alone would sweep rig/kernel/runner*.class in too,
+        ;; flattening them onto rig/runner*.class names (duplicate entries).
         (when (and (.isFile f)
+                   (= (.getParentFile f) (io/file class-dir "rig"))
                    (.startsWith (.getName f) "runner")
                    (.endsWith (.getName f) ".class"))
           (let [^ZipEntry e (ZipEntry. (str "rig/" (.getName f)))]
@@ -111,9 +114,9 @@
             (.closeEntry out))))
       (finally (.close out)))
     (java.nio.file.Files/move (.toPath (io/file tmp))
-                             (.toPath (io/file runner-file))
-                             (into-array java.nio.file.CopyOption
-                                        [StandardCopyOption/ATOMIC_MOVE]))
+                              (.toPath (io/file runner-file))
+                              (into-array java.nio.file.CopyOption
+                                          [StandardCopyOption/ATOMIC_MOVE]))
     (assert-floor runner-file)))
 
 (defn uber [_]
@@ -131,7 +134,7 @@
     (normalize-zip uber-file (str uber-file ".tmp"))
     (java.nio.file.Files/move (.toPath (io/file (str uber-file ".tmp")))
                               (.toPath (io/file uber-file))
-                               (into-array java.nio.file.CopyOption
+                              (into-array java.nio.file.CopyOption
                                           [StandardCopyOption/ATOMIC_MOVE]))
     (assert-floor uber-file)
     (runner-jar)))

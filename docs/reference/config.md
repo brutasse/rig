@@ -314,6 +314,59 @@ Rig rejects a lock at load time when it carries `--enable-preview` in
 `:rig/compile-jvm-opts` but no `:rig/jvm` pin: the preview set depends
 on the JVM version, and Rig will not guess it.
 
+## Kernel checkpointing (CRaC)
+
+Every cold kernel fork boots a JVM: 1–3 seconds. On Linux x64/arm64
+Rig can instead restore that JVM from a CRaC checkpoint of a warmed
+kernel — around 0.3 seconds — and every restored run re-dumps the
+checkpoint, so the image stays warm and current with use. The cold
+fork remains the correctness anchor and the fallback: nothing about
+workspace behavior changes when checkpointing is off, and any command
+checkpointing cannot serve simply runs cold.
+
+Serving a restore requires all of: Linux, a kernel jar carrying the
+checkpoint entries (older releases, v0.2.1 down, simply stay on the
+cold path), a CRaC-capable JVM, and an op that tolerates re-running
+(lock, check, tree, outdated, `aot-plan`, edit-dep, migrate). Ops
+that pass JVM flags to the kernel (build, publish and friends) never
+restore — flags are baked into the checkpoint at dump time.
+
+The JVM that runs the checkpoint is picked in this order:
+
+1. `RIG_CRAC_JDK` — an explicit `java` binary (dev override, wins
+   over everything).
+2. The rig-managed Zulu CRaC JDK, once
+   [`rig crac install`](commands.md#kernel-checkpointing-crac) has
+   installed it (`~/.local/share/rig/jdks/zulu-crac-<version>/`).
+3. The JVM Rig picked for the command itself — useful for system
+   CRaC builds.
+
+Whatever is picked must pass the engine probe; if it fails, the
+feature is fully dormant. `RIG_CRAC_DIR` moves the image store
+(default `~/.local/share/rig/crac/`).
+
+Images live in per-configuration chains: the key pins the kernel jar
+bytes, the JVM build, the engine and the CPU features, so a rotated
+kernel or JDK starts a fresh chain instead of restoring stale state.
+Chain members are parent-referencing deltas — deletable only as a
+set. A chain is capped (6 images); the next cold run re-bootstraps.
+Old-kernel chains are garbage-collected on their own: once a day, Rig
+prunes chains recorded as bootstrapped from a different kernel jar
+(a marker in the store gates it; no JVM probe, milliseconds). Chain
+rotations by JVM and interrupted-run leftovers remain
+[`rig crac clean`](commands.md#rig-crac-clean)'s job. While
+`RIG_KERNEL_JAR` is set both are inert — a transient dev jar gets no
+say over release chains.
+
+Security notes: the store is owner-only (`0700` dirs, `0600` request
+files). Configuration that rides the JVM environment in cold runs
+(`RIG_REPO_TOKENS`, `RIG_PROXY_REPOS`) rides the request file for
+restored runs and is authoritative there — a restored kernel never
+inherits the bootstrap run's tokens. What remains true: a checkpoint
+captures the heap, so an image from an authenticated run may contain
+token residue until the GC clears it; the store only ever holds your
+own credentials.
+
 ## Native images (`rig build --native`)
 
 `:rig/native?` declares that a module builds a standalone native-image
