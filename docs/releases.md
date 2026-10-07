@@ -4,6 +4,21 @@ Changelog for Rig.
 
 ## Unreleased
 
+## v0.3.1 — 2026-10-07
+
+### Fixed
+
+#### Managed JDK and GraalVM installs on macOS
+
+Temurin and GraalVM CE ship their macOS archives in the bundle
+layout, with the JDK under `Contents/Home`. The managed stores
+verified installs by stat'ing `bin/java` (and `bin/native-image`)
+at the install root, so a complete macOS install never validated:
+every command touching it failed with `corrupt install (missing
+bin/java)` — rig jvm install, jvm path, and anything downstream.
+Installs now resolve the home inside the bundle, and `rig jvm path`
+prints the correct macOS JAVA_HOME.
+
 ## v0.3.0 — 2026-10-07
 
 ### New
