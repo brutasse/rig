@@ -2,7 +2,29 @@
 
 Changelog for Rig.
 
-## Unreleased — since v0.2.0
+## Unreleased
+
+### New
+
+#### Kernel checkpointing (CRaC)
+
+On Linux, Rig restores the kernel JVM from a checkpoint of a warmed
+run instead of forking a cold one: ~0.3 s instead of 1–3 s per lock,
+check, tree — and every restored run re-dumps the checkpoint, so it
+stays current with use. Everything stays opportunistic: without a
+CRaC-capable JVM every command behaves exactly as before.
+`rig crac install` fetches the Zulu CRaC JDK pinned by this release
+(sha256-verified, into the state dir); `rig crac status` and
+`rig crac clean` inspect and prune it. Image chains are keyed to the
+kernel jar bytes, the JVM build and the CPU features — a rotated
+kernel or JDK starts a fresh chain instead of restoring stale state,
+and old-kernel chains are swept automatically by a daily boot-time
+pass.
+Config that rides the JVM environment in cold runs
+(`RIG_REPO_TOKENS`, `RIG_PROXY_REPOS`) rides the request file for
+restored runs and is authoritative there: a restored kernel never
+inherits the bootstrap run's tokens. See
+[Configuration — Kernel checkpointing](reference/config.md#kernel-checkpointing-crac).
 
 ## v0.2.1 -- 2026-10-07
 

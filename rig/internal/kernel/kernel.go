@@ -11,10 +11,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/brutasse/rig/internal/cache"
 	"github.com/brutasse/rig/internal/digest"
+	"github.com/brutasse/rig/internal/kernelrun"
 )
 
 var (
@@ -69,6 +71,38 @@ type Request struct {
 	// from the workspace's :rig/compile-jvm-opts. Only ops that compile or
 	// load the workspace's code set them; the kernel ignores the field.
 	JVMFlags []string `json:"jvm-flags,omitempty"`
+	// Env mirrors the request-configuring entries of the call environment
+	// (see requestEnvKeys) into the request JSON. System/getenv is
+	// boot-cached inside a JVM, so a kernel restored from a CRaC checkpoint
+	// reads its bootstrap run's environment; the request copy is the fresh,
+	// authoritative one there. The variables are ALSO still passed as
+	// process env: pinned kernels predating the request channel read only
+	// the environment, and the kernel's subprocesses (tools.deps git)
+	// inherit it.
+	Env map[string]string `json:"env,omitempty"`
+}
+
+// requestEnvKeys are the variable names the kernel reads via
+// System/getenv during an op (rig.resolver.versions); Call copies matching
+// entries of its env argument into Request.Env.
+var requestEnvKeys = []string{"RIG_REPO_TOKENS", "RIG_PROXY_REPOS"}
+
+func withRequestEnv(req Request, env []string) Request {
+	for _, e := range env {
+		k, v, ok := strings.Cut(e, "=")
+		if !ok || v == "" {
+			continue
+		}
+		for _, want := range requestEnvKeys {
+			if k == want {
+				if req.Env == nil {
+					req.Env = map[string]string{}
+				}
+				req.Env[k] = v
+			}
+		}
+	}
+	return req
 }
 
 // localOverride returns the artifact the developer pointed at via env,
@@ -208,13 +242,50 @@ func lastLine(b []byte) []byte {
 	return b
 }
 
+// exitErr maps the kernel's op exit codes to sentinel errors; 0 and
+// anything uninterpreted map to nil (the caller reports the raw code).
+func exitErr(code int) error {
+	switch code {
+	case 1:
+		return ErrOpFailed
+	case 2:
+		return ErrBadRequest
+	case 3:
+		return ErrLegacyKeys
+	}
+	return nil
+}
+
 // Call runs one kernel op. env, when non-empty, is appended to the
 // inherited environment of the kernel JVM (e.g. RIG_TOKEN for the
 // resolver's authenticated repository probes).
+//
+// Eligible ops first attempt a run on the CRaC checkpoint of a warmed
+// kernel (internal/kernelrun): a restored kernel answers in a few hundred
+// ms against the ~1–3 s cold fork. Anything unavailable — no CRaC JDK, no
+// image, an uncheckpointable jar, a restore hiccup — falls through to the
+// cold path untouched, and a successful cold run seeds the checkpoint
+// best-effort so the next command can restore.
 func Call(ctx context.Context, jar, java string, req Request, env ...string) ([]byte, error) {
+	req = withRequestEnv(req, env)
 	body, err := json.Marshal(req)
 	if err != nil {
 		return nil, err
+	}
+	kr := kernelrun.Req{
+		Op:        req.Op,
+		Workspace: req.Workspace,
+		JVMFlags:  req.JVMFlags,
+		Env:       env,
+		Body:      body,
+		Jar:       jar,
+		Java:      java,
+	}
+	if out, code, err := kernelrun.Restore(ctx, kr); err == nil {
+		if mapped := exitErr(code); mapped != nil {
+			return out, &OpError{Op: req.Op, Err: mapped}
+		}
+		return out, nil
 	}
 	// JVM flags precede -jar: the kernel JVM runs on the workspace's pinned
 	// java, and :rig/compile-jvm-opts must reach it (e.g. --enable-preview
@@ -232,20 +303,15 @@ func Call(ctx context.Context, jar, java string, req Request, env ...string) ([]
 	cmd.Stdout = &out
 	err = cmd.Run()
 	if err == nil {
+		// Best-effort: run the same request through the kernel's checkpoint
+		// bootstrap so a later command can restore. Silent on any failure;
+		// the user's result is already in hand.
+		_ = kernelrun.Warm(ctx, kr)
 		return lastLine(out.Bytes()), nil
 	}
 	var ee *exec.ExitError
 	if errors.As(err, &ee) {
-		var mapped error
-		switch ee.ExitCode() {
-		case 1:
-			mapped = ErrOpFailed
-		case 2:
-			mapped = ErrBadRequest
-		case 3:
-			mapped = ErrLegacyKeys
-		}
-		if mapped != nil {
+		if mapped := exitErr(ee.ExitCode()); mapped != nil {
 			return out.Bytes(), &OpError{Op: req.Op, Err: mapped}
 		}
 	}

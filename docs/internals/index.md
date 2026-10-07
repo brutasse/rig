@@ -135,6 +135,24 @@ artifact. The Docker image pre-seeds it into the store, local runs point
 at it with `RIG_RUNNER_JAR`, and Rig never extracts or writes it at
 runtime. Hot commands run on stores that can be read-only.
 
+## Checkpoint/restore acceleration
+
+Restore-eligible kernel ops can run on a CRaC checkpoint of a warmed
+kernel instead of a cold JVM fork (~0.3 s vs 1–3 s), and every
+restored run re-dumps the image so it stays current. The whole path
+lives in `internal/kernelrun`: the image store (keyed to kernel jar
+bytes × JVM build × engine × CPU flags), the restore/cold selector
+inside `kernel.Call`, and the bootstrap that forks and parks the
+checkpoint JVM. The JVM-side contract — the exact flag set, where the
+kernel parks (`rig.kernel.Bootstrap`, via reflection so the jar
+builds on plain JDKs), and why success is "dump-kill + image on disk,
+not exit code" — is load-bearing and documented in that package's
+header. Refresh dumps are deltas referencing their parents, so a
+chain is deletable only as a whole (`rig crac clean`). The managed
+Zulu CRaC JDK (`rig crac install`, `jdk.CRaCPins`) is pinned exactly:
+image keys track JVM builds, so channel drift would strand every
+image.
+
 ## Code map
 
 ### Go (`rig/internal/`)

@@ -115,6 +115,7 @@ func Execute() int {
 		if len(o.pathVals) == 1 {
 			o.path = o.pathVals[0]
 		}
+		checkpointSweep(o)
 		return nil
 	}
 	pf := root.PersistentFlags()
@@ -157,6 +158,7 @@ func Execute() int {
 		newSelfUpdateCmd(o),
 		newJVMCmd(o),
 		newGraalVMCmd(o),
+		newCRaCCmd(o),
 	)
 	// Dynamic completion: -p/--path offers the workspace's module paths,
 	// --alias offers the target module's locked aliases (lockfile reads only).
