@@ -135,6 +135,44 @@ func TestStoreLookup(t *testing.T) {
 	}
 }
 
+func TestStoreLookupBundleLayout(t *testing.T) {
+	// macOS Temurin archives ship the macOS bundle layout: the home lives
+	// under Contents/Home instead of extracting flat.
+	root := t.TempDir()
+	st := NewStoreAt(root)
+	dir := st.Dir("21.0.10+7")
+	home := filepath.Join(dir, "jdk", "Contents", "Home")
+	if err := os.MkdirAll(filepath.Join(home, "bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "bin", javaName()), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	m := marker{Vendor: Vendor, Version: "21.0.10+7", OS: "mac", Arch: "aarch64",
+		Archive: "a.tar.gz", URL: "https://example.invalid/a.tar.gz",
+		SHA256: strings.Repeat("0", 64), InstalledAt: "2026-01-01T00:00:00Z"}
+	b, err := json.Marshal(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "rig-jdk.json"), b, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	inst, err := st.Lookup("21.0.10+7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inst.Home != home {
+		t.Errorf("home = %q, want %q", inst.Home, home)
+	}
+	if !strings.HasSuffix(inst.JavaPath, filepath.Join("Contents", "Home", "bin", javaName())) {
+		t.Errorf("java path = %q", inst.JavaPath)
+	}
+	if best, err := st.Best("21"); err != nil || best.Version != "21.0.10+7" {
+		t.Errorf("best 21 = %v, %v", best, err)
+	}
+}
+
 func TestStoreBest(t *testing.T) {
 	root := t.TempDir()
 	fakeInstall(t, root, "21.0.10+7")

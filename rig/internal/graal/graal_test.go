@@ -58,6 +58,42 @@ func TestStoreLookup(t *testing.T) {
 	}
 }
 
+func TestStoreLookupBundleLayout(t *testing.T) {
+	// macOS GraalVM CE archives ship the macOS bundle layout, like Temurin.
+	root := t.TempDir()
+	st := NewStoreAt(root)
+	dir := st.Dir("21.0.2")
+	home := filepath.Join(dir, "graal", "Contents", "Home")
+	if err := os.MkdirAll(filepath.Join(home, "bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"java", "native-image"} {
+		if err := os.WriteFile(filepath.Join(home, "bin", name), []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m := marker{Vendor: Vendor, Version: "21.0.2", OS: "macos", Arch: "aarch64",
+		Archive: "a.tar.gz", URL: "https://example.invalid/a.tar.gz",
+		SHA256: strings.Repeat("0", 64), InstalledAt: "2026-01-01T00:00:00Z"}
+	b, err := json.Marshal(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "rig-graal.json"), b, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	inst, err := st.Lookup("21.0.2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inst.Home != home {
+		t.Errorf("home = %q, want %q", inst.Home, home)
+	}
+	if !strings.HasSuffix(inst.NativeImagePath, filepath.Join("Contents", "Home", "bin", "native-image")) {
+		t.Errorf("native-image path = %q", inst.NativeImagePath)
+	}
+}
+
 func TestStoreBestList(t *testing.T) {
 	root := t.TempDir()
 	fakeInstall(t, root, "25.0.2")

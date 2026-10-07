@@ -355,6 +355,22 @@ func javaName() string {
 	return "java"
 }
 
+// ResolveHome resolves the JDK home inside an install dir: archives extract
+// flat (home/bin/<binary>), but macOS distributions (Temurin, GraalVM) ship
+// the macOS bundle layout, with the JDK under Contents/Home. When neither
+// layout has the binary, home is returned unchanged so the caller reports the
+// install as corrupt.
+func ResolveHome(home, binary string) string {
+	if _, err := os.Stat(filepath.Join(home, "bin", binary)); err == nil {
+		return home
+	}
+	bundled := filepath.Join(home, "Contents", "Home")
+	if _, err := os.Stat(filepath.Join(bundled, "bin", binary)); err == nil {
+		return bundled
+	}
+	return home
+}
+
 // Lookup returns the install of the exact version, or ErrNotInstalled.
 func (s *Store) Lookup(version string) (*Inst, error) {
 	return s.LookupVendor(Vendor, version)
@@ -373,7 +389,7 @@ func (s *Store) LookupVendor(vendor, version string) (*Inst, error) {
 	if err := json.Unmarshal(b, &m); err != nil || m.Version != version || m.Vendor != vendor {
 		return nil, ErrNotInstalled
 	}
-	home := filepath.Join(dir, "jdk")
+	home := ResolveHome(filepath.Join(dir, "jdk"), javaName())
 	java := filepath.Join(home, "bin", javaName())
 	if st, err := os.Stat(java); err != nil || st.IsDir() {
 		install := fmt.Sprintf("'rig jvm install %s'", version)
