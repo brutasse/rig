@@ -4,6 +4,13 @@ Changelog for Rig.
 
 ## Unreleased — since v0.2.0
 
+## v0.2.1 -- 2026-10-07
+
+### Fixed
+
+* [build: mark source namespaces for native build-time
+  init](https://github.com/brutasse/rig/pull/72)
+
 ## v0.2.0 — 2026-10-06
 
 *Everything merged since the first release.*
