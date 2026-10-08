@@ -150,6 +150,10 @@ jobs:
         run: make test-native GRAALVM="$GRAALVM"
 
   release:
+    permissions:
+      contents: write
+      packages: write
+      actions: write
     runs-on: ubuntu-latest
     needs:
       - test
@@ -265,9 +269,11 @@ jobs:
           else
             git config user.name "rig-release[bot]"
             git config user.email "rig-release@users.noreply.github.com"
-            git add README.md docs/getting-started.md
+            git add README.md docs/getting-started.md docs/workflows/ci.md
             git commit -m "docs: pin install one-liner to $new ($sha); bump version examples to $new"
             git push origin HEAD:main
+            # GITHUB_TOKEN pushes don't fire push events: build the docs.
+            gh workflow run docs.yml --ref main
           fi
 
       - name: Pin kernel in main

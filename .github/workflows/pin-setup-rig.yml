@@ -1,0 +1,51 @@
+# Weekly: move the setup-rig pin in the docs CI example to the action's
+# latest version tag and refresh the published docs.
+#
+# docs/workflows/ci.md advertises brutasse/setup-rig with a SHA-pinned ref
+# (renovate-style "<sha> # <tag>" comment). The rig `version:` example right
+# below it belongs to the release job in ci.yml — untouched here. This repo's
+# own workflows use the floating @v1 ref, also untouched.
+
+name: Pin setup-rig
+
+on:
+  schedule:
+    - cron: "17 3 * * 1" # weekly, Mondays off-peak
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  pin:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+      - name: Pin setup-rig's latest tag in the docs example
+        run: |
+          # No GitHub Releases on setup-rig (yet), and the floating major
+          # tags (v1) are refs, not versions: pick newest semver tag.
+          tag=$(gh api repos/brutasse/setup-rig/tags --jq '.[].name' |
+            grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
+          # A `uses:` ref must be a commit sha: dereference the tag (it may
+          # be an annotated tag object).
+          sha=$(gh api "repos/brutasse/setup-rig/commits/$tag" --jq .sha)
+          sed -i -E "s|brutasse/setup-rig@[0-9a-f]{40} # [^ ]*|brutasse/setup-rig@$sha # $tag|" docs/workflows/ci.md
+          # The sed must have landed: fail loudly if the doc wording drifted.
+          grep -q "brutasse/setup-rig@$sha # $tag" docs/workflows/ci.md
+          if git diff --quiet; then
+            echo "docs example already pinned at $tag ($sha)"
+          else
+            git config user.name "rig-release[bot]"
+            git config user.email "rig-release@users.noreply.github.com"
+            git add docs/workflows/ci.md
+            git commit -m "docs: pin setup-rig $tag ($sha) in CI example"
+            git push origin HEAD:main
+            # GITHUB_TOKEN pushes don't fire push events: build the docs.
+            gh workflow run docs.yml --ref main
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
