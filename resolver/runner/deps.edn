@@ -1,0 +1,9 @@
+{:paths ["src"]
+ :deps {}
+ :rig/lib io.github.brutasse/rig-runner
+ ;; No Clojure test suite here: rig.runner is exercised by the kernel
+ ;; suite (rig.resolver.runner-test, via the root :test alias) and by
+ ;; the Go E2Es.
+ :rig/test? false
+ ;; Same fixed zip timestamp as the kernel jar (see the root manifest).
+ :rig/timestamp-string "2020-01-01T00:00:02Z"}
