@@ -39,19 +39,13 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    container:
-      image: clojure:openjdk-17-tools-deps-slim-bullseye
-      volumes:
-        - ${{ github.workspace }}:${{ github.workspace }}
-
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Install rig + restore cache
-        uses: brutasse/setup-rig@v1
+      - name: Install rig (binary, JVM, cache)
+        uses: brutasse/setup-rig@6b2679db6657d62511f8b017c53e5f805f305349 # v1.0.0
         with:
-          version: v0.1.0
-          token: ${{ github.token }}
+          version: v0.3.0
 
       - name: Verify, check and test (frozen)
         run: |
@@ -67,19 +61,16 @@ jobs:
           rig publish
           git tag "v$(cat VERSION)"
           git push origin HEAD --tags
-
-      - name: Save rig cache
-        if: always()
-        uses: brutasse/setup-rig/save@v1
 ```
 
 Notes:
 
 - **setup-rig** installs the Rig binary (verified with the SHA256 hashes in
-  the release `SHA256SUMS`) and restores the artifact cache keyed on
-  `deps.lock`. The `setup-rig/save` step (last) stores what the run
-  downloaded. Pin the action ref to a tag or git sha, and pin `version` to
-  a release.
+  the release `SHA256SUMS`) and the JVM pinned in `deps.lock`, and restores
+  the artifact cache keyed on `deps.lock`. The cache is saved automatically
+  at the end of the job — even after a failed step — so no save step is
+  needed. A bare runner is enough: no host JDK, no Clojure CLI. Pin the
+  action ref to a git sha, and pin `version` to a release.
 - **Git dependencies** use the same git/ssh setup your repository already
   uses. Their commit shas are in the lockfile, so a green run means "this
   exact commit".
@@ -106,7 +97,10 @@ jars) must already sit in the Rig cache (`~/.local/share/rig`) or in a
 checksum-checked Maven repository (`~/.m2/repository`). On a cold cache,
 Rig fails with exit 1. That is the point: a green offline run is the
 hermeticity proof. Cache the Rig cache alongside `~/.m2/repository` and
-`~/.gitlibs`, or run on a machine that has them filled.
+`~/.gitlibs`, or run on a machine that has them filled. Those are exactly
+the stores setup-rig caches: when its `cache-hit` output is `true`, an
+offline gate has everything it needs — check that output if the job should
+fail fast on a cold cache.
 
 ## Managed JVMs
 
@@ -115,8 +109,9 @@ the rig-managed JDK for that major from the state dir. A matching system
 JDK serves only when no managed JDK exists. For CI, that means:
 
 - Do not rely on the runner's system JDK. Rig uses the managed JDK
-  automatically. It downloads on the first run (~200 MB) and uses the state
-  dir afterwards. Cache `~/.local/share/rig` (it contains `jdks/`) or
+  automatically. setup-rig installs the pinned major by default and caches
+  the JVM store under its own key, so a lockfile bump never re-downloads a
+  JDK. On other CI, cache `~/.local/share/rig` (it contains `jdks/`) or
   pre-install with `rig jvm install <major>`.
 - Hermetic `--offline` builds need the pinned JDK already in the state dir,
   or they fail with a hint.
