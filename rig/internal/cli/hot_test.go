@@ -15,9 +15,23 @@ import (
 	"github.com/brutasse/rig/internal/lockfile"
 )
 
+// resolverVersion is the version the local jars are named with: the
+// contents of resolver/VERSION (rig's version-file, what make kernel
+// builds), falling back to the dev default.
+func resolverVersion() string {
+	b, err := os.ReadFile(filepath.Join("..", "..", "..", "resolver", "VERSION"))
+	if err != nil {
+		return "v0.1.0"
+	}
+	if line := strings.SplitN(strings.TrimSpace(string(b)), "\n", 2)[0]; line != "" {
+		return line
+	}
+	return "v0.1.0"
+}
+
 // runnerJarPath returns the locally built runner jar: RIG_TEST_RUNNER_JAR,
-// else the jar make kernel builds next to the kernel jar. It skips when
-// unavailable.
+// else the jar make kernel builds in the runner module's target dir. It
+// skips when unavailable.
 func runnerJarPath(t *testing.T) string {
 	t.Helper()
 	var p string
@@ -25,7 +39,7 @@ func runnerJarPath(t *testing.T) string {
 		p = v
 	}
 	if p == "" {
-		if cand := filepath.Join("..", "..", "..", "resolver", "target", "rig-runner-v0.1.0.jar"); statOK(cand) {
+		if cand := filepath.Join("..", "..", "..", "resolver", "runner", "target", "rig-runner-"+resolverVersion()+".jar"); statOK(cand) {
 			p = cand
 		}
 	}

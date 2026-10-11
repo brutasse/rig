@@ -4,12 +4,14 @@
 #
 # V: version for the kernel jar and release artifacts, in release tag form
 # (vX.Y.Z). Local dev defaults to the contents of resolver/VERSION (what
-# the local tests look for); the release workflow passes the tag.
+# the local tests look for). The kernel builds are stamped from that file
+# (the rig build reads it), so V must equal it: the release flow bumps
+# resolver/VERSION in the prepare-release commit and passes the tag.
 
 V       ?= $(shell cat resolver/VERSION 2>/dev/null || echo v0.1.0)
 REPO    := brutasse/rig
 JAR     := resolver/target/rig-resolver-$(V).jar
-RUNNER  := resolver/target/rig-runner-$(V).jar
+RUNNER  := resolver/runner/target/rig-runner-$(V).jar
 BIN     := rig/dist/rig
 PINFILE := rig/internal/kernel/kernel.go
 GITSHA  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo dev)
@@ -19,9 +21,19 @@ GITSHA  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo dev)
 # dev: the whole local story in one command.
 dev: kernel rig
 
-# kernel: build the resolver uberjar and the runner jar (resolver/target/).
-kernel:
-	cd resolver && RIG_RESOLVER_VERSION=$(V) clojure -X:build
+# kernel: build the resolver uberjar and the runner jar (resolver/target/
+# and resolver/runner/target/) with rig — self-hosted: the rig binary
+# runs its kernel pin, so the previous release's kernel builds the next
+# one. The builder's op shapes the artifact, so an op fix must be
+# released before it can shape its successor's build (v0.3.0 shipped the
+# link-closure fix precisely so it could build what comes next). The jar
+# version comes from resolver/VERSION (rig's version-file), so V must
+# match it; the release flow bumps VERSION in the prepare-release commit.
+kernel: rig
+	@test "$$(cat resolver/VERSION)" = "$(V)" || { \
+		echo "resolver/VERSION ($$(cat resolver/VERSION)) != V ($(V)): bump resolver/VERSION in the release commit" >&2; exit 1; }
+	cd resolver && $(abspath $(BIN)) build --uber
+	cd resolver && $(abspath $(BIN)) build -p runner
 
 # pin: stamp the kernel pin in kernel.go (version, git sha, GitHub release
 # URL, jar sha256, runner URL, runner jar sha256) from the freshly built
@@ -48,10 +60,12 @@ pin: kernel
 rig:
 	cd rig && go build -o dist/rig ./cmd/rig
 
-# test: full local verification — kernel kaocha suite + Go suite
-# (E2E tests run against the just-built jars).
+# test: full local verification — kernel suite (rig test: the runner
+# runs the :test alias's exec-fn on the locked test classpath, on the
+# workspace's managed Temurin 8) + Go suite (E2E tests run against the
+# just-built jars). No Clojure CLI, no host JDK: rig runs everything.
 test: dev
-	cd resolver && CLOJURE_CLI_ALLOW_HTTP_REPO=1 clojure -X:test
+	cd resolver && CLOJURE_CLI_ALLOW_HTTP_REPO=1 RIG_RUNNER_JAR=$(abspath $(RUNNER)) $(abspath $(BIN)) test
 	cd rig && RIG_TEST_KERNEL_JAR=$(abspath $(JAR)) RIG_TEST_RUNNER_JAR=$(abspath $(RUNNER)) \
 		go test ./...
 

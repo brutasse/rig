@@ -20,12 +20,12 @@ func kernelJarPath(t *testing.T) string {
 		p = v
 	}
 	if p == "" {
-		if cand := filepath.Join("..", "..", "..", "resolver", "target", "rig-resolver-v0.1.0.jar"); statOK(cand) {
+		if cand := filepath.Join("..", "..", "..", "resolver", "target", "rig-resolver-"+resolverVersion()+".jar"); statOK(cand) {
 			p = cand
 		}
 	}
 	if p == "" {
-		t.Skip("kernel jar not found; build it with: cd resolver && clojure -X:build (or set RIG_TEST_KERNEL_JAR)")
+		t.Skip("kernel jar not found; build it with: make kernel (or set RIG_TEST_KERNEL_JAR)")
 		return ""
 	}
 	abs, err := filepath.Abs(p)
