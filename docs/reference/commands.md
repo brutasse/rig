@@ -73,8 +73,8 @@ wrote /home/dev/app/deps.lock: 528 artifacts, 8 modules
 
 `rig lock` refuses `--frozen` (exit 2): writing the lock is its whole
 job. CI modes that must not modify the lock belong on the commands that
-consume it. `--frozen` on `rig lock` used to be silently ignored while
-the command rewrote the lock anyway.
+consume it. `rig lock` used to silently ignore `--frozen` and rewrite
+the lock anyway.
 
 When a cooldown refuses a requirement, the command aborts with exit 5:
 
@@ -83,11 +83,12 @@ refused org.clojure/tools.logging (cooldown 48h)
 1 requirement(s) refused by cooldowns (retry with --force)
 ```
 
-Requests to an `:auth :oidc` repository are routed through a local proxy
+Rig routes requests to an `:auth :oidc` repository through a local proxy
 that injects the gate's bearer token; tools.deps itself never talks to
-an authenticated repo. An artifact Maven already downloaded into
-`~/.m2/repository` is accepted at lock time without refetching — Rig
-verifies it against the published SHA1. A cold m2 therefore locks as
+an authenticated repo. At lock time Rig accepts an artifact Maven already
+downloaded into
+`~/.m2/repository` without refetching, and verifies it against the
+published SHA1. A cold m2 therefore locks as
 well, and every request that does go out bears the token. See
 [authenticated
 repositories](config.md#authenticated-repositories-auth-oidc).
@@ -204,7 +205,7 @@ Two stages, one exit code:
 2. **Namespace load and AOT-compile**: Rig preloads the non-project
    requires on the locked base classpath of each target module, then
    AOT-compiles its namespaces in dependency order. A failing load or
-   compile produces a `load-fail` error; a source the AOT plan left
+   compile produces a `load-fail` error. A source the AOT plan left
    out — a data file without an `ns` form, a namespace whose name does
    not match its path — is a `plan-skip` warning. Rig reports a module that pins
    `org.clojure/clojure` below the 1.8.0 floor as `clojure-floor`, before
@@ -325,8 +326,8 @@ output of the target module from the lock (the uberjar when the module
 declares one).
 
 The launch plan (main, `:rig/launch-opts`, build JVM) comes from
-`META-INF/rig/launch.json` — the descriptor `rig build` bakes into the
-jar of a module that declares a main (uberjars carry it too) — so
+`META-INF/rig/launch.json`. `rig build` bakes that descriptor into the
+jar of a module that declares a main (uberjars carry it too), so
 `rig launch <jar>` works outside the workspace (a standalone container).
 Without the descriptor, the lock is the plan.
 
@@ -371,7 +372,7 @@ URL the gate fronts, or nothing when the config holds a single gate. Rig
 uses the `RIG_TOKEN_<GATE>` environment variable of the gate when you set
 it, else the cached token of the gate, else a fresh negotiation with the
 issuer of the gate. Rig verifies a freshly negotiated token against the
-JWKS before caching it; a token you supply in the environment is used as
+JWKS before caching it, and uses a token you supply in the environment as
 you supplied it. The output is machine-friendly: script it into a `curl`, or pipe it anywhere a
 bearer belongs. See
 [authenticated repositories](config.md#authenticated-repositories-auth-oidc).
@@ -493,8 +494,8 @@ rig jvm path 21        # the JAVA_HOME of the installed 21.x
 ```
 
 Prints the home directory of the newest installed managed JDK satisfying
-`<major>` — the `JAVA_HOME` value Rig exports for launched processes — as a
-bare path on stdout, for scripts and CI. The state dir is read only: the
+`<major>`, as a bare path on stdout, for scripts and CI. This path is the
+`JAVA_HOME` value Rig exports for launched processes. The state dir is read only: the
 command never installs or downloads and needs no network. When no installed
 JDK satisfies `<major>`, it fails (exit 2) with the install hint.
 
@@ -518,7 +519,7 @@ newest release. The command does not touch the manifest or the lock.
 
 Cold kernel forks cost 1–3 seconds per command. On Linux, Rig can
 instead restore the kernel JVM from a checkpoint of a warmed run
-(~0.3 s) and refresh the checkpoint with every command, so it stays
+(~0.3 s). Every command refreshes the checkpoint, so it stays
 warm with use. Checkpointing is opportunistic: without a CRaC-capable
 JVM every command takes the cold path, unchanged. See
 [Configuration — Kernel checkpointing](config.md#kernel-checkpointing-crac).
@@ -538,12 +539,12 @@ needs the network).
 
 ### `rig crac status`
 
-The pinned build, whether it is installed, and whether `RIG_CRAC_JDK`
+The pinned build, its install status, and whether `RIG_CRAC_JDK`
 currently overrides the managed install.
 
 ### `rig crac clean`
 
-Image chains are keyed to the kernel jar bytes, the JVM build and the
+Rig keys image chains to the kernel jar bytes, the JVM build and the
 CPU features: after a kernel or JDK rotation the old chains can never
 restore again. This prunes them, plus interrupted-run leftovers.
 Chains rebuild themselves — pruning one that was still live costs one

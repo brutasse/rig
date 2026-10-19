@@ -1,7 +1,7 @@
 # Security model
 
-Rig protects the software supply chain in three ways. It **pins** what you
-use. It **verifies** what you run. It applies a **cooldown** to what you
+Rig protects the software supply chain in three ways: it **pins** what you
+use, **verifies** what you run, and applies a **cooldown** to what you
 adopt.
 
 ## Every artifact is hash-pinned
@@ -50,8 +50,8 @@ verified 528 artifacts (510 cached, 18 fetched, 2 git deps pinned by commit sha)
 ```
 
 `verify` re-checks every artifact in the lockfile against the pinned
-hashes. On a warm cache it uses local sources and checks their hashes. On a
-cold cache it fetches each artifact and checks its hash. With `--frozen`,
+hashes. On a warm cache it uses local sources and checks their hashes. If
+the cache is cold, it fetches each artifact and checks its hash. With `--frozen`,
 `verify` refuses to change the lockfile. A green `verify --frozen` means:
 "Rig pinned these exact bytes, and they are what will run." Add `--offline`
 to also prove that the build needs no network. That form needs a warm

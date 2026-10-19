@@ -67,9 +67,10 @@ Notes:
 
 - **setup-rig** installs the Rig binary (verified with the SHA256 hashes in
   the release `SHA256SUMS`) and the JVM pinned in `deps.lock`, and restores
-  the artifact cache keyed on `deps.lock`. The cache is saved automatically
-  at the end of the job — even after a failed step — so no save step is
-  needed. A bare runner is enough: no host JDK, no Clojure CLI. Pin the
+  the artifact cache keyed on `deps.lock`. The action saves the cache
+  automatically at the end of the job — even after a failed step — so you
+  need no save step. A bare runner is enough: the host needs neither a JDK
+  nor the Clojure CLI. Pin the
   action ref to a git sha, and pin `version` to a release.
 - **Git dependencies** use the same git/ssh setup your repository already
   uses. Their commit shas are in the lockfile, so a green run means "this
@@ -98,8 +99,8 @@ checksum-checked Maven repository (`~/.m2/repository`). On a cold cache,
 Rig fails with exit 1. That is the point: a green offline run is the
 hermeticity proof. Cache the Rig cache alongside `~/.m2/repository` and
 `~/.gitlibs`, or run on a machine that has them filled. Those are exactly
-the stores setup-rig caches: when its `cache-hit` output is `true`, an
-offline gate has everything it needs — check that output if the job should
+the stores setup-rig caches. When its `cache-hit` output is `true`, an
+offline gate has everything it needs. Check that output if the job should
 fail fast on a cold cache.
 
 ## Managed JVMs

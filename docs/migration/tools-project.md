@@ -49,7 +49,8 @@ Limitations of this setup:
 
 - The same `:project` alias appears in every file, and the git shas
   drift between copies.
-- There is no lockfile, no hashing, and no full-tree pinning.
+- The setup has no lockfile, and it records no hashes. Nothing pins the
+  full tree.
 - `merge-deps` rewrites files on disk. If you forget to run it, the
   managed map and the modules can diverge.
 - ~25 configuration keys spread over three namespaces
@@ -206,9 +207,9 @@ Per `deps.edn` it:
 4. In the root, it renames `:exoscale.project/modules` to `:rig/modules`,
    deletes `:exoscale.deps/managed-dependencies`,
    `:exoscale.deps/managed-aliases`, and
-   `:exoscale.project/extra-deps-files`. The managed pool is not carried
-   over as `:rig/deps` — its pins are already materialized in the module
-   manifests — and dropping it is reported with a warning.
+   `:exoscale.project/extra-deps-files`. It does not carry the managed
+   pool over as `:rig/deps` — the module manifests already hold its pins —
+   and it warns about dropping the pool.
 
 It reproduces the effective dependencies of the legacy merge exactly. It
 introduces no version drift, and it fixes none. The `check` step below

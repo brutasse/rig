@@ -43,8 +43,8 @@ Each key is independent — a library that never publishes needs only
 ### Step 3 — give it a test alias
 
 If your tests run via `clj -X:test` with some exec-fn, that alias already
-exists and `rig test` uses it as-is. If your tests are ad hoc
-(`clojure.test` across files), add the standard alias:
+exists and `rig test` uses it as-is. For ad hoc tests (`clojure.test`
+across files), add the standard alias:
 
 ```edn
 :aliases

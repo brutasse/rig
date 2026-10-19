@@ -1,8 +1,9 @@
 # Migrating from Leiningen
 
 You have a project with a `project.clj` — `lein test`, `lein run`,
-`lein uberjar`, maybe a Makefile that wraps them. No tools.project, no
-deps-modules, no `deps.edn` yet. `rig migrate` converts the manifest in
+`lein uberjar`, maybe a Makefile that wraps them. The project has no
+`deps.edn` yet, and it uses neither tools.project nor deps-modules.
+`rig migrate` converts the manifest in
 one command: it writes a new root `deps.edn` in the `:rig/*` model and
 leaves `project.clj` untouched.
 
@@ -45,7 +46,7 @@ module. If both `deps.edn` and `project.clj` exist, `deps.edn` wins (the
 legacy/tools.deps migration path runs instead); if neither does, the
 command fails. You can run `rig migrate` again after the conversion. The
 generated manifest has no legacy content left, so the second run reports
-nothing to do.
+nothing left to migrate.
 
 The generated manifest for the example above:
 
@@ -219,8 +220,8 @@ keep it as a reference; `deps.edn` wins while both exist).
   `:rig/modules`, and each module gets its own `deps.edn` next to the
   `project.clj`, which Rig leaves untouched. Rig does not touch a
   `:sub` declared by a module (nested `:sub` is a blocking problem —
-  flatten the hierarchy). Rig does not touch `project.clj` files that
-  are not in the `:sub` list of the root.
+  flatten the hierarchy) or `project.clj` files that are not in the
+  `:sub` list of the root.
 - **Materialized sibling refs become published-artifact requirements.**
   A `:version` self/sibling ref materializes to a `:mvn/version`
   requirement for the version of the project itself (typically

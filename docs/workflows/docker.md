@@ -1,7 +1,7 @@
 # Docker
 
 Rig ships the Docker image `ghcr.io/brutasse/rig`. The release job builds
-it for every release. The tags are `vX.Y.Z` and `latest`. The image is
+it for every release, tagged `vX.Y.Z` and `latest`. The image is
 multi-arch (`linux/amd64`, `linux/arm64`).
 
 The image contains:
@@ -65,8 +65,9 @@ is workstation work.
 ## Pinned JVMs
 
 Base the image on the declared JDK. The `:rig/jvm "21"` pin in the root
-`deps.edn` becomes `eclipse-temurin:21-jdk` (the jammy variant above). The
-build compiles with the JDK of the image. The copied state dir holds no
+`deps.edn` becomes `eclipse-temurin:21-jdk` (the jammy variant above). Your
+build compiles with the JDK of the image. Because the copied state dir
+holds no
 rig-managed JDK for the pin, so Rig falls back to the system `java`, which
 satisfies the pin. There is no `RUN rig jvm install` step. The JDK of the
 image *is* the build JVM. When the base image carries no matching JDK, the

@@ -28,11 +28,11 @@ that declare them before the consumer builds — see
 [Java sources](../concepts/java.md).
 
 `--native` builds a GraalVM native-image binary instead of a jar. The
-module declares `:rig/native?`, and the workspace pins `:rig/jvm`. The pin
+module declares `:rig/native?`, and the workspace pins `:rig/jvm`. That pin
 determines the GraalVM major. The build never downloads:
 `rig build --native` fails with a hint when no GraalVM for that major
 exists on the machine. Install one with `rig graalvm install <major>`
-first. The binary is standalone — no JVM, no classpath — and runs on plain
+first. The binary needs neither a JVM nor a classpath, and runs on plain
 args with `:rig/main` as the entry namespace
 (see [Native images](../reference/config.md#native-images-rig-build-native)).
 A native build needs a C compiler and a few GB of RAM, and takes minutes.
