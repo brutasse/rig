@@ -65,15 +65,6 @@
       (finally
         (delete-tree dir)))))
 
-(deftest floor-report-on-a-floor-clean-jar
-  (let [dir (temp-dir)]
-    (try
-      (let [jar (fixture-jar dir {"a/One.class" 52
-                                  "b/Two.class" 52})]
-        (is (= {:classes 2 :violations []} (floor/floor-report jar 8))))
-      (finally
-        (delete-tree dir)))))
-
 (deftest assert-floor-throws-on-a-violation
   (let [dir (temp-dir)]
     (try

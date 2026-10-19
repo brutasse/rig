@@ -116,75 +116,80 @@ func kernelSetup(t *testing.T) {
 	})
 }
 
-func TestCooldownRefused(t *testing.T) {
+// TestCooldown is the cooldown gate end to end on a file:// maven repo: a
+// version published inside the window is skipped in favour of the older one,
+// --force takes the fresh one and records it, and a repo whose every version
+// is inside the window is refused without writing anything.
+func TestCooldown(t *testing.T) {
 	kernelSetup(t)
 	now := time.Now().UnixMilli()
-	url := fileMavenRepo(t, "com.rig.test", "cooldown", map[string]int64{
-		"1.0.0": now - 1*time.Hour.Milliseconds(),
-		"1.0.1": now - 2*time.Hour.Milliseconds(),
-	})
-	dir := t.TempDir()
-	t.Chdir(dir)
-	cooldownWS(t, url)
-	code, out := runCLI(t, "update", "com.rig.test/cooldown", "--cache-dir", t.TempDir())
-	if code != 5 {
-		t.Fatalf("update exit = %d, want 5; out: %s", code, out)
-	}
-	if !strings.Contains(out, "refused com.rig.test/cooldown (cooldown 48h)") {
-		t.Fatalf("out = %q, want refused line", out)
-	}
-	if statOK("deps.lock") {
-		t.Fatal("lock must not be written on refusal")
-	}
-}
+	hour := time.Hour.Milliseconds()
+	const coord = "com.rig.test/cooldown"
 
-func TestCooldownSelectsOldSkipsFresh(t *testing.T) {
-	kernelSetup(t)
-	now := time.Now().UnixMilli()
-	url := fileMavenRepo(t, "com.rig.test", "cooldown", map[string]int64{
-		"1.0.0": now - 50*time.Hour.Milliseconds(), // older than the 48h cooldown
-		"1.0.1": now - 1*time.Hour.Milliseconds(),
-	})
-	dir := t.TempDir()
-	t.Chdir(dir)
-	cooldownWS(t, url)
-	code, out := runCLI(t, "update", "com.rig.test/cooldown", "--cache-dir", t.TempDir())
-	if code != 0 {
-		t.Fatalf("update exit = %d, want 0; out: %s", code, out)
+	cases := []struct {
+		name       string
+		published  map[string]int64
+		args       []string
+		wantCode   int
+		wantOut    []string
+		wantPin    string // version expected in the module manifest, "" when nothing is written
+		wantNoLock bool
+	}{
+		{
+			name:       "refused while every version is inside the window",
+			published:  map[string]int64{"1.0.0": now - hour, "1.0.1": now - 2*hour},
+			wantCode:   5,
+			wantOut:    []string{"refused com.rig.test/cooldown (cooldown 48h)"},
+			wantNoLock: true,
+		},
+		{
+			name:      "selects the version older than the window",
+			published: map[string]int64{"1.0.0": now - 50*hour, "1.0.1": now - hour},
+			wantCode:  0,
+			wantOut: []string{`set com.rig.test/cooldown "1.0.0"`,
+				"skipped com.rig.test/cooldown 1.0.1 (published"},
+			wantPin: `"1.0.0"`,
+		},
+		{
+			name:      "force selects the fresh version",
+			published: map[string]int64{"1.0.0": now - 50*hour, "1.0.1": now - hour},
+			args:      []string{"--force"},
+			wantCode:  0,
+			wantOut: []string{`set com.rig.test/cooldown "1.0.1"`,
+				"forced com.rig.test/cooldown 1.0.1 (cooldown"},
+			wantPin: `"1.0.1"`,
+		},
 	}
-	if !strings.Contains(out, `set com.rig.test/cooldown "1.0.0"`) {
-		t.Fatalf("out = %q, want 1.0.0 selected", out)
-	}
-	if !strings.Contains(out, "skipped com.rig.test/cooldown 1.0.1 (published") {
-		t.Fatalf("out = %q, want fresh 1.0.1 skipped by cooldown", out)
-	}
-	b, err := os.ReadFile("modules/app/deps.edn")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(b), `"1.0.0"`) {
-		t.Fatalf("manifest = %s, want 1.0.0 pinned", b)
-	}
-}
-
-func TestCooldownForce(t *testing.T) {
-	kernelSetup(t)
-	now := time.Now().UnixMilli()
-	url := fileMavenRepo(t, "com.rig.test", "cooldown", map[string]int64{
-		"1.0.0": now - 50*time.Hour.Milliseconds(),
-		"1.0.1": now - 1*time.Hour.Milliseconds(),
-	})
-	dir := t.TempDir()
-	t.Chdir(dir)
-	cooldownWS(t, url)
-	code, out := runCLI(t, "update", "com.rig.test/cooldown", "--force", "--cache-dir", t.TempDir())
-	if code != 0 {
-		t.Fatalf("update --force exit = %d, want 0; out: %s", code, out)
-	}
-	if !strings.Contains(out, `set com.rig.test/cooldown "1.0.1"`) {
-		t.Fatalf("out = %q, want 1.0.1 selected", out)
-	}
-	if !strings.Contains(out, "forced com.rig.test/cooldown 1.0.1 (cooldown") {
-		t.Fatalf("out = %q, want forced pick recorded", out)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			url := fileMavenRepo(t, "com.rig.test", "cooldown", tc.published)
+			dir := t.TempDir()
+			t.Chdir(dir)
+			cooldownWS(t, url)
+			args := append([]string{"update", coord}, tc.args...)
+			args = append(args, "--cache-dir", t.TempDir())
+			code, out := runCLI(t, args...)
+			if code != tc.wantCode {
+				t.Fatalf("update exit = %d, want %d; out: %s", code, tc.wantCode, out)
+			}
+			for _, want := range tc.wantOut {
+				if !strings.Contains(out, want) {
+					t.Errorf("out missing %q; out: %s", want, out)
+				}
+			}
+			if tc.wantNoLock && statOK("deps.lock") {
+				t.Error("lock must not be written on refusal")
+			}
+			if tc.wantPin == "" {
+				return
+			}
+			b, err := os.ReadFile("modules/app/deps.edn")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(string(b), tc.wantPin) {
+				t.Errorf("manifest = %s, want %s pinned", b, tc.wantPin)
+			}
+		})
 	}
 }

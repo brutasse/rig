@@ -56,33 +56,41 @@ func TestNew(t *testing.T) {
 	}
 }
 
-func TestNewOffline(t *testing.T) {
-	dir := t.TempDir()
-	t.Chdir(dir)
-	code, out := runCLI(t, "new", "example/foo", "--offline")
-	if code != 0 {
-		t.Fatalf("new exit = %d, want 0; out: %s", code, out)
+// TestNewNoJVMPin: the scaffold pins :rig/jvm only when the current LTS is
+// known — offline (no lookup at all) and a failing lookup both leave the
+// manifest unpinned, the second with a note naming the failed lookup.
+func TestNewNoJVMPin(t *testing.T) {
+	cases := []struct {
+		name    string
+		offline bool
+		ltsCode int // 0: no LTS stub (offline does no lookup)
+		wantOut string
+	}{
+		{"offline", true, 0, ""},
+		{"lts lookup fails", false, http.StatusInternalServerError, "could not determine the current LTS"},
 	}
-	root, _ := os.ReadFile("foo/deps.edn")
-	if strings.Contains(string(root), ":rig/jvm") {
-		t.Errorf("offline scaffold must not pin a JVM: %s", root)
-	}
-}
-
-func TestNewLTSUnavailable(t *testing.T) {
-	dir := t.TempDir()
-	t.Chdir(dir)
-	withLTSStub(t, 25, http.StatusInternalServerError)
-	code, out := runCLI(t, "new", "example/foo")
-	if code != 0 {
-		t.Fatalf("new exit = %d, want 0 (scaffold proceeds without a pin); out: %s", code, out)
-	}
-	root, _ := os.ReadFile("foo/deps.edn")
-	if strings.Contains(string(root), ":rig/jvm") {
-		t.Errorf("scaffold must not pin a JVM when the lookup fails: %s", root)
-	}
-	if !strings.Contains(out, "could not determine the current LTS") {
-		t.Errorf("out = %q", out)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			t.Chdir(dir)
+			args := []string{"new", "example/foo"}
+			if tc.offline {
+				args = append(args, "--offline")
+			} else {
+				withLTSStub(t, 25, tc.ltsCode)
+			}
+			code, out := runCLI(t, args...)
+			if code != 0 {
+				t.Fatalf("new exit = %d, want 0 (no pin, not a failure); out: %s", code, out)
+			}
+			root, _ := os.ReadFile("foo/deps.edn")
+			if strings.Contains(string(root), ":rig/jvm") {
+				t.Errorf("scaffold must not pin a JVM: %s", root)
+			}
+			if tc.wantOut != "" && !strings.Contains(out, tc.wantOut) {
+				t.Errorf("out missing %q: %q", tc.wantOut, out)
+			}
+		})
 	}
 }
 

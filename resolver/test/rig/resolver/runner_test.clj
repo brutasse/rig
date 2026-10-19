@@ -9,10 +9,6 @@
   (is (= {:k 1 :ran true}
          (runner/apply-exec-fn "rig.resolver.runner-test/fake-exec-fn" {:k 1}))))
 
-(deftest apply-exec-fn-returns-exec-fn-result
-  (is (= {:ran true}
-         (runner/apply-exec-fn "rig.resolver.runner-test/fake-exec-fn" {}))))
-
 (deftest apply-exec-fn-unknown-throws
   (is (thrown-with-msg? Exception
                         #"exec-fn not found"

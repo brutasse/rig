@@ -26,20 +26,17 @@ func TestTree(t *testing.T) {
 	if !strings.Contains(out, "└── org.clojure/clojure:1.11.0\n    ├── org.clojure/spec.alpha:") {
 		t.Errorf("clojure not rendered as a direct dep with nested children; out: %s", out)
 	}
+	// kaocha lives in the :test alias's extra-deps, so it must stay out of
+	// the default tree (TestTreeAlias covers the --alias run).
+	if strings.Contains(out, "lambdaisland/kaocha") {
+		t.Errorf("alias dep shown without --alias; out: %s", out)
+	}
 }
 
 func TestTreeAlias(t *testing.T) {
 	hotSetup(t)
-	cacheDir := t.TempDir()
-	// kaocha lives in the :test alias's extra-deps, not in :deps.
-	code, out := runCLI(t, "tree", "-p", "modules/app", "--cache-dir", cacheDir)
-	if code != 0 {
-		t.Fatalf("tree exit = %d, want 0; out: %s", code, out)
-	}
-	if strings.Contains(out, "lambdaisland/kaocha") {
-		t.Errorf("alias dep shown without --alias; out: %s", out)
-	}
-	code, out = runCLI(t, "tree", "-p", "modules/app", "--alias", "test", "--cache-dir", cacheDir)
+	// The alias's extra-deps join the tree only with --alias.
+	code, out := runCLI(t, "tree", "-p", "modules/app", "--alias", "test", "--cache-dir", t.TempDir())
 	if code != 0 {
 		t.Fatalf("tree --alias exit = %d, want 0; out: %s", code, out)
 	}

@@ -363,57 +363,31 @@
       (finally
         (delete-tree ws-dir)))))
 
-(deftest jars-pin-entry-times-and-sort-when-a-timestamp-is-declared
-  "With :rig/timestamp-string set, every entry of the built jar is
-  stamped with it and emitted in name-sorted order: same sources, lock
-  and build JVM then yield a byte-identical jar."
-  (let [ws-dir (temp-dir)
-        ws (str ws-dir)
-        src-root (io/file ws-dir "src")
-        src-file (io/file src-root "example" "core.clj")
-        res-root (io/file ws-dir "resources")
-        aa-file (io/file res-root "aa.txt")
-        zz-file (io/file res-root "zz.txt")
-        jar-file (str ws "/target/fixture.jar")
-        pinned (.toEpochMilli (java.time.Instant/parse "2026-01-01T00:00:00Z"))]
-    (io/make-parents src-file)
-    (spit src-file "(ns example.core)\n")
-    (io/make-parents aa-file)
-    (spit aa-file "aa")
-    (spit zz-file "zz")
-    (try
-      (build/build
-       {:args {:builds {"."
-                        (assoc (cfg ws src-root res-root false)
-                               :timestamp-string "2026-01-01T00:00:00Z")}}})
-      (let [entries (zip-entries jar-file)
-            names (map first entries)]
-        (is (= names (sort names)) (str "entries not name-sorted: " names))
-        (is (every? #(= pinned (second %)) entries)
-            (str "entries not stamped with the pin: " entries)))
-      (finally
-        (delete-tree ws-dir)))))
-
 (deftest two-builds-with-a-pinned-timestamp-are-byte-identical
-  "Two builds of the same sources and build config, with
-  :rig/timestamp-string set, produce byte-identical jars: the pin is
-  the switch that makes the jar's sha256 a stable fingerprint of
-  sources, lock and build JVM."
+  "With :rig/timestamp-string set, every entry of the built jar is stamped
+  with it and emitted in name-sorted order — so two builds of the same
+  sources and build config produce byte-identical jars. The pin is the
+  switch that makes the jar's sha256 a stable fingerprint of sources, lock
+  and build JVM."
   (let [make-src (fn [ws]
                    (let [f (io/file ws "src" "example" "core.clj")]
                      (io/make-parents f)
                      (spit f "(ns example.core\n  (:gen-class))\n(defn -main [& args]\n  (println (str \"hello \" (apply str args))))\n")))
         ws1 (temp-dir)
-        ws2 (temp-dir)]
+        ws2 (temp-dir)
+        pinned (.toEpochMilli (java.time.Instant/parse "2026-01-01T00:00:00Z"))]
     (make-src ws1)
     (make-src ws2)
     (try
       (doseq [ws [ws1 ws2]]
         (let [src-root (io/file ws "src")
-              res-root (io/file ws "resources")
-              res-file (io/file res-root "msg.txt")]
-          (io/make-parents res-file)
-          (spit res-file "from-resources")
+              res-root (io/file ws "resources")]
+          ;; Two resources far apart in sort order: the entry order the
+          ;; build writes is checked below.
+          (doseq [name ["aa.txt" "zz.txt"]]
+            (let [f (io/file res-root name)]
+              (io/make-parents f)
+              (spit f name)))
           (build/build
            {:args {:builds {"."
                             (assoc (cfg ws src-root res-root false)
@@ -421,6 +395,11 @@
       (is (= (vec (java.nio.file.Files/readAllBytes (.toPath (io/file ws1 "target" "fixture.jar"))))
              (vec (java.nio.file.Files/readAllBytes (.toPath (io/file ws2 "target" "fixture.jar")))))
           "the pinned builds must be byte-identical")
+      (let [entries (zip-entries (io/file ws1 "target" "fixture.jar"))
+            names (map first entries)]
+        (is (= names (sort names)) (str "entries not name-sorted: " names))
+        (is (every? #(= pinned (second %)) entries)
+            (str "entries not stamped with the pin: " entries)))
       (finally
         (delete-tree ws1)
         (delete-tree ws2)))))
