@@ -6,7 +6,6 @@
             [cljfmt.core :as cljfmt]
             [rig.resolver.edit :as edit]
             [rig.resolver.test-util :refer [delete-tree]]
-            [rig.resolver.versions :as versions]
             [rig.resolver.versions-test :as vtest])
   (:import [java.io File]))
 
@@ -77,6 +76,27 @@
           (let [ws (str dir)]
             (write-fixture ws root lib app)
             (f ws)))
+      (finally (delete-tree (str dir))))))
+
+(defn- with-repo-ws
+  "A workspace whose root and modules/app manifests declare the file:// repo
+  at url and hold com.rig.test/cooldown as a floating dep; f receives the
+  workspace dir."
+  [url f]
+  (let [dir (File. (System/getProperty "java.io.tmpdir")
+                   (str "rig-edit-repo-ws-" (java.util.UUID/randomUUID)))]
+    (try
+      (do (.mkdirs dir)
+          (io/make-parents (io/file dir "modules/app/src"))
+          (spit (io/file dir "deps.edn")
+                (str "{:rig/modules [\"modules/app\"]\n"
+                     " :mvn/repos {\"f\" {:url \"" url "\"}}}\n"))
+          (spit (io/file dir "modules/app/deps.edn")
+                (str "{:rig/lib example/app\n"
+                     " :paths [\"src\"]\n"
+                     " :deps {com.rig.test/cooldown {:mvn/version \"RELEASE\"}}\n"
+                     " :mvn/repos {\"f\" {:url \"" url "\"}}}\n"))
+          (f (str dir)))
       (finally (delete-tree (str dir))))))
 
 (deftest update-shared-req-propagates
@@ -327,33 +347,58 @@
           (is (some #(= "org.clojure/tools.logging:1.3.1:jar" %)
                     (get-in (get resp "lock") ["modules" "." :classpath]))))))))
 
-(deftest latest-selects-newest-eligible
-  (with-ws root-text lib-text app-text
-    (fn [dir]
-      (let [resp (edit/edit-dep {:workspace dir
-                                 :args {:module "."
-                                        :coord "org.clojure/core.specs.alpha"
-                                        :requirement "latest"
-                                        :shared false}})
-            got (get-in (read-manifest dir "deps.edn")
-                        [:deps 'org.clojure/core.specs.alpha :mvn/version])
-            md (versions/repo-metadata "org.clojure/core.specs.alpha"
-                                       versions/standard-repos)
-            byv (get md :by-version)
-            cands (if (seq (:latest md)) (into #{} (:latest md)) (keys byv))
-            eligible (filter (fn [v]
-                               (let [pa (get-in byv [v :published-at])]
-                                 (and pa
-                                      (<= pa (- (System/currentTimeMillis)
-                                                (versions/parse-duration-ms "48h"))))))
-                             cands)
-            want (reduce (fn [a b] (if (pos? (versions/vcmp a b)) a b)) eligible)]
-        (is (string? got) "a concrete version is written, not latest")
-        (is (re-find #"^\d+\." got))
-        (is (= want got) "newest eligible version wins")
-        (is (some #(= (str "org.clojure/core.specs.alpha:" got ":jar") (str %))
-                  (get-in (get resp "lock") ["modules" "." :classpath]))
-            "selected version is pinned in the lock")))))
+(deftest latest-marker-selects-the-marked-version
+  "The repo's <latest> marker defines the candidates: the marked version
+  wins even when the same repo serves a higher one."
+  (let [now (System/currentTimeMillis)
+        old (- now (* 100 3600 1000))]
+    (vtest/with-file-repo ["com.rig.test" "cooldown" {"1.0.0" old
+                                                      "1.0.1" old
+                                                      "1.0.2" old}
+                           "1.0.1"]
+      (fn [url]
+        (with-repo-ws url
+          (fn [dir]
+            (let [resp (edit/edit-dep {:workspace dir
+                                       :args {:module "modules/app"
+                                              :coord "com.rig.test/cooldown"
+                                              :requirement "latest"
+                                              :shared false}})]
+              (is (= "1.0.1" (get-in (read-manifest dir "modules/app/deps.edn")
+                                     [:deps 'com.rig.test/cooldown :mvn/version]))
+                  "the marked version is written, not the highest one served")
+              (is (some #(= "com.rig.test/cooldown:1.0.1:jar" %)
+                        (get-in resp ["lock" "modules" "modules/app" :classpath]))
+                  "the marked version is pinned in the lock")
+              (is (nil? (get resp "refused")) "nothing refused")
+              (is (cljfmt-clean? (slurp (io/file dir "modules/app/deps.edn")))
+                  "the manifest stays cljfmt-clean"))))))))
+
+(deftest latest-marker-in-cooldown-refuses
+  "A <latest> marker younger than the cooldown refuses the coord: the older
+  versions of the same repo are not fallback candidates."
+  (let [now (System/currentTimeMillis)
+        old (- now (* 100 3600 1000))
+        recent (- now 3600 1000)]
+    (vtest/with-file-repo ["com.rig.test" "cooldown" {"1.0.0" old
+                                                      "1.0.1" recent}
+                           "1.0.1"]
+      (fn [url]
+        (with-repo-ws url
+          (fn [dir]
+            (let [orig (slurp (io/file dir "modules/app/deps.edn"))
+                  resp (edit/edit-dep {:workspace dir
+                                       :args {:module "modules/app"
+                                              :coord "com.rig.test/cooldown"
+                                              :requirement "latest"
+                                              :shared false}})]
+              (is (nil? (get resp "lock")) "no lock on refusal")
+              (is (= "com.rig.test/cooldown"
+                     (str (get-in resp ["refused" 0 :coord]))))
+              (is (= "cooldown" (get-in resp ["refused" 0 :reason]))
+                  "the fresh marker is refused, the older version is not picked")
+              (is (= orig (slurp (io/file dir "modules/app/deps.edn")))
+                  "manifest untouched on refusal"))))))))
 
 (deftest latest-cooldown-refused
   (with-ws root-text lib-text app-text
