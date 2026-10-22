@@ -30,8 +30,9 @@
 
 (defn with-file-repo
   "Builds a file:// maven repo serving group/name with per-version
-  publication times ({version published-ms}); f receives the repo base URL."
-  [[group name versions] f]
+  publication times ({version published-ms}); f receives the repo base URL.
+  The optional latest is written as the repo's <latest> marker."
+  [[group name versions latest] f]
   (let [dir (File. (System/getProperty "java.io.tmpdir")
                    (str "rig-versions-test-" (java.util.UUID/randomUUID)))]
     (try
@@ -42,6 +43,7 @@
                 (str "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
                      "<metadata>\n"
                      "  <versioning>\n"
+                     (when latest (str "    <latest>" latest "</latest>\n"))
                      "    <versions>\n"
                      (apply str (for [v (sort (keys versions))]
                                   (str "      <version>" v "</version>\n")))
