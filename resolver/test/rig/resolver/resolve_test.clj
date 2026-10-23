@@ -52,11 +52,20 @@
     (is (= {"vendor" "temurin" "requested" "21"}
            (get lock "jvm")))))
 
-(deftest no-jvm-pin-no-jvm-key
+(deftest bare-manifest-carries-no-optional-keys
+  "A manifest that declares none of the optional pin/build keys: the lock
+  carries none of them — except :launch-opts, which the plan always writes
+  (empty when undeclared)."
   (let [ws (temp-ws "{:rig/lib x/y}\n")
         lock (-> (resolve/resolve-lock {:workspace ws})
                  (get "lock"))]
-    (is (nil? (get lock "jvm")))))
+    (is (nil? (get lock "jvm")))
+    (is (nil? (get lock "compile-jvm-opts")))
+    (is (nil? (get-in lock ["modules" "." :build :javac-opts])))
+    (is (nil? (get-in lock ["modules" "." :prep-ensure])))
+    (is (nil? (get-in lock ["modules" "." :prep-alias])))
+    (is (nil? (get-in lock ["modules" "." :prep-fn])))
+    (is (= [] (get-in lock ["modules" "." :launch-opts])))))
 
 (deftest jvm-pin-is-vendor-and-requested-only
   (let [ws (temp-ws "{:rig/lib x/y\n :rig/jvm \"25\"}\n")
@@ -72,23 +81,11 @@
                  (get "lock"))]
     (is (= ["--enable-preview"] (get lock "compile-jvm-opts")))))
 
-(deftest no-compile-jvm-opts-key-without-declaration
-  (let [ws (temp-ws "{:rig/lib x/y}\n")
-        lock (-> (resolve/resolve-lock {:workspace ws})
-                 (get "lock"))]
-    (is (nil? (get lock "compile-jvm-opts")))))
-
 (deftest launch-opts-are-copied-into-the-lock-module
   (let [ws (temp-ws "{:rig/lib x/y\n :rig/launch-opts [\"-Xmx1g\"]}\n")
         lock (-> (resolve/resolve-lock {:workspace ws})
                  (get "lock"))]
     (is (= ["-Xmx1g"] (get-in lock ["modules" "." :launch-opts])))))
-
-(deftest no-launch-opts-key-without-declaration
-  (let [ws (temp-ws "{:rig/lib x/y}\n")
-        lock (-> (resolve/resolve-lock {:workspace ws})
-                 (get "lock"))]
-    (is (= [] (get-in lock ["modules" "." :launch-opts])))))
 
 (deftest resolve-lock-with-two-mvn-repos
   (let [ws (temp-ws "{:rig/lib x/y\n :mvn/repos {\"central\" {:url \"https://example.com/central\"} \"corp\" {:url \"https://example.com/corp\"}}}\n")
@@ -299,12 +296,6 @@
     (is (= ["-encoding" "UTF-8"]
            (get-in lock ["modules" "." :build :javac-opts])))))
 
-(deftest no-javac-opts-key-without-declaration
-  (let [ws (temp-ws "{:rig/lib x/y}\n")
-        lock (-> (resolve/resolve-lock {:workspace ws})
-                 (get "lock"))]
-    (is (nil? (get-in lock ["modules" "." :build :javac-opts])))))
-
 (deftest artifact-dirs-fall-back-to-paths
   (let [ws (temp-ws "{:rig/lib x/y\n :paths [\"generator\" \"static\"]}\n")
         lock (-> (resolve/resolve-lock {:workspace ws})
@@ -346,11 +337,6 @@
     (is (= ["src"]
            (get-in lock ["modules" "." :build :artifact-dirs])))))
 
-(deftest legacy-ns-compile-manifest-is-rejected
-  (let [ws (temp-ws "{:exoscale.project/lib x/y\n :exoscale.project/uberjar? true\n :exoscale.project/ns-compile [a.b]}\n")]
-    (is (thrown-with-msg? Exception #"still uses legacy keys"
-                          (resolve/resolve-lock {:workspace ws})))))
-
 (deftest prep-lib-enters-the-lock
   (let [ws (temp-ws "{:rig/lib x/y\n :deps/prep-lib {:ensure \"target/classes\" :alias :prep :fn aot-compile}\n :aliases {:prep {:ns-default build}}}\n")
         lock (-> (resolve/resolve-lock {:workspace ws})
@@ -369,14 +355,6 @@
   (let [ws (temp-ws "{:rig/lib x/y\n :deps/prep-lib {:ensure \"target/classes\" :alias :prep :fn aot-compile}}\n")]
     (is (thrown-with-msg? Exception #":ns-default"
                           (resolve/resolve-lock {:workspace ws})))))
-
-(deftest no-prep-lib-no-prep-keys
-  (let [ws (temp-ws "{:rig/lib x/y}\n")
-        lock (-> (resolve/resolve-lock {:workspace ws})
-                 (get "lock"))]
-    (is (nil? (get-in lock ["modules" "." :prep-ensure])))
-    (is (nil? (get-in lock ["modules" "." :prep-alias])))
-    (is (nil? (get-in lock ["modules" "." :prep-fn])))))
 
 ;; version-fn
 

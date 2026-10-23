@@ -66,7 +66,7 @@
                      "  </versioning>\n"
                      "</metadata>\n"))
           (write-artifacts base group name versions))
-         (f (str "file://" (.getPath dir))))
+        (f (str "file://" (.getPath dir))))
       (finally (delete-tree (str dir))))))
 
 (deftest apply-versions-substitutes-only-floating
@@ -188,33 +188,23 @@
     (let [addr (.substring (str (.getAddress server)) 1)]
       [(str "http://" addr "/") seen server])))
 
-(deftest oidc-repo-probes-send-bearer-token
-  (binding [versions/*oidc-tokens* {"f" "tok-123"}]
-    (let [[base-url seen server] (start-recording-server)]
-      (try
-        (let [md (versions/repo-metadata "com.rig.test/authed"
-                                         [["f" {:url (.toString base-url)
-                                                :auth :oidc}]])]
-          (is (seq (get md :by-version)) "metadata fetched through the probe")
-          (is (every? #(and (seq %) (= "Bearer tok-123" (first %))) @seen)
-              (str "every probe sent the bearer header: " (pr-str @seen))))
-        (finally (.stop server 0))))))
-
 (deftest oidc-repos-are-authed-per-repo
-  "Two :auth :oidc repos each carry the bearer of their own repo id."
+  "Two :auth :oidc repos each carry the bearer of their own repo id — and
+  every probe of a marked repo carries one at all (the single-repo case is
+  contained here)."
   (binding [versions/*oidc-tokens* {"f" "tok-123" "g" "tok-456"}]
     (let [[url-f seen-f srv-f] (start-recording-server)
           [url-g seen-g srv-g] (start-recording-server)]
       (try
         (let [md (versions/repo-metadata "com.rig.test/multi"
                                          [["f" {:url (.toString url-f)
-                                                 :auth :oidc}]
+                                                :auth :oidc}]
                                           ["g" {:url (.toString url-g)
-                                                 :auth :oidc}]])]
+                                                :auth :oidc}]])]
           (is (seq (get md :by-version)) "metadata fetched")
           (is (seq @seen-f) "repo f was probed")
           (is (seq @seen-g) "repo g was probed")
-          (is (every? #(= "Bearer tok-123" (first %)) @seen-f)
+          (is (every? #(and (seq %) (= "Bearer tok-123" (first %))) @seen-f)
               (str "repo f probed with its own token: " (pr-str @seen-f)))
           (is (every? #(= "Bearer tok-456" (first %)) @seen-g)
               (str "repo g probed with its own token: " (pr-str @seen-g))))
@@ -276,7 +266,6 @@
               (str "HEAD probe sent the bearer header: " (pr-str @seen))))
         (finally (.stop server 0))))))
 
-
 ;; --- auth proxy env: RIG_PROXY_REPOS rewrites marked repo urls ---
 
 (deftest proxy-map-defaults-to-empty
@@ -296,11 +285,11 @@
           "mapped id rewritten, others kept")
       (is (= {:mvn/repos {"central" {:url "https://repo.maven.apache.org/maven2"}}}
              (versions/with-proxy-repos
-              {:mvn/repos {"central" {:url "https://repo.maven.apache.org/maven2"}}}))
+               {:mvn/repos {"central" {:url "https://repo.maven.apache.org/maven2"}}}))
           "nothing mapped, data returned unchanged")
       (is (= {} (versions/with-proxy-repos {})) "no repos, data returned unchanged"))
     (binding [versions/*proxy-repos* nil]
       (is (= {:mvn/repos {"oidc" {:url "https://pier.example"}}}
              (versions/with-proxy-repos
-              {:mvn/repos {"oidc" {:url "https://pier.example"}}}))
+               {:mvn/repos {"oidc" {:url "https://pier.example"}}}))
           "no proxy binding, data returned unchanged"))))

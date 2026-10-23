@@ -115,6 +115,8 @@ func TestBadSHA(t *testing.T) {
 // artifacts at different URLs, so the lock fetches them in parallel and both
 // Adds target the same sha. The staging temp must be unique per call; a shared
 // "<sha>.tmp" lets the second rename hit a file the first already moved (ENOENT).
+// Each rename comes from its own temp file onto the (already present) target, so
+// this also covers re-adding a sha the store already holds.
 func TestAddConcurrentSameSHA(t *testing.T) {
 	store := NewAt(t.TempDir())
 	path, sha := makeArtifact(t, "identical bytes")
@@ -133,24 +135,6 @@ func TestAddConcurrentSameSHA(t *testing.T) {
 		if err != nil {
 			t.Fatalf("add %d: %v", i, err)
 		}
-	}
-	if err := store.Verify(sha, ""); err != nil {
-		t.Errorf("verify: %v", err)
-	}
-}
-
-func TestAddSameHashTwice(t *testing.T) {
-	store := NewAt(t.TempDir())
-	path, sha := makeArtifact(t, "v1")
-	if err := store.Add(path, sha, ""); err != nil {
-		t.Fatal(err)
-	}
-	path2, sha2 := makeArtifact(t, "v1")
-	if sha != sha2 {
-		t.Fatal("test bug: different hash")
-	}
-	if err := store.Add(path2, sha2, ""); err != nil {
-		t.Fatal(err)
 	}
 	if err := store.Verify(sha, ""); err != nil {
 		t.Errorf("verify: %v", err)

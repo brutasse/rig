@@ -10,7 +10,7 @@
   (let [ws (doto (java.io.File.
                   (str (java.nio.file.Files/createTempDirectory "rig-check-test"
                                                                 (into-array java.nio.file.attribute.FileAttribute []))))
-               (.deleteOnExit))]
+             (.deleteOnExit))]
     (spit (io/file ws "deps.edn") root-text)
     (doseq [[m text] module-files]
       (let [f (io/file ws m "deps.edn")]
@@ -26,21 +26,21 @@
   [artifacts pins]
   {:artifacts (mapv (partial into {}) artifacts)
    :modules (into {"." {:classpath []}}
-                   (for [[m c2v] pins]
-                     [m {:classpath (mapv (fn [[c v]] (str c ":" v ":jar"))
-                                          (seq c2v))}]))})
+                  (for [[m c2v] pins]
+                    [m {:classpath (mapv (fn [[c v]] (str c ":" v ":jar"))
+                                         (seq c2v))}]))})
 
 (deftest clean-workspace-is-ok
   (let [ws (temp-ws
             "{:rig/modules [\"modules/a\"]\n :rig/deps {org.clojure/test.check {:mvn/version \"1.1.0\"}}}\n"
             {"modules/a" "{:deps {org.clojure/test.check {:mvn/version \"1.1.0\"}}}\n"})
-         res (check/check {:workspace ws
-                           :lock (lock-with
-                                  [{:kind "mvn" :group "org.clojure" :name "test.check"
-                                    :version "1.1.0" :repository "clojars"}]
-                                  {"modules/a" {"org.clojure/test.check" "1.1.0"}})})]
-     (is (true? (get res :ok)))
-     (is (empty? (get res :problems)))))
+        res (check/check {:workspace ws
+                          :lock (lock-with
+                                 [{:kind "mvn" :group "org.clojure" :name "test.check"
+                                   :version "1.1.0" :repository "clojars"}]
+                                 {"modules/a" {"org.clojure/test.check" "1.1.0"}})})]
+    (is (true? (get res :ok)))
+    (is (empty? (get res :problems)))))
 
 (deftest stale-lock-reports-requirement-vs-pin
   (let [ws (temp-ws
@@ -51,8 +51,8 @@
                                  [{:kind "mvn" :group "org.clojure" :name "test.check"
                                    :version "1.1.0"}]
                                  {"modules/a" {"org.clojure/test.check" "1.1.0"}})})]
-     (is (false? (get res :ok)))
-     (is (some #(and (= "stale-lock" (:kind %))
+    (is (false? (get res :ok)))
+    (is (some #(and (= "stale-lock" (:kind %))
                     (= "error" (:severity %))
                     (= "modules/a" (:module %))
                     (= "manifest requires \"1.2.0\"; lock pins \"1.1.0\" — run rig update"
@@ -63,44 +63,49 @@
   (let [ws (temp-ws
             "{:rig/modules [\"modules/a\"]}\n"
             {"modules/a" "{:deps {com.example/shared {:mvn/version \"1.0.0\"}}}\n"})
-         res (check/check {:workspace ws :lock (lock-with [] {})})]
-     (is (some #(and (= "stale-lock" (:kind %))
-                     (= "manifest requires \"1.0.0\"; lock has no pin — run rig lock"
-                        (:message %)))
-               (get res :problems)))))
-
-(deftest stale-lock-normalizes-unqualified-dep-name
-  (let [ws (temp-ws
-            "{:rig/modules [\"modules/a\"]}\n"
-            {"modules/a" "{:deps {aleph {:mvn/version \"0.4.6\"}}}\n"})]
-    (is (true? (get (check/check
-                     {:workspace ws
-                      :lock {:artifacts []
-                             :modules {"." {:classpath []}
-                                       "modules/a" {:classpath ["aleph/aleph:0.4.6:jar"]}}}})
-                   :ok)))
+        res (check/check {:workspace ws :lock (lock-with [] {})})]
     (is (some #(and (= "stale-lock" (:kind %))
-                    (= "aleph/aleph" (:coord %))
-                    (= "manifest requires \"0.4.6\"; lock has no pin — run rig lock"
+                    (= "manifest requires \"1.0.0\"; lock has no pin — run rig lock"
                        (:message %)))
-              (get (check/check
-                    {:workspace ws
-                     :lock {:artifacts []
-                            :modules {"." {:classpath []}
-                                      "modules/a" {:classpath []}}}})
-                   :problems)))))
+              (get res :problems)))))
 
-(deftest stale-lock-unqualified-dep-with-classifier-preserves-classifier
-  (let [ws (temp-ws
-            "{:rig/modules [\"modules/a\"]}\n"
-            {"modules/a" "{:deps {kafka-clients$test {:mvn/version \"4.3.1\"}}}\n"})]
-    (is (true? (get (check/check
-                     {:workspace ws
-                      :lock {:artifacts []
+(deftest stale-lock-normalizes-declared-dep-names
+  "Declared dep coords and the lock's classpath entries are matched after
+  normalization: an unqualified lib is the group/name shorthand, and a
+  tools.deps $classifier suffix selects that classifier's artifact and stays
+  in the coord. A requirement no classpath entry matches is reported as a
+  stale-lock naming the normalized coord."
+  (doseq [{:keys [manifest coord version locked]}
+          [{:manifest "{:deps {aleph {:mvn/version \"0.4.6\"}}}"
+            :coord     "aleph/aleph"
+            :version   "0.4.6"
+            :locked    "aleph/aleph:0.4.6:jar"}
+           {:manifest "{:deps {kafka-clients$test {:mvn/version \"4.3.1\"}}}"
+            :coord     "kafka-clients/kafka-clients$test"
+            :version   "4.3.1"
+            :locked    "kafka-clients/kafka-clients:4.3.1:test:jar"}
+           {:manifest "{:deps {org.apache.kafka/kafka-clients$test {:mvn/version \"4.3.1\"}}}"
+            :coord     "org.apache.kafka/kafka-clients$test"
+            :version   "4.3.1"
+            :locked    "org.apache.kafka/kafka-clients:4.3.1:test:jar"}]
+          :let [ws (temp-ws "{:rig/modules [\"modules/a\"]}\n"
+                            {"modules/a" (str manifest "\n")})
+                locked-lock {:artifacts []
                              :modules {"." {:classpath []}
-                                       "modules/a" {:classpath
-                                                   ["kafka-clients/kafka-clients:4.3.1:test:jar"]}}}})
-                   :ok)))))
+                                       "modules/a" {:classpath [locked]}}}
+                empty-lock {:artifacts []
+                            :modules {"." {:classpath []}
+                                      "modules/a" {:classpath []}}}
+                problems (get (check/check {:workspace ws :lock empty-lock}) :problems)]]
+    (is (true? (get (check/check {:workspace ws :lock locked-lock}) :ok))
+        (str "a matching lock entry must satisfy the declared coord: " coord))
+    (is (some #(and (= "stale-lock" (:kind %))
+                    (= coord (:coord %))
+                    (= (str "manifest requires \"" version
+                            "\"; lock has no pin — run rig lock")
+                       (:message %)))
+              problems)
+        (str "an unmatched requirement reports the normalized coord: " coord))))
 
 (deftest floating-version-release-is-an-error
   (let [ws (temp-ws
@@ -112,8 +117,8 @@
                                  [{:kind "mvn" :group "org.clojure" :name "test.check"
                                    :version "1.1.0"}]
                                  {})})]
-     (is (false? (get res :ok)))
-     (is (some #(and (= "floating-version" (:kind %))
+    (is (false? (get res :ok)))
+    (is (some #(and (= "floating-version" (:kind %))
                     (= "manifest uses \"RELEASE\"; run `rig update org.clojure/test.check` to pin an exact version"
                        (:message %)))
               (get res :problems)))))
@@ -122,11 +127,11 @@
   (let [ws (temp-ws
             "{:rig/modules [\"modules/a\"]\n :rig/deps {org.clojure/test.check {:mvn/version \"1.1.0\"}}}\n"
             {"modules/a" "{:deps {org.clojure/test.check {:mvn/version \"1.1.1\"}}}\n"})
-         res (check/check {:workspace ws
-                           :lock (lock-with
-                                  [{:kind "mvn" :group "org.clojure" :name "test.check"
-                                    :version "1.1.0"}]
-                                  {"modules/a" {"org.clojure/test.check" "1.1.1"}})})]
+        res (check/check {:workspace ws
+                          :lock (lock-with
+                                 [{:kind "mvn" :group "org.clojure" :name "test.check"
+                                   :version "1.1.0"}]
+                                 {"modules/a" {"org.clojure/test.check" "1.1.1"}})})]
     (is (some #(and (= "drift" (:kind %))
                     (= "warn" (:severity %))
                     (= "module requires \"1.1.1\", workspace requires \"1.1.0\""
@@ -137,11 +142,11 @@
   (let [ws (temp-ws
             "{:rig/modules [\"modules/a\"]\n :rig/deps {org.clojure/test.check \"1.1.0\"}}\n"
             {"modules/a" "{:deps {org.clojure/test.check {:mvn/version \"1.1.1\"}}}\n"})
-         res (check/check {:workspace ws
-                           :lock (lock-with
-                                  [{:kind "mvn" :group "org.clojure" :name "test.check"
-                                    :version "1.1.0"}]
-                                  {"modules/a" {"org.clojure/test.check" "1.1.1"}})})]
+        res (check/check {:workspace ws
+                          :lock (lock-with
+                                 [{:kind "mvn" :group "org.clojure" :name "test.check"
+                                   :version "1.1.0"}]
+                                 {"modules/a" {"org.clojure/test.check" "1.1.1"}})})]
     (is (some #(and (= "drift" (:kind %))
                     (= "warn" (:severity %))
                     (= "module requires \"1.1.1\", workspace requires \"1.1.0\""
@@ -153,13 +158,13 @@
             "{:rig/modules [\"modules/a\" \"modules/b\"]}\n"
             {"modules/a" "{:deps {org.clojure/test.check {:mvn/version \"1.1.0\"}}}\n"
              "modules/b" "{:deps {org.clojure/test.check {:mvn/version \"2.0.0\"}}}\n"})
-          res (check/check {:workspace ws
-                            :lock (lock-with
-                                   [{:kind "mvn" :group "org.clojure" :name "test.check"
-                                     :version "1.1.0"}]
-                                   {"modules/a" {"org.clojure/test.check" "1.1.0"}
-                                    "modules/b" {"org.clojure/test.check" "2.0.0"}})})]
-     (is (some #(and (= "conflict" (:kind %))
+        res (check/check {:workspace ws
+                          :lock (lock-with
+                                 [{:kind "mvn" :group "org.clojure" :name "test.check"
+                                   :version "1.1.0"}]
+                                 {"modules/a" {"org.clojure/test.check" "1.1.0"}
+                                  "modules/b" {"org.clojure/test.check" "2.0.0"}})})]
+    (is (some #(and (= "conflict" (:kind %))
                     (= "error" (:severity %))
                     (re-find #"requirements \"1.1.0\" \(modules/a\) and \"2.0.0\" \(modules/b\) are incompatible"
                              (:message %)))
@@ -169,45 +174,45 @@
   (let [ws (temp-ws
             "{:rig/modules [\"modules/a\"]}\n"
             {"modules/a" "{:deps {org.clojure/test.check {:mvn/version \"[1.1.0,)\"}}}\n"})
-         res (check/check {:workspace ws
-                           :lock (lock-with
-                                  [{:kind "mvn" :group "org.clojure" :name "test.check"
-                                    :version "1.1.5"}]
-                                  {"modules/a" {"org.clojure/test.check" "1.1.5"}})})]
-     (is (true? (get res :ok)))
-     (is (empty? (get res :problems)))))
+        res (check/check {:workspace ws
+                          :lock (lock-with
+                                 [{:kind "mvn" :group "org.clojure" :name "test.check"
+                                   :version "1.1.5"}]
+                                 {"modules/a" {"org.clojure/test.check" "1.1.5"}})})]
+    (is (true? (get res :ok)))
+    (is (empty? (get res :problems)))))
 
 (deftest publish-without-lib-is-no-lib
   (let [ws (temp-ws
             "{:rig/modules [\"modules/a\"]}\n"
             {"modules/a" "{:rig/publish {:repo \"clojars\"}}\n"})
-         res (check/check {:workspace ws :lock (lock-with [] {})})]
-     (is (some #(= "no-lib" (:kind %)) (get res :problems)))))
+        res (check/check {:workspace ws :lock (lock-with [] {})})]
+    (is (some #(= "no-lib" (:kind %)) (get res :problems)))))
 
 (deftest unknown-repo-in-lock-is-flagged
   (let [ws (temp-ws
             "{:rig/modules [\"modules/a\"]}\n"
             {"modules/a" "{:deps {org.clojure/test.check {:mvn/version \"1.1.0\"}}}\n"})
-         res (check/check {:workspace ws
-                           :lock (lock-with
-                                  [{:kind "mvn" :group "org.clojure" :name "test.check"
-                                    :version "1.1.0" :repository "nexus-internal"}]
-                                  {"modules/a" {"org.clojure/test.check" "1.1.0"}})})]
-     (is (some #(and (= "unknown-repo" (:kind %))
-                     (re-find #"nexus-internal" (:message %)))
-               (get res :problems)))))
+        res (check/check {:workspace ws
+                          :lock (lock-with
+                                 [{:kind "mvn" :group "org.clojure" :name "test.check"
+                                   :version "1.1.0" :repository "nexus-internal"}]
+                                 {"modules/a" {"org.clojure/test.check" "1.1.0"}})})]
+    (is (some #(and (= "unknown-repo" (:kind %))
+                    (re-find #"nexus-internal" (:message %)))
+              (get res :problems)))))
 
 (deftest declared-repo-in-manifest-is-not-flagged
   (let [ws (temp-ws
             "{:rig/modules [\"modules/a\"]\n :mvn/repos {\"nexus-internal\" {:url \"https://x\"}}}\n"
             {"modules/a" "{:deps {org.clojure/test.check {:mvn/version \"1.1.0\"}}}\n"})
-         res (check/check {:workspace ws
-                           :lock (lock-with
-                                  [{:kind "mvn" :group "org.clojure" :name "test.check"
-                                    :version "1.1.0" :repository "nexus-internal"}]
-                                  {"modules/a" {"org.clojure/test.check" "1.1.0"}})})]
-     (is (true? (get res :ok)))
-     (is (nil? (some #(= "unknown-repo" (:kind %)) (get res :problems))))))
+        res (check/check {:workspace ws
+                          :lock (lock-with
+                                 [{:kind "mvn" :group "org.clojure" :name "test.check"
+                                   :version "1.1.0" :repository "nexus-internal"}]
+                                 {"modules/a" {"org.clojure/test.check" "1.1.0"}})})]
+    (is (true? (get res :ok)))
+    (is (nil? (some #(= "unknown-repo" (:kind %)) (get res :problems))))))
 
 (deftest stale-lock-handles-keyified-module-keys
   (let [ws (temp-ws
@@ -230,8 +235,8 @@
              "modules/b" "{:deps {org.clojure/test.check {:mvn/version \"1.0.0\"}}}\n"})
         res (check/check {:workspace ws
                           :lock (lock-with []
-                                         {"modules/a" {"org.clojure/test.check" "1.1.0"}
-                                          "modules/b" {"org.clojure/test.check" "1.0.0"}})})]
+                                           {"modules/a" {"org.clojure/test.check" "1.1.0"}
+                                            "modules/b" {"org.clojure/test.check" "1.0.0"}})})]
     (is (some #(and (= "stale-lock" (:kind %))
                     (= "modules/a" (:module %))
                     (= "manifest requires \"1.0.0\"; lock pins \"1.1.0\" — run rig update"
@@ -247,8 +252,8 @@
             {"modules/a" "{:deps {some/lib/other {:mvn/version \"1.0.0\"}}}\n"})
         res (check/check {:workspace ws
                           :lock (lock-with []
-                                         {"modules/a" {"org.clojure/test.check" "1.0.0"
-                                                       "some/lib/other" "1.0.0"}})})]
+                                           {"modules/a" {"org.clojure/test.check" "1.0.0"
+                                                         "some/lib/other" "1.0.0"}})})]
     (is (true? (get res :ok)))
     (is (empty? (get res :problems)))))
 
@@ -258,34 +263,13 @@
             {"modules/a" "{:deps {some/lib/other {:mvn/version \"1.0.0\"}}}\n"})
         res (check/check {:workspace ws
                           :lock (lock-with []
-                                         {"modules/a" {"org.clojure/test.check" "2.0.0"
-                                                       "some/lib/other" "1.0.0"}})})]
+                                           {"modules/a" {"org.clojure/test.check" "2.0.0"
+                                                         "some/lib/other" "1.0.0"}})})]
     (is (some #(and (= "stale-lock" (:kind %))
                     (= "." (:module %))
                     (= "workspace requires \"1.0.0\"; lock pins \"2.0.0\" — run rig update"
                        (:message %)))
               (get res :problems)))))
-
-(deftest stale-lock-matches-classifier-dep-key
-  (let [ws (temp-ws
-            "{:rig/modules [\"modules/a\"]}\n"
-            {"modules/a" "{:deps {org.apache.kafka/kafka-clients$test
-                                  {:mvn/version \"4.3.1\"}}}\n"})]
-    (is (true? (get (check/check
-                     {:workspace ws
-                      :lock {:artifacts []
-                             :modules {"." {:classpath []}
-                                       "modules/a" {:classpath
-                                                   ["org.apache.kafka/kafka-clients:4.3.1:test:jar"]}}}})
-                   :ok)))
-    (is (some #(and (= "stale-lock" (:kind %))
-                    (= "org.apache.kafka/kafka-clients$test" (:coord %)))
-              (get (check/check
-                    {:workspace ws
-                     :lock {:artifacts []
-                            :modules {"." {:classpath []}
-                                      "modules/a" {:classpath []}}}})
-                   :problems)))))
 
 (deftest unconsumed-pool-requirement-is-a-warn-not-a-hang-up
   "A :rig/deps entry no module resolves (nothing declares it, nothing pulls

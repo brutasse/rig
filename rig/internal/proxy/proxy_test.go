@@ -53,26 +53,10 @@ func get(t *testing.T, url string, wantStatus int) (int, string) {
 	return resp.StatusCode, string(b)
 }
 
-func TestProxyInjectsBearer(t *testing.T) {
-	up, seen := target(t, "Bearer tok-1")
-	p, err := Start(map[string]string{"pier": up.URL}, map[string]string{"pier": "tok-1"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer p.Close()
-
-	status, body := get(t, p.Base("pier")+"/org/x/1.0.0/x-1.0.0.jar", 200)
-	if status != 200 || body != "artifact-bytes" {
-		t.Fatalf("got status %d body %q", status, body)
-	}
-	if len(*seen) != 1 || (*seen)[0].method != "GET" ||
-		(*seen)[0].path != "/org/x/1.0.0/x-1.0.0.jar" || (*seen)[0].auth != "Bearer tok-1" {
-		t.Fatalf("upstream saw: %#v", *seen)
-	}
-}
-
 // TestProxyPerRepoTokens: each repository id gets the bearer of its own
-// gate — two repos, two tokens, no cross-talk.
+// gate — two repos, two tokens, no cross-talk — and every forwarded request
+// reaches its upstream with the method and path intact, with the body
+// streamed back.
 func TestProxyPerRepoTokens(t *testing.T) {
 	a, seenA := target(t, "Bearer tok-a")
 	b, seenB := target(t, "Bearer tok-b")
@@ -84,14 +68,20 @@ func TestProxyPerRepoTokens(t *testing.T) {
 	}
 	defer p.Close()
 
-	get(t, p.Base("a")+"/org/x/1.0.0/x-1.0.0.jar", 200)
+	_, body := get(t, p.Base("a")+"/org/x/1.0.0/x-1.0.0.jar", 200)
+	if body != "artifact-bytes" {
+		t.Fatalf("body = %q, want the upstream body streamed back", body)
+	}
 	get(t, p.Base("b")+"/org/y/2.0.0/y-2.0.0.jar", 200)
 	get(t, p.Base("a")+"/org/x/1.0.0/x-1.0.0.jar", 200)
 
-	if len(*seenA) != 2 || (*seenA)[0].auth != "Bearer tok-a" || (*seenA)[1].auth != "Bearer tok-a" {
+	if len(*seenA) != 2 || (*seenA)[0].method != "GET" ||
+		(*seenA)[0].path != "/org/x/1.0.0/x-1.0.0.jar" ||
+		(*seenA)[0].auth != "Bearer tok-a" || (*seenA)[1].auth != "Bearer tok-a" {
 		t.Fatalf("upstream a saw: %#v", *seenA)
 	}
-	if len(*seenB) != 1 || (*seenB)[0].auth != "Bearer tok-b" {
+	if len(*seenB) != 1 || (*seenB)[0].path != "/org/y/2.0.0/y-2.0.0.jar" ||
+		(*seenB)[0].auth != "Bearer tok-b" {
 		t.Fatalf("upstream b saw: %#v", *seenB)
 	}
 }

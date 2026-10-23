@@ -8,9 +8,9 @@
   "A temp workspace holding the given {relative-path text} files."
   [files]
   (let [ws (doto (java.io.File.
-                    (str (java.nio.file.Files/createTempDirectory "rig-migrate-test"
-                                                                  (into-array java.nio.file.attribute.FileAttribute []))))
-               (.deleteOnExit))]
+                  (str (java.nio.file.Files/createTempDirectory "rig-migrate-test"
+                                                                (into-array java.nio.file.attribute.FileAttribute []))))
+             (.deleteOnExit))]
     (doseq [[rel text] files]
       (io/make-parents (io/file ws rel))
       (spit (io/file ws rel) text))
@@ -111,7 +111,7 @@
                      "{:exoscale.project/lib x/y\n :exoscale.project/modules [\"modules/m\"]\n :exoscale.deps/managed-dependencies {a/b #:mvn{:version \"1.0.0\"}\n                                                 c/d #:mvn{:version \"2.0.0\" :classifier \"sources\"}}}"
                      "modules/m/deps.edn"
                      "{:exoscale.project/lib m/lib :deps {a/b {:exoscale.deps/inherit :all}\n                                              c/d {:exoscale.deps/inherit :all}}}"})
-         r (run ws)]
+        r (run ws)]
     (is (empty? (problems r)))
     (let [text (file-text ws "modules/m/deps.edn")
           d (file-edn ws "modules/m/deps.edn")]
@@ -135,7 +135,7 @@
   (let [ws (temp-ws {"deps.edn" root-with-managed
                      "modules/m/deps.edn"
                      "{:exoscale.project/lib m/lib\n :deps {a/b {:mvn/version \"0.9.0\" :exoscale.deps/inherit :all}\n                   plain/p {:mvn/version \"2.0.0\"}}}"})
-         r (run ws)]
+        r (run ws)]
     (is (empty? (problems r)))
     (is (some #(re-find #"a/b: :mvn/version \"0\.9\.0\" \(managed \"1\.0\.0\"\)" %) (warnings r)))
     (let [d (file-edn ws "modules/m/deps.edn")]
@@ -148,7 +148,7 @@
                      "{:exoscale.project/lib x/y\n :exoscale.project/modules [\"modules/m\"]\n :exoscale.deps/managed-dependencies {a/b {:mvn/version \"1.0.0\"}}}"
                      "modules/m/deps.edn"
                      "{:exoscale.project/lib m/lib :deps {a/b {:mvn/version \"1.0.0\" :exoscale.deps/inherit :all}}}"})
-         r (run ws)]
+        r (run ws)]
     (is (empty? (problems r)))
     (is (= {:mvn/version "1.0.0"}
            (get-in (file-edn ws "modules/m/deps.edn") [:deps 'a/b])))
@@ -161,7 +161,7 @@
                      "{:exoscale.project/lib x/y :exoscale.project/modules [\"modules/m\"]\n :exoscale.deps/managed-dependencies {a/b {:exoscale.deps/inherit :all :mvn/version \"1.0.0\"}}}"
                      "modules/m/deps.edn"
                      "{:exoscale.project/lib m/lib :deps {a/b {:exoscale.deps/inherit :all}}}"})
-         r (run ws)]
+        r (run ws)]
     (is (empty? (problems r)))
     (is (= {:mvn/version "1.0.0"}
            (get-in (file-edn ws "modules/m/deps.edn") [:deps 'a/b])))
@@ -170,14 +170,14 @@
 (deftest materialized-dep-with-extra-keyword-pair-stays-valid
   "Regression: the value node of a materialized dep map is built pair by
   pair; without a separator between pairs a keyword-valued pair glues the
-  next key (":else" + ":mvn/version" -> ":else:mvn/version"), leaving an
+  next key (" :else " + " :mvn/version " -> " :else:mvn/version "), leaving an
   odd-form map the EDN reader rejects. The declared version is kept
   (declared wins over the managed one)."
   (let [ws (temp-ws {"deps.edn"
                      "{:exoscale.project/lib x/y\n :exoscale.project/modules [\"modules/m\"]\n :exoscale.deps/managed-dependencies {a/b {:mvn/version \"1.0.0\"}}}"
                      "modules/m/deps.edn"
                      "{:exoscale.project/lib x/m\n :deps {a/b {:exoscale.deps/inherit :all\n                      :mvn/version \"0.9.0\"\n                      :something :else}}}"})
-         r (run ws)]
+        r (run ws)]
     (is (empty? (problems r)))
     (is (= {:mvn/version "0.9.0" :something :else}
            (get (get (file-edn ws "modules/m/deps.edn") :deps) 'a/b)))))
@@ -615,8 +615,8 @@
 (deftest leiningen-unknown-deploy-shorthand-is-a-problem
   (let [text "(defproject foo/bar \"1.0\"
   :deploy-repositories [[\"releases\" :nope]])\n"
-         ws (temp-ws {"project.clj" text})
-         r (run ws)]
+        ws (temp-ws {"project.clj" text})
+        r (run ws)]
     (is (some #(re-find #"not a spec map" %) (problems r)))
     (is (some #(re-find #":clojars" %) (problems r)))
     (is (empty? (get r "edits")))
@@ -684,9 +684,9 @@
 
 (deftest leiningen-keyword-repository-ids-are-stringified
   (let [ws (temp-ws {"project.clj"
-                    "(defproject foo/bar \"1.0\"
+                     "(defproject foo/bar \"1.0\"
  :repositories {:exoscale {:url \"https://artifacts.example\"}})\n"})
-         r (run ws)]
+        r (run ws)]
     (is (empty? (problems r)))
     (is (= {:url "https://artifacts.example"}
            (get-in (file-edn ws "deps.edn") [:mvn/repos "exoscale"])))
@@ -832,84 +832,79 @@
 
 (deftest lein-managed-version-var-resolves-a-static-def
   (let [ws (temp-ws {"project.clj"
-                    "(def sub-v \"1.0.0\")
+                     "(def sub-v \"1.0.0\")
  (defproject foo/bar \"1.0.0\"
  :managed-dependencies [[\"a/b\" ~sub-v]]
  :dependencies [[a/b]])\n"})
-         r (run ws)]
+        r (run ws)]
     (is (empty? (problems r)))
     (is (= {:mvn/version "1.0.0"}
            (get-in (file-edn ws "deps.edn") [:deps 'a/b])))))
 
 (deftest lein-managed-version-var-computed-is-a-problem
   (let [ws (temp-ws {"project.clj"
-                    "(def sub-v (inc 0))
+                     "(def sub-v (inc 0))
  (defproject foo/bar \"1.0.0\"
  :managed-dependencies [[\"a/b\" ~sub-v]]
  :dependencies [[a/b]])\n"})
-         r (run ws)]
+        r (run ws)]
     (is (= 1 (count (problems r))))
     (is (some #(re-find #"lein-replace var that cannot be resolved statically" %) (problems r)))
     (is (some #(re-find #"sub-v" %) (problems r)))
     (is (false? (.exists (io/file ws "deps.edn"))))))
 
 (deftest lein-version-var-resolves-a-static-def
+  "A ~var version is materialized from the static def, and the rest of the
+  dep vector's key/value pairs ride along unchanged."
   (let [ws (temp-ws {"project.clj"
-                    "(def v \"1.0.0\")
+                     "(def v \"1.0.0\")
  (defproject foo/bar \"1.0.0\"
- :dependencies [[\"a/b\" ~v]])\n"})
-         r (run ws)]
+ :dependencies [[\"a/b\" ~v]
+                [\"c/d\" ~v :exclusions [x/y]]])\n"})
+        r (run ws)]
     (is (empty? (problems r)))
     (is (= {:mvn/version "1.0.0"}
-           (get-in (file-edn ws "deps.edn") [:deps 'a/b])))))
-
-(deftest lein-version-var-with-exclusions
-  (let [ws (temp-ws {"project.clj"
-                    "(def v \"1.0.0\")
- (defproject foo/bar \"1.0.0\"
- :dependencies [[\"a/b\" ~v :exclusions [x/y]]])\n"})
-         r (run ws)]
-    (is (empty? (problems r)))
+           (get-in (file-edn ws "deps.edn") [:deps 'a/b])))
     (is (= {:mvn/version "1.0.0" :exclusions '[x/y]}
-           (get-in (file-edn ws "deps.edn") [:deps 'a/b])))))
+           (get-in (file-edn ws "deps.edn") [:deps 'c/d])))))
 
 (deftest lein-profile-version-var-materializes-in-the-alias
   (let [ws (temp-ws {"project.clj"
-                    "(def v \"1.0.0\")
+                     "(def v \"1.0.0\")
  (defproject foo/bar \"1.0.0\"
  :dependencies []
  :profiles {:test {:dependencies [[\"a/b\" ~v]]}})\n"})
-         r (run ws)]
+        r (run ws)]
     (is (empty? (problems r)))
     (is (= {:mvn/version "1.0.0"}
            (get-in (file-edn ws "deps.edn") [:aliases :test :extra-deps 'a/b])))))
 
 (deftest lein-version-var-computed-is-a-problem
   (let [ws (temp-ws {"project.clj"
-                    "(def v (inc 0))
+                     "(def v (inc 0))
  (defproject foo/bar \"1.0.0\"
  :dependencies [[\"a/b\" ~v]])\n"})
-         r (run ws)]
+        r (run ws)]
     (is (= 1 (count (problems r))))
     (is (some #(re-find #"version var ~v cannot be resolved statically" %) (problems r)))
     (is (false? (.exists (io/file ws "deps.edn"))))))
 
 (deftest lein-version-var-undefined-is-a-problem
   (let [ws (temp-ws {"project.clj"
-                    "(defproject foo/bar \"1.0.0\"
+                     "(defproject foo/bar \"1.0.0\"
  :dependencies [[\"a/b\" ~undefined-v]])\n"})
-         r (run ws)]
+        r (run ws)]
     (is (= 1 (count (problems r))))
     (is (some #(re-find #"version var ~undefined-v cannot be resolved statically" %) (problems r)))
     (is (false? (.exists (io/file ws "deps.edn"))))))
 
 (deftest lein-version-var-slurps-a-file
   (let [ws (temp-ws {"project.clj"
-                    "(def v (slurp \"VERSION\"))
+                     "(def v (slurp \"VERSION\"))
  (defproject foo/bar \"1.0.0\"
  :dependencies [[\"a/b\" ~v]])"
-                    "VERSION" "2.5.0\n"})
-         r (run ws)]
+                     "VERSION" "2.5.0\n"})
+        r (run ws)]
     (is (empty? (problems r)))
     (is (= {:mvn/version "2.5.0"}
            (get-in (file-edn ws "deps.edn") [:deps 'a/b])))))
@@ -1089,8 +1084,8 @@
   (let [ws (temp-ws {"project.clj"
                      "(defproject foo/parent \"1.0.0\"
   :sub [\"modules/m\" \"modules/n\"])"
-        "modules/m/project.clj"
-        "(defproject foo/m \"1.0.0\")"})
+                     "modules/m/project.clj"
+                     "(defproject foo/m \"1.0.0\")"})
         r (run ws)]
     (is (= ["modules/n/project.clj: not found"] (problems r)))
     (is (empty? (get r "edits")))
@@ -1099,8 +1094,8 @@
 (deftest lein-sub-module-without-defproject-is-a-problem
   (let [ws (temp-ws {"project.clj"
                      "(defproject foo/parent \"1.0.0\" :sub [\"modules/m\"])"
-        "modules/m/project.clj"
-        "(ns foo.m)\n"})
+                     "modules/m/project.clj"
+                     "(ns foo.m)\n"})
         r (run ws)]
     (is (= ["modules/m/project.clj: no defproject form found"] (problems r)))
     (is (false? (.exists (io/file ws "deps.edn"))))))
@@ -1110,8 +1105,8 @@
                      "(defproject foo/parent \"1.0.0\"
   :managed-dependencies [[\"a/b\" \"1.0.0\"]]
   :sub [\"modules/m\"])"
-        "modules/m/project.clj"
-        "(defproject foo/m \"1.0.0\"
+                     "modules/m/project.clj"
+                     "(defproject foo/m \"1.0.0\"
   :parent-project {:path \"../../project.clj\" :inherit [:managed-dependencies]}
   :dependencies [[a/b]
                  [zz/z]])"})
@@ -1132,8 +1127,8 @@
                          [foo/other :version]
                          [io.opentelemetry/otel ~otel]]
   :sub [\"modules/m\"])"
-        "modules/m/project.clj"
-        "(defproject foo/m \"1.0.0\"
+                     "modules/m/project.clj"
+                     "(defproject foo/m \"1.0.0\"
   :parent-project {:path \"../../project.clj\" :inherit [:managed-dependencies]}
   :dependencies [[foo/other]
                  [io.opentelemetry/otel]])"})
@@ -1154,8 +1149,8 @@
 (defproject foo/parent \"1.0.0\"
   :managed-dependencies [[\"a/b\" ~otel]]
   :sub [\"modules/m\"])"
-        "modules/m/project.clj"
-        "(defproject foo/m \"1.0.0\"
+                     "modules/m/project.clj"
+                     "(defproject foo/m \"1.0.0\"
   :parent-project {:path \"../../project.clj\" :inherit [:managed-dependencies]}
   :dependencies [[a/b]])"})
         r (run ws)]
@@ -1173,8 +1168,8 @@
   :sub [\"modules/m\"]
   :dependencies [[foo/m :version]
                  [a/b \"1.0.0\"]])"
-        "modules/m/project.clj"
-        "(defproject foo/m \"1.0.0\"
+                     "modules/m/project.clj"
+                     "(defproject foo/m \"1.0.0\"
   :parent-project {:path \"../../project.clj\" :inherit [:managed-dependencies]})"})
         r (run ws)]
     (is (empty? (problems r)))
@@ -1195,10 +1190,10 @@
 (deftest lein-sub-nested-sub-is-a-problem
   (let [ws (temp-ws {"project.clj"
                      "(defproject foo/parent \"1.0.0\" :sub [\"modules/m\"])"
-        "modules/m/project.clj"
-        "(defproject foo/m \"1.0.0\" :sub [\"deep\"])"
-        "modules/m/deep/project.clj"
-        "(defproject foo/deep \"1.0.0\")"})
+                     "modules/m/project.clj"
+                     "(defproject foo/m \"1.0.0\" :sub [\"deep\"])"
+                     "modules/m/deep/project.clj"
+                     "(defproject foo/deep \"1.0.0\")"})
         r (run ws)]
     (is (= ["modules/m/project.clj: nested :sub is not supported (flatten the module hierarchy)"]
            (problems r)))

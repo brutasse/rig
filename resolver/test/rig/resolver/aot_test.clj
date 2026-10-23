@@ -22,12 +22,6 @@
       (is (= #{"no ns declaration" "unreadable ns declaration"}
              (set (map :reason (:skipped plan))))))))
 
-(deftest plan-clean-when-all-sources-parse
-  (let [src (temp-dir)]
-    (io/make-parents (io/file src "a" "core.clj"))
-    (spit (io/file src "a" "core.clj") "(ns a.core)\n")
-    (is (empty? (:skipped (aot/plan [(.getPath src)] []))))))
-
 (defn- spit-clj
   [root rel text]
   (let [f (io/file root rel)]
@@ -53,14 +47,16 @@
   "A namespace :requiring itself is legal: the JVM load/compile ignores
   the edge, and call sites may qualify through the self-alias.
   The dependency graph must not turn it into 'Circular
-  dependency between X and X'."
+  dependency between X and X'. Sources that all parse are planned in full:
+  nothing is reported skipped."
   (let [src (temp-dir)]
     (spit-clj src "a/util.clj" "(ns a.util)\n")
     (spit-clj src "a/core.clj"
               "(ns a.core\n  (:require [a.core :as self] [a.util :as u]))\n(defn f [x] (self/f x))\n")
     (let [plan (aot/plan [(.getPath src)] [])]
       (is (= ["a.util" "a.core"] (:compile plan)))
-      (is (empty? (:preload plan))))))
+      (is (empty? (:preload plan)))
+      (is (empty? (:skipped plan))))))
 
 (deftest plan-accepts-the-munged-file-name
   "load resolves my-ns.foo to my_ns/foo.clj: the underscored file IS

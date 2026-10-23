@@ -48,7 +48,7 @@
   (doseq [[rel text] [["deps.edn" root]
                       ["modules/lib/deps.edn" lib]
                       ["modules/app/deps.edn" app]]
-        :when text]
+          :when text]
     (io/make-parents (io/file dir rel))
     (spit (io/file dir rel) (cljfmt/reformat-string text)))
   (io/make-parents (io/file dir "modules/lib/src"))
@@ -70,7 +70,7 @@
 (defn- with-ws
   [root lib app f]
   (let [dir (File. (System/getProperty "java.io.tmpdir")
-                    (str "rig-edit-test-" (java.util.UUID/randomUUID)))]
+                   (str "rig-edit-test-" (java.util.UUID/randomUUID)))]
     (try
       (do (.mkdirs dir)
           (let [ws (str dir)]
@@ -235,10 +235,10 @@
                                         :shared true}})]
         (is (= "0.4.74" (get-in (read-manifest dir "modules/app/deps.edn")
                                 [:deps 'org.clojure/core.specs.alpha :mvn/version])))
-         (is (= "0.4.74" (get-in (read-manifest dir "deps.edn")
-                                 [:rig/deps 'org.clojure/core.specs.alpha :mvn/version])))
-         (is (nil? (get-in (read-manifest dir "deps.edn")
-                           [:deps 'org.clojure/core.specs.alpha]))
+        (is (= "0.4.74" (get-in (read-manifest dir "deps.edn")
+                                [:rig/deps 'org.clojure/core.specs.alpha :mvn/version])))
+        (is (nil? (get-in (read-manifest dir "deps.edn")
+                          [:deps 'org.clojure/core.specs.alpha]))
             "root facade not declaring the coord is untouched")
         (is (nil? (get-in (read-manifest dir "modules/lib/deps.edn")
                           [:deps 'org.clojure/core.specs.alpha]))
@@ -280,9 +280,9 @@
         (is (cljfmt-clean? (slurp (io/file dir "modules/app/deps.edn"))))
         (is (= #{"modules/app/deps.edn"}
                (into #{} (map #(get % "file")) (get resp "edits"))))
-         (is (some #(= "org.clojure/tools.logging:1.2.4:jar" %)
-                   (get-in (get resp "lock")
-                           ["modules" "modules/app" :aliases :test :classpath])))))))
+        (is (some #(= "org.clojure/tools.logging:1.2.4:jar" %)
+                  (get-in (get resp "lock")
+                          ["modules" "modules/app" :aliases :test :classpath])))))))
 
 (deftest remove-shared-req
   (let [app-with (str/replace app-text
@@ -435,11 +435,11 @@
   (with-ws root-text lib-text app-text
     (fn [dir]
       (is (thrown-with-msg? Exception #"coordinate not found"
-          (edit/edit-dep {:workspace dir
-                          :args {:module "."
-                                 :coord "org.rig.test/nonexistent-thing"
-                                 :requirement "latest"
-                                 :shared false}}))))))
+                            (edit/edit-dep {:workspace dir
+                                            :args {:module "."
+                                                   :coord "org.rig.test/nonexistent-thing"
+                                                   :requirement "latest"
+                                                   :shared false}}))))))
 
 (deftest latest-file-repo-cooldown
   (let [now (System/currentTimeMillis)
@@ -464,10 +464,10 @@
             (do (.mkdirs dir)
                 (fresh-ws (str dir) url)
                 (let [resp (edit/edit-dep {:workspace (str dir)
-                                          :args {:module "modules/app"
-                                                 :coord "com.rig.test/cooldown"
-                                                 :requirement "latest"
-                                                 :shared false}})]
+                                           :args {:module "modules/app"
+                                                  :coord "com.rig.test/cooldown"
+                                                  :requirement "latest"
+                                                  :shared false}})]
                   (is (= "1.0.0"
                          (get-in (read-manifest dir "modules/app/deps.edn")
                                  [:deps 'com.rig.test/cooldown :mvn/version]))
@@ -495,6 +495,9 @@
             (finally (delete-tree (str dir)))))))))
 
 (deftest latest-file-repo-refused-when-everything-is-fresh
+  "Every version inside the cooldown window: the update is refused with
+  nothing written, and the refused entry names the reason and the window
+  that applied — the request's own :cooldown, as well as the default."
   (let [now (System/currentTimeMillis)
         fresh-ws (fn [dir url]
                    (io/make-parents (io/file dir "modules/app/src"))
@@ -516,17 +519,27 @@
                 (fresh-ws (str dir) url)
                 (let [orig (slurp (io/file dir "modules/app/deps.edn"))
                       resp (edit/edit-dep {:workspace (str dir)
-                                          :args {:module "modules/app"
-                                                 :coord "com.rig.test/cooldown"
-                                                 :requirement "latest"
-                                                 :shared false}})]
+                                           :args {:module "modules/app"
+                                                  :coord "com.rig.test/cooldown"
+                                                  :requirement "latest"
+                                                  :shared false}})]
                   (is (nil? (get resp "lock")) "no lock on refusal")
                   (is (= 1 (count (get resp "refused"))))
                   (is (= "com.rig.test/cooldown"
                          (str (get-in resp ["refused" 0 :coord]))))
                   (is (= "cooldown" (get-in resp ["refused" 0 :reason])))
                   (is (= orig (slurp (io/file dir "modules/app/deps.edn")))
-                      "manifest untouched on refusal")))
+                      "manifest untouched on refusal")
+                  ;; The window the request declares is the one echoed back.
+                  (let [resp (edit/edit-dep {:workspace (str dir)
+                                             :args {:module "modules/app"
+                                                    :coord "com.rig.test/cooldown"
+                                                    :requirement "latest"
+                                                    :shared false
+                                                    :cooldown {:default "99999d"}}})]
+                    (is (= 1 (count (get resp "refused"))))
+                    (is (= "cooldown" (get-in resp ["refused" 0 :reason])))
+                    (is (= "99999d" (get-in resp ["refused" 0 :cooldown]))))))
             (finally (delete-tree (str dir)))))))))
 
 (deftest update-tolerates-git-dep-in-alias
@@ -573,5 +586,5 @@
                     "the git dep is on the :tasks alias classpath")))))
       (finally
         (delete-tree (str (System/getenv "HOME")
-                  "/.gitlibs/libs/example/gitlib"))
+                          "/.gitlibs/libs/example/gitlib"))
         (delete-tree (str git-ws))))))

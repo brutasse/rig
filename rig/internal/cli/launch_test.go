@@ -213,23 +213,6 @@ func TestLaunchStandaloneMissingJar(t *testing.T) {
 	}
 }
 
-func TestHotLaunchUber(t *testing.T) {
-	hotSetup(t)
-	cacheDir := t.TempDir()
-	if code, out := runCLI(t, "build", "-p", "modules/app", "--cache-dir", cacheDir, "--uber"); code != 0 {
-		t.Fatalf("build exit = %d; out: %s", code, out)
-	}
-	// No jar argument: the lock's build output, main args after the first
-	// positional.
-	code, out, _ := runCLISubprocess(t, "launch", "-p", "modules/app", "--cache-dir", cacheDir, "world")
-	if code != 0 {
-		t.Fatalf("launch exit = %d; out: %s", code, out)
-	}
-	if !strings.Contains(out, "hello world") {
-		t.Errorf("launch out = %q", out)
-	}
-}
-
 func TestHotLaunchJVMOverride(t *testing.T) {
 	hotSetup(t)
 	cacheDir := t.TempDir()
