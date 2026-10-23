@@ -3,7 +3,7 @@
 `rig launch` is the entrypoint for a deployed app. It runs the built
 artifact with Rig's production JVM flag set: G1 (`AlwaysPreTouch`), exit
 on out-of-memory (with heap dump), and loopback-only JMX on port
-**10101**. It sets nothing else. It is offline by definition: it runs the
+**10101**. Rig sets no other flag. It is offline by definition: it runs the
 artifact you point it at, with what is already built and cached. The exit
 code of the app is the exit code of the process. `rig build` bakes the
 launch plan (main, launch opts, build JVM) into the artifact, so a built
@@ -200,8 +200,9 @@ ENTRYPOINT ["rig", "launch", "/app/app.jar"]
   a lockfile change to commit.
 - **Copy only the binary into the JRE layer.** `rig launch` never touches
   the resolver kernel or the runner, and a standalone uberjar is
-  self-describing — the launch plan sits baked in the jar, no lockfile, no
-  state dir. The `java` of the JRE itself is the launch JVM.
+  self-describing: the launch plan sits baked in the jar. The launch
+  needs neither a lockfile nor a state dir. The `java` of the JRE itself is
+  the launch JVM.
 - **Pin both bases.** Rig's `latest` floats: in production, copy from the
   release tag you tested (`ghcr.io/brutasse/rig:vX.Y.Z`), and pin the
   `eclipse-temurin` tags to the declared JDK.

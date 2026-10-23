@@ -19,9 +19,9 @@ curl -fsSL …/scripts/install-rig.sh | sh -s -- v0.3.1
 
 The binary does not include the resolver kernel. The resolver kernel is a
 pinned Clojure jar. Rig uses it for the cold commands. On first use, Rig
-fetches the kernel jar — and the runner jar that matches it, for the hot
-commands — from the pinned GitHub release, verifies their hashes, and
-stores them in the Rig state directory. Cold commands resolve, build, publish,
+fetches the kernel jar and the matching runner jar from the pinned GitHub
+release. The runner jar serves the hot commands. Rig verifies their hashes
+and stores both jars in the Rig state directory. Cold commands resolve, build, publish,
 or edit manifests (`lock`, `update`, `build`, `check`, …). The day-to-day
 commands (`test`, `run`, `repl`, …) run on the binary and the lockfile
 alone.
@@ -43,17 +43,17 @@ check.
 ## Prerequisites
 
 - **A JDK on `PATH` or in `JAVA_HOME`** — or let Rig install one. When a
-  `:rig/jvm` pin names a major version, Rig can install a JDK. When no
-  rig-managed JDK and no matching system JDK exist, Rig fetches the newest
+  `:rig/jvm` pin names a major version, Rig can install a JDK. If Rig finds
+  no rig-managed or matching system JDK, it fetches the newest
   hash-verified Temurin for that major into the Rig state directory.
-  `rig jvm install <major>` does the same. When Rig finds no JVM at all, the
+  `rig jvm install <major>` does the same. If Rig finds no JVM at all, the
   error names the version you must install (the current LTS).
 - **`clj-kondo` on `PATH`**, only for `rig lint`.
 - **`~/.m2/settings.xml`** with credentials for your private Maven
   repositories, if you use them. This is the same file that Maven and
   tools.deps use today.
 
-Rig does not need the Clojure CLI. Rig does not run
+Rig does not need the Clojure CLI and does not run
 `clj` as an external command.
 
 ## Your first project
@@ -99,10 +99,10 @@ The module `deps.edn` combines a standard tools.deps manifest with the
          :exec-fn kaocha.runner/exec-fn}}}
 ```
 
-The `:rig/lib` key is the Maven coordinate under which the module publishes.
-The `:rig/main` key is the namespace that `rig run` launches. The `:test`
-alias declares how `rig test` runs the tests. The `exec-fn` of any test
-runner works.
+`:rig/lib` is the Maven coordinate under which the module publishes.
+`:rig/main` names the namespace that `rig run` launches. The `:test`
+alias declares how `rig test` runs the tests. Any test runner's
+`exec-fn` works here.
 
 Lock and run the tests:
 

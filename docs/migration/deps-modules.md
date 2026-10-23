@@ -139,10 +139,10 @@ migrate: modules/app/deps.edn: dep com.example/shared: :mvn/version "1.0.0" (man
 ```
 
 The pool still fills the keys the module did not declare. A vector
-inherit selects a subset of the keys of the pool. A pool `:local/root`
-is workspace-root-relative, so Rig rewrites it to a module-relative path
-before the merge. A `:local/root` of a module is already module-relative,
-and Rig keeps it as-is.
+inherit selects a subset of the keys of the pool. Pool `:local/root`
+paths are workspace-root-relative, so Rig rewrites them to module-relative
+paths before the merge. A module's own `:local/root` is already
+module-relative, and Rig keeps it as-is.
 
 ### 3. Lock and surface the remaining drift
 

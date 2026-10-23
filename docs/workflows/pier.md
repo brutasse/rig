@@ -95,8 +95,8 @@ gates:
 
 Rig resolves the bearer per gate, once per command. It uses
 `RIG_TOKEN_PIER` when set (the CI path — the runner injects it). If that is
-empty, it uses the cached token of the gate. If that is empty, it
-negotiates a fresh token with the issuer (browser flow, or device code in
+empty, it uses the cached token of the gate. Otherwise it negotiates a
+fresh token with the issuer (browser flow, or device code in
 headless environments) and verifies it against the issuer's JWKS. When no
 gate fronts the repo's URL, a command fails fast, before any resolution
 work. [Authenticated

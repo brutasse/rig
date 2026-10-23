@@ -13,7 +13,8 @@ Changelog for Rig.
 Temurin and GraalVM CE ship their macOS archives in the bundle
 layout, with the JDK under `Contents/Home`. The managed stores
 verified installs by stat'ing `bin/java` (and `bin/native-image`)
-at the install root, so a complete macOS install never validated:
+at the install root. A complete macOS install therefore never
+validated:
 every command touching it failed with `corrupt install (missing
 bin/java)` — rig jvm install, jvm path, and anything downstream.
 Installs now resolve the home inside the bundle, and `rig jvm path`
@@ -27,19 +28,19 @@ prints the correct macOS JAVA_HOME.
 
 On Linux, Rig restores the kernel JVM from a checkpoint of a warmed
 run instead of forking a cold one: ~0.3 s instead of 1–3 s per lock,
-check, tree — and every restored run re-dumps the checkpoint, so it
+check, tree. Every restored run re-dumps the checkpoint, so it
 stays current with use. Everything stays opportunistic: without a
 CRaC-capable JVM every command behaves exactly as before.
 `rig crac install` fetches the Zulu CRaC JDK pinned by this release
 (sha256-verified, into the state dir); `rig crac status` and
-`rig crac clean` inspect and prune it. Image chains are keyed to the
-kernel jar bytes, the JVM build and the CPU features — a rotated
-kernel or JDK starts a fresh chain instead of restoring stale state,
-and old-kernel chains are swept automatically by a daily boot-time
-pass.
+`rig crac clean` inspect and prune it. Rig keys image chains to the
+kernel jar bytes, the JVM build and the CPU features. A rotated
+kernel or JDK starts a fresh chain instead of restoring stale state.
+A daily boot-time pass sweeps old-kernel chains
+automatically.
 Config that rides the JVM environment in cold runs
 (`RIG_REPO_TOKENS`, `RIG_PROXY_REPOS`) rides the request file for
-restored runs and is authoritative there: a restored kernel never
+restored runs. It is authoritative there: a restored kernel never
 inherits the bootstrap run's tokens. See
 [Configuration — Kernel checkpointing](reference/config.md#kernel-checkpointing-crac).
 
@@ -68,12 +69,12 @@ JVM's homes as action outputs.
 
 * **Ubers carried no classes their AOT bytecode linked against.**
   Source-only dependencies (`org.clojure/tools.namespace`,
-  `rewrite-clj`) were loaded by the build's preloads without ever
+  `rewrite-clj`) — the build's preloads loaded them without ever
   emitting classes: the build went green while the uber died at first
   use with a `ClassNotFoundException`. Uber preloads now run with the
-  compile path at the working class dir, so source-only
-  dependencies — and their transitive requires — ride into the uber
-  as classes, with no declaration. `:rig/ns-compile` entries now
+  compile path at the working class dir. Source-only
+  dependencies — and their transitive requires — therefore ride into the
+  uber as classes, with no declaration. `:rig/ns-compile` entries now
   compile unconditionally, even when a preload already loaded them:
   asking for a compile means it.
 * **Temurin's legacy JDK 8 asset names** (`jdk8u492-b09`) did not
@@ -117,7 +118,7 @@ and [Docker](workflows/docker.md).
 native-image binary (default `target/<lib>`, `:rig/native-file`, extra
 arguments `:rig/native-opts`; the entry point is `:rig/main`). Rig
 derives the GraalVM version from the `:rig/jvm` pin of the workspace
-and records it in the lock (`{vendor, requested}`). Rig manages GraalVM
+and records it in the lock (`{vendor, requested}`). It manages GraalVM
 community JDKs itself, one per major version — `rig graalvm install /
 list / uninstall / update`, downloaded from the
 `graalvm/graalvm-ce-builds` GitHub releases, sha256-verified, into the
@@ -132,9 +133,9 @@ hint. See
 first): `project.clj` → root and per-module `deps.edn` with `:rig/*`
 keys. Rig materializes `:managed-dependencies` into the `:deps` of the
 modules that inherit them. A declared version or source key wins over
-the pool entry, and each win is a per-dep warning. Rig decomposes
+the pool entry, and each win is a per-dep warning. It decomposes
 `:sub` monorepos into per-module manifests with `:local/root` sibling
-deps. Rig merges `:provided` into the base (Leiningen has it active by
+deps, and it merges `:provided` into the base (Leiningen has it active by
 default). `rig migrate` reports unexpressible keys and blocking
 problems (nested `:sub`, `:sign-releases true`, an `s3p://` deploy
 repository). After you migrate, run `rig lock` and `rig check`. See
@@ -162,16 +163,17 @@ Stage 2 of `rig check` now AOT-compiles the namespaces of each module in
 dependency order, and it preloads the non-project requires first.
 `rig build` compiles AOT the same way. Rig does not compile a namespace
 again when a preload already loaded it, so its top level never runs
-twice — except the namespaces you list in `:rig/ns-compile`, which
-compile unconditionally: asking for a compile means it. Code that
+twice. The exception is the namespaces you list in `:rig/ns-compile`:
+they compile unconditionally — asking for a compile means it. Code that
 references a namespace it does not require — a bare ns/var, or a class
 only produced by AOT-compiling a sibling namespace — previously failed
 with a `ClassNotFoundException`. Both paths now compile it. New key
 `:rig/ns-compile` lists extra namespaces to AOT-compile alongside the
 sources of the module itself. An uber build additionally loads its
-preloads through the working class dir, so dependencies that ship only
+preloads through the working class dir. Dependencies that ship only
 sources and no classes (`org.clojure/tools.namespace`, `rewrite-clj`)
-land in the uber as classes: without them the module's AOT bytecode
+therefore land in the uber as classes. Without them, the module's AOT
+bytecode
 references interfaces that exist nowhere on the artifact's classpath,
 and the uber dies with a `ClassNotFoundException` when that code first
 loads.
@@ -224,7 +226,7 @@ commands reject v1 locks with an unsupported-version error. `rig lock`,
   store-level commands: they move the rig-managed install for the pinned
   major of the workspace to the newest release, and they replace it.
   They install the newest release when the store holds none. They no
-  longer write `deps.lock`, and `--frozen` no longer applies to them.
+  longer write `deps.lock`, and `--frozen` does not apply to them.
 - **The shared pool force-pins.** A `:rig/deps` entry now pins the
   coordinate's version workspace-wide: a module that consumes it
   transitively gets the pool version, like Leiningen's managed pool.
@@ -232,8 +234,8 @@ commands reject v1 locks with an unsupported-version error. `rig lock`,
 - **A hung test run now dies.** `rig test` kills the runner JVM when an
   exec-fn has not finished in 30 minutes and fails the run — `--timeout`
   configures it, `0` disables it.
-- **Stricter CLI.** `rig lock --frozen` is refused (writing the lock is
-  `rig lock`'s job), and a repeated `-p/--path` is refused — both usage
+- **Stricter CLI.** Rig refuses `rig lock --frozen` (writing the lock is
+  `rig lock`'s job), and refuses a repeated `-p/--path` — both usage
   errors (exit 2). Before, both quietly did something else.
 - **The GitHub API lookup uses a token.** `rig graalvm install` and
   `rig self-update` resolve releases through the GitHub API, which allows
@@ -260,7 +262,7 @@ commands reject v1 locks with an unsupported-version error. `rig lock`,
   JVM. The kernel now starts the fork on its own JVM — the JVM Rig
   launched for the workspace. `JAVA_CMD` and `JAVA_HOME` no longer select
   the fork's JVM. The build's kernel JVM also gets `JAVA_HOME` of the
-  managed JDK, as the run and test JVMs already did. Code that starts a
+  managed JDK, as the run and test JVMs already got it. Code that starts a
   JVM at build time now sees the same JDK as in `rig run` and
   `rig test`.
 - **Bytecode floor.** The kernel jar of v0.1.0 compiled without a
@@ -274,16 +276,16 @@ commands reject v1 locks with an unsupported-version error. `rig lock`,
   fails listing the offending entries. (javac does not receive
   `--release` on Java < 9 hosts, where the flag does not exist.)
 - **Sources in built jars.** The drop-sources step ran before the
-  compile and wiped every `.clj`/`.cljc` from the class dir, so a
+  compile and wiped every `.clj`/`.cljc` from the class dir. A
   source shipped as payload — a clj-kondo hook export, a `deps-new`
-  template — vanished from the published jar. It now runs after the
+  template — therefore vanished from the published jar. It now runs after the
   compile and drops only the sources paired with their AOT
   `__init.class` — the load-time recompile hazard (two class identities,
   `ClassCastException`) it exists to kill. Everything else ships as the
   data it is. The build never drops prep output under an `:ensure`
   path — it is an input of the build, not its output.
-- **What the AOT plan compiles.** Every `.clj` under the `:paths` roots
-  was treated as a namespace. A data source (a config map without an
+- **What the AOT plan compiles.** Rig treated every `.clj` under the
+  `:paths` roots as a namespace. A data source (a config map without an
   `ns` form), a file nested under a resources root, or a namespace
   requiring itself killed `rig check` and `rig build` outright. The plan
   now keeps only the files whose declared namespace matches their path,
@@ -291,7 +293,7 @@ commands reject v1 locks with an unsupported-version error. `rig lock`,
   shows a `plan-skip` warning instead of dying.
 - **Java modules ran without their own classes.** Rig compiled a module
   declaring `:rig/java-src-dirs` into its class dir, then kept that dir
-  off the dev classpath unless `:paths` named it too: `rig check`, `rig
+  off the dev classpath unless `:paths` named it too. `rig check`, `rig
   test` and `rig run` died with a `ClassNotFoundException` on the
   module's own Java classes. The class dir now follows the module's
   sources onto the classpath.
@@ -341,8 +343,9 @@ commands reject v1 locks with an unsupported-version error. `rig lock`,
   - with no lock at all, one message, exit 3 (the lock-problem code) —
     previously one stale-lock problem per module, exit 1.
 - **Cache entries carry their extension.** An artifact sat in the cache
-  at `<sha256>` with no suffix, so the JDK handed consumers `file:` URLs
-  for classpath jars and resource copying out of them broke (a
+  at `<sha256>` with no suffix. The JDK therefore handed consumers
+  `file:` URLs for classpath jars, and resource copying out of them
+  broke (a
   kaocha-cljs run died on `ENOENT`). Cache names now end in the lock's
   extension; existing caches rename into the layout on first hit.
 - **`rig test` prints like the REPL.** Runner code saw
@@ -363,8 +366,9 @@ commands reject v1 locks with an unsupported-version error. `rig lock`,
   `app-1.0.1<newline>.jar`.
 - **Leiningen migration, continued.** A bare exclusion symbol
   (`:exclusions [foo]`) now migrates to `foo/foo`, like Leiningen reads
-  it — verbatim, tools.deps silently excluded nothing. Dropped Leiningen
-  keys are warned about on the profile that carries them, and an entry
+  it — verbatim, tools.deps silently excluded nothing. Rig warns about
+  dropped Leiningen
+  keys on the profile that carries them, and an entry
   appended to a manifest lands on its own line.
 - **`rig build` warns when `:rig/uber-opts :exclude` excludes
   nothing.** `tools.build` matches patterns with `re-matches` (full
@@ -390,9 +394,9 @@ commands reject v1 locks with an unsupported-version error. `rig lock`,
 - Hot commands (`rig test`, `rig check` stage 2) now run on a separate
   pinned **runner jar** (`rig-runner`), an install-time artifact shipped
   next to the kernel jar. The Docker image pre-seeds it, so `test` and
-  `check` work on read-only stores. When the runner fails, Rig fails:
-  exit 1 for `rig test` and `rig check` — any other runner exit code
-  becomes a plain Rig error; the dev commands (`run`, `repl`, `exec`)
+  `check` work on read-only stores. When the runner fails, Rig fails.
+  `rig test` and `rig check` exit 1; any other runner exit code
+  becomes a plain Rig error. The dev commands (`run`, `repl`, `exec`)
   pass the child code through verbatim.
 - CI now builds the kernel and runs its test suite on Temurin 8 — the
   floor gate that keeps the kernel jar loadable on the oldest supported

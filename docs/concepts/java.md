@@ -100,8 +100,8 @@ own class dir, Rig already does that natively. How to migrate:
 
 Consumers change nothing. They still depend on the proto module by
 `:local/root`, and Rig prepares it for them. Afterwards, the manifest is
-self-contained: no build file that Rig does not read, no second classpath,
-no separate function whose calling convention you have to know.
+self-contained: Rig reads every build file in the module, the module has
+one classpath, and you do not need to know any special calling convention.
 
 If a module declares **both** `:rig/java-src-dirs` and a prep function, Rig
 runs the javac first and then the prep function. The function's classpath

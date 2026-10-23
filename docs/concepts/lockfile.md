@@ -146,9 +146,9 @@ Every command that builds a classpath (`test`, `run`, `repl`, `exec`,
      one line — `relocked (stale: modules/orchestrator)` — and continues.
    - With `--frozen`: Rig exits with code 3. Rig does not touch the
      lockfile. This is the CI mode.
-4. **Lockfile is current** → Rig proceeds. No resolution, no network,
-   unless Rig must first secure an artifact from the local sources or
-   download it. Rig goes straight to the JVM.
+4. **Lockfile is current** → Rig proceeds. It re-resolves nothing and uses
+   the network only when it must first secure an artifact from the local
+   sources or download it. Rig goes straight to the JVM.
 
 `rig check` uses the same staleness detection, but it never re-locks. It
 only reports. `rig lock` is always an explicit re-resolve that you start.

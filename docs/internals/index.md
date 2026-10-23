@@ -79,8 +79,8 @@ Go also sets a small environment for the kernel JVM:
 
 ## Hot vs cold paths
 
-**Hot commands read only the lock** — no resolution, and no network when
-the cache is warm:
+**Hot commands read only the lock**: they resolve nothing and need no
+network when the cache is warm:
 
 | Command | What the kernel contributes |
 |---|---|
@@ -117,11 +117,11 @@ Go downloaded it freshly or found it already in the cache
 (`~/.local/share/rig/kernel/<git-sha>/`). A mismatch is a hard error. The
 lock records the kernel that produced it in its `resolver` block: the pin
 plus the sha256 of the jar that actually ran. Go stamps it at lock time;
-the kernel does not. So a lock always says who resolved it.
+the kernel never stamps it. So a lock always says who resolved it.
 
 The jar is not byte-reproducible by default, and nothing in the flow
 needs it to be. Go stamps the sha256 of the pin from the artifact as
-built (`make pin`). Go stamps every other hash in the system the same
+built (`make pin`). Go also stamps every other hash in the system this
 way: the hash in the lock, the `SHA256SUMS` entries, the Docker build
 args. A workspace that wants byte-reproducible builds opts in with
 `:rig/timestamp-string`. With it set, every entry of the built jar and
@@ -138,20 +138,20 @@ runtime. Hot commands run on stores that can be read-only.
 ## Checkpoint/restore acceleration
 
 Restore-eligible kernel ops can run on a CRaC checkpoint of a warmed
-kernel instead of a cold JVM fork (~0.3 s vs 1–3 s), and every
-restored run re-dumps the image so it stays current. The whole path
-lives in `internal/kernelrun`: the image store (keyed to kernel jar
-bytes × JVM build × engine × CPU flags), the restore/cold selector
-inside `kernel.Call`, and the bootstrap that forks and parks the
-checkpoint JVM. The JVM-side contract — the exact flag set, where the
-kernel parks (`rig.kernel.Bootstrap`, via reflection so the jar
-builds on plain JDKs), and why success is "dump-kill + image on disk,
-not exit code" — is load-bearing and documented in that package's
-header. Refresh dumps are deltas referencing their parents, so a
-chain is deletable only as a whole (`rig crac clean`). The managed
-Zulu CRaC JDK (`rig crac install`, `jdk.CRaCPins`) is pinned exactly:
-image keys track JVM builds, so channel drift would strand every
-image.
+kernel instead of a cold JVM fork. Restore takes ~0.3 s against 1–3 s for
+the cold fork. Every restored run re-dumps the image, so the image stays
+current. The whole path lives in `internal/kernelrun`. The package holds
+the image store, the restore/cold selector inside `kernel.Call`, and the
+bootstrap that forks and parks the checkpoint JVM. An image key pins the
+kernel jar bytes, the JVM build, the engine, and the CPU flags. The
+JVM-side contract is load-bearing and documented in that package's header.
+It covers the exact flag set and where the kernel parks
+(`rig.kernel.Bootstrap`, via reflection so the jar builds on plain JDKs).
+It also states why success is "dump-kill + image on disk, not exit code".
+Refresh dumps are deltas referencing their parents, so a
+chain is deletable only as a whole (`rig crac clean`). Rig pins the
+managed Zulu CRaC JDK (`rig crac install`, `jdk.CRaCPins`) exactly: image
+keys track JVM builds, so channel drift would strand every image.
 
 ## Code map
 

@@ -173,8 +173,9 @@ Fields:
 Rig binds a marked repo to the gate that fronts its `:url` (prefix
 match, on the URL). When exactly one gate matches, Rig uses it. When
 several gates match — overlapping prefixes are not resolved by length —
-the command fails fast ("tighten the gate urls"). When no gate matches by prefix, Rig falls back to the single
-url-less gate. When there is no match at all, the command fails fast,
+the command fails fast ("tighten the gate urls"). If no gate matches by
+prefix, Rig falls back to the single
+url-less gate. With no match at all, the command fails fast,
 before any resolution work, and names the repo, the config file, and the
 missing prefix.
 
@@ -186,8 +187,9 @@ Rig resolves the bearer of each gate once per command, per repo:
    dashes into underscores (`pier` → `RIG_TOKEN_PIER`). This is the CI
    path: the runner injects the token.
 2. Else the cached token of the gate in the state dir
-   (`~/.local/share/rig/oidc/`, one file per gate identity — the issuer,
-   audience and client-id — valid until 30s before its expiry).
+   (`~/.local/share/rig/oidc/`). The dir holds one file per gate identity
+   — the issuer, audience and client-id. A cached token stays valid until
+   30s before its expiry.
 3. Else a fresh negotiation with the issuer of the gate. Rig uses the
    browser flow (authorization code + PKCE, opened in your browser) when
    a browser is available. Otherwise Rig uses the device-code flow
@@ -214,13 +216,13 @@ it the real repo URL. For every resolution run, Rig starts a local
 loopback proxy and rewrites the `:url` of each marked repo to it. The
 proxy forwards every Maven request — exact versions and floating ones
 alike — to the real URL of the repo, with the bearer of that repo
-attached. It streams the response without touching disk. The tokens never
+attached. It streams the response without touching disk. Tokens never
 leave the process memory of Rig, and the proxy dies with the command.
 The repo id stays the same, so lock attribution (and the Maven
 `_remote.repositories`) still point at the original repo, and the lock
-records its original URL. The kernel probes floating versions against the
-original URL, with the per-repo bearer and subject to the cooldown. The
-artifacts themselves always come through the proxy.
+records its original URL. For floating versions, the kernel probes
+the original URL, with the per-repo bearer and subject to the cooldown.
+Artifacts themselves always come through the proxy.
 
 !!! tip "One repository for everything"
     Redeclaring `central` under `:mvn/repos` routes every Maven artifact
@@ -274,7 +276,8 @@ artifacts themselves always come through the proxy.
   (dependency classes included, for the uberjar) must load on the pinned
   JVM. The build fails and lists the offending entries when one does not
   load. Rig checks a multi-release jar entry only at the JVM versions
-  where it can load. Without the pin there is no floor and no check.
+  where it can load. Without the pin, the build has no floor and runs no
+  check.
 
 Vendor: Temurin (Eclipse Adoptium), GA releases only.
 
@@ -318,20 +321,25 @@ on the JVM version, and Rig will not guess it.
 
 Every cold kernel fork boots a JVM: 1–3 seconds. On Linux x64/arm64
 Rig can instead restore that JVM from a CRaC checkpoint of a warmed
-kernel — around 0.3 seconds — and every restored run re-dumps the
+kernel — around 0.3 seconds. Every restored run re-dumps the
 checkpoint, so the image stays warm and current with use. The cold
 fork remains the correctness anchor and the fallback: nothing about
 workspace behavior changes when checkpointing is off, and any command
 checkpointing cannot serve simply runs cold.
 
-Serving a restore requires all of: Linux, a kernel jar carrying the
-checkpoint entries (older releases, v0.2.1 down, simply stay on the
-cold path), a CRaC-capable JVM, and an op that tolerates re-running
-(lock, check, tree, outdated, `aot-plan`, edit-dep, migrate). Ops
-that pass JVM flags to the kernel (build, publish and friends) never
-restore — flags are baked into the checkpoint at dump time.
+Serving a restore requires all of:
 
-The JVM that runs the checkpoint is picked in this order:
+- Linux.
+- A kernel jar carrying the checkpoint entries (older releases, v0.2.1
+  down, simply stay on the cold path).
+- A CRaC-capable JVM.
+- An op that tolerates re-running: lock, check, tree, outdated,
+  `aot-plan`, edit-dep, migrate.
+
+Ops that pass JVM flags to the kernel (build, publish and friends) never
+restore. The dump bakes those flags into the checkpoint.
+
+Rig picks the JVM that runs the checkpoint in this order:
 
 1. `RIG_CRAC_JDK` — an explicit `java` binary (dev override, wins
    over everything).
@@ -341,17 +349,17 @@ The JVM that runs the checkpoint is picked in this order:
 3. The JVM Rig picked for the command itself — useful for system
    CRaC builds.
 
-Whatever is picked must pass the engine probe; if it fails, the
-feature is fully dormant. `RIG_CRAC_DIR` moves the image store
+The chosen JVM must pass the engine probe; if it fails, checkpointing
+stays fully dormant. `RIG_CRAC_DIR` moves the image store
 (default `~/.local/share/rig/crac/`).
 
-Images live in per-configuration chains: the key pins the kernel jar
-bytes, the JVM build, the engine and the CPU features, so a rotated
-kernel or JDK starts a fresh chain instead of restoring stale state.
-Chain members are parent-referencing deltas — deletable only as a
-set. A chain is capped (6 images); the next cold run re-bootstraps.
-Old-kernel chains are garbage-collected on their own: once a day, Rig
-prunes chains recorded as bootstrapped from a different kernel jar
+Images live in per-configuration chains. The key pins the kernel jar
+bytes, the JVM build, the engine and the CPU features. A rotated
+kernel or JDK therefore starts a fresh chain instead of restoring stale
+state. Chain members are parent-referencing deltas — deletable only as a
+set. Rig caps a chain at 6 images; the next cold run re-bootstraps.
+Rig garbage-collects old-kernel chains on its own. Once a day, it prunes
+chains recorded as bootstrapped from a different kernel jar
 (a marker in the store gates it; no JVM probe, milliseconds). Chain
 rotations by JVM and interrupted-run leftovers remain
 [`rig crac clean`](commands.md#rig-crac-clean)'s job. While
@@ -361,10 +369,10 @@ say over release chains.
 Security notes: the store is owner-only (`0700` dirs, `0600` request
 files). Configuration that rides the JVM environment in cold runs
 (`RIG_REPO_TOKENS`, `RIG_PROXY_REPOS`) rides the request file for
-restored runs and is authoritative there — a restored kernel never
+restored runs and is authoritative there. A restored kernel never
 inherits the bootstrap run's tokens. What remains true: a checkpoint
-captures the heap, so an image from an authenticated run may contain
-token residue until the GC clears it; the store only ever holds your
+captures the heap, so an image from an authenticated run can contain
+token residue until the GC clears it. The store only ever holds your
 own credentials.
 
 ## Native images (`rig build --native`)
@@ -405,10 +413,11 @@ binary (GraalVM):
   Otherwise the build fails and names the missing class.
 - **Arguments.** Rig passes the fixed arguments `--no-fallback`,
   `--class-path <class dir>:<locked classpath>`,
-  `--initialize-at-build-time=<namespace packages>`, and
-  `-H:+UnlockExperimentalVMOptions -H:IncludeResources=META-INF/maven/.*`
-  (an image has no classpath: this carries the maven coordinate entries
-  of the module into it), and `-o <native-file>`; Rig appends
+  `--initialize-at-build-time=<namespace packages>`,
+  `-H:+UnlockExperimentalVMOptions -H:IncludeResources=META-INF/maven/.*`,
+  and `-o <native-file>`. An image has no classpath: `--class-path`
+  carries the maven coordinate entries
+  of the module into it. Rig appends
   `:rig/native-opts` after them. A
   repeated `--initialize-at-build-time` in the opts adds to the list of
   Rig; `--fallback` conflicts with the `--no-fallback` of Rig.
@@ -479,12 +488,15 @@ as one flag list. Two mechanisms then apply:
 The negated form counts as a selection (`-XX:-UseG1GC` triggers the same
 rule), and rig passes the same collector from two stages only once.
 
-To change a default: to move the JMX port, override *both*
-`-Dcom.sun.management.jmxremote.port=…` and
-`-Dcom.sun.management.jmxremote.rmi.port=…`. To reach JMX from outside
-the container, also override `-Djava.rmi.server.hostname=…` and the
-`authenticate`/`ssl` flags. To switch a default off, pass its negation
-(for example `-XX:-AlwaysPreTouch`).
+To change a default:
+
+- Move the JMX port: override *both*
+  `-Dcom.sun.management.jmxremote.port=…` and
+  `-Dcom.sun.management.jmxremote.rmi.port=…`.
+- Reach JMX from outside the container: also override
+  `-Djava.rmi.server.hostname=…` and the `authenticate`/`ssl` flags.
+- Switch a default off: pass its negation (for example
+  `-XX:-AlwaysPreTouch`).
 
 ### The launch descriptor
 
@@ -499,9 +511,9 @@ it too):
 
 The descriptor records `main`, `jvm-opts`, `java` (the feature version
 of the build JVM) and `uber`; Rig takes all of them from the lock at
-build time. The JSON field `jvm-opts` holds the value of the module key
+build time. Its JSON field `jvm-opts` holds the value of the module key
 `:rig/launch-opts` — the field name predates the key and stays, so old
-artifacts keep launching. The production defaults of Rig are *not* in
+artifacts keep launching. Production defaults of Rig are *not* in
 the descriptor: the launching Rig applies them, so the policy follows
 Rig upgrades even for old artifacts. `rig launch <jar>` reads the
 descriptor first, so a built jar launches standalone, without the
@@ -537,9 +549,10 @@ workspace.
   `deps.edn` next to where you run the command, and resolves it by
   walking up.
 
-!!! note "Legacy keys are refused, not read"
-    A manifest still carrying `:exoscale.project/*`, `:exoscale.deps/*`
-    or `:slipset.deps-deploy/*` keys is rejected outright: the resolver
+!!! note "Rig refuses legacy keys outright"
+    Rig rejects outright a manifest still carrying
+    `:exoscale.project/*`, `:exoscale.deps/*`
+    or `:slipset.deps-deploy/*` keys: the resolver
     names the file and tells you to run `rig migrate`. The migration
     renames the legacy keys — `:slipset.deps-deploy/exec-args` becomes
     `:rig/publish` — and the migration guides remove them entirely.
