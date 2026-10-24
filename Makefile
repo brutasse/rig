@@ -13,6 +13,7 @@ REPO    := brutasse/rig
 JAR     := resolver/target/rig-resolver-$(V).jar
 RUNNER  := resolver/runner/target/rig-runner-$(V).jar
 BIN     := rig/dist/rig
+RIG     ?= rig
 PINFILE := rig/internal/kernel/kernel.go
 GITSHA  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo dev)
 
@@ -63,6 +64,16 @@ pin: kernel
 # rig: build the rig binary (rig/dist/rig).
 rig:
 	cd rig && go build -o dist/rig ./cmd/rig
+
+# lock-refresh: re-bake resolver/deps.lock from the manifests. One 'rig lock'
+# at the workspace root covers every module of the workspace — it rewrites the
+# root and the runner module in the same file, so there is no '-p runner'
+# variant and no second lock. It runs the rig on PATH, not a build of these
+# sources: the lock records which rig wrote it, and the CI re-lock on
+# renovate/* branches should stamp a release there, not a dev build of the
+# branch it is fixing.
+lock-refresh:
+	cd resolver && $(RIG) lock
 
 # check: rig's own workspace against its own lock. The frozen build already
 # refuses a stale lock; this names the coordinate that drifted, runs the rest
@@ -161,4 +172,4 @@ image: release
 		--build-arg TARGETARCH=$$arch \
 		-t $(IMAGE):local .
 
-.PHONY: dev kernel pin rig check test test-pier run release release-binaries image
+.PHONY: dev kernel lock-refresh pin rig check test test-pier run release release-binaries image

@@ -1,18 +1,46 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
-    "config:recommended"
+    "config:recommended",
+    "docker:pinDigests",
+    "helpers:pinGitHubActionDigests"
   ],
+  "minimumReleaseAge": "2 days",
+  "minimumReleaseAgeBehaviour": "timestamp-optional",
   "packageRules": [
     {
       "matchManagers": [
         "deps-edn"
       ],
       "matchFileNames": [
+        "rig/internal/cli/deps.edn",
         "rig/internal/cli/testdata/**"
       ],
       "enabled": false,
-      "description": "Fixture manifests are paired with a committed golden deps.lock; a manifest-only bump breaks the fixture and no test run can re-bake the lock."
+      "description": "Fixture manifests are paired with a committed golden deps.lock — the testdata fixtures and the Go suite's synthetic rig/internal/cli/deps.lock. A manifest-only bump breaks the fixture and no test run can re-bake the lock."
+    },
+    {
+      "matchManagers": [
+        "deps-edn"
+      ],
+      "matchFileNames": [
+        "resolver/**"
+      ],
+      "prBodyNotes": [
+        "CI runs `rig lock` on this branch and pushes the refreshed `resolver/deps.lock` back, so the lock arrives with the manifest: one command re-bakes both the kernel module and the `runner` module. The `test-jvm8` floor gate is what rejects a bump that drags in a class above class file v52."
+      ]
+    },
+    {
+      "matchManagers": [
+        "github-actions"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "pin",
+        "digest"
+      ],
+      "groupName": "GitHub Actions (non-major)"
     }
   ]
 }

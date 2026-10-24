@@ -6,10 +6,14 @@
 #   - push a tag vX.Y.Z → test, then release
 #
 # What test does:
-#   1. gofmt -w rig/ — fixes formatting in place; if anything changed,
+#   1. on a renovate/* branch whose head is Renovate's own commit:
+#      'make lock-refresh' re-bakes resolver/deps.lock from the manifests and
+#      pushes it back to the branch — Renovate can move a manifest but cannot
+#      run 'rig lock', and the lock is a build input (step 4)
+#   2. gofmt -w rig/ — fixes formatting in place; if anything changed,
 #      pushes a bot commit back to the branch (never fails)
-#   2. go vet
-#   3. make test — make dev builds both jars --frozen, so a dependency bump
+#   3. go vet
+#   4. make test — make dev builds both jars --frozen, so a dependency bump
 #      that skipped 'rig lock' fails before anything else runs; then rig
 #      check on this workspace (names the drifted coordinate), the kernel
 #      suite (rig test, via the runner), and the Go suite (E2E vs the fresh
@@ -80,6 +84,36 @@ jobs:
         with:
           token: ${{ github.token }}
           lockfile: resolver/deps.lock
+      - name: Refresh lock (Renovate branches)
+        # A Renovate Clojure bump can only move a manifest, and the lock is a
+        # build input — so its own PR fails the frozen kernel build until the
+        # lock is re-baked. Do that here, and push the result back so the PR
+        # carries manifest and lock together. Both halves of the guard are
+        # load-bearing: the branch prefix is what keeps an automated commit off
+        # main and off every human branch, and the actor is what keeps a human's
+        # push onto a renovate/* branch from being re-locked by the bot — a
+        # manifest edit you make yourself must come with your own 'rig lock'.
+        if: github.actor == 'renovate[bot]' && (startsWith(github.head_ref, 'renovate/') || startsWith(github.ref_name, 'renovate/'))
+        run: |
+          make lock-refresh
+          # locked_at moves on every re-lock: compare the resolution, not the
+          # file, so a run that changed nothing has nothing to push.
+          if diff -q <(jq 'del(.locked_at)' resolver/deps.lock) \
+                      <(git show HEAD:resolver/deps.lock | jq 'del(.locked_at)') >/dev/null; then
+            echo "resolution unchanged"
+            git checkout -- resolver/deps.lock
+            exit 0
+          fi
+          git config user.name "rig-ci[bot]"
+          git config user.email "rig-ci@users.noreply.github.com"
+          git add resolver/deps.lock
+          git commit -m "build: refresh resolver/deps.lock"
+          # The ref is guarded here too, so the push cannot reach main or a
+          # human branch even if the step's 'if' is edited later.
+          case "$GITHUB_REF" in
+            refs/heads/renovate/*) git push origin HEAD:"${GITHUB_REF#refs/heads/}" ;;
+          esac
+
       - name: gofmt (auto-fix)
         run: |
           gofmt -w rig/
@@ -120,6 +154,12 @@ jobs:
           token: ${{ github.token }}
           lockfile: resolver/deps.lock
           java-on-path: "true"
+      # Its own checkout needs a consistent lock too; the test job is the one
+      # that commits the result back to the branch.
+      - name: Refresh lock (Renovate branches)
+        if: github.actor == 'renovate[bot]' && (startsWith(github.head_ref, 'renovate/') || startsWith(github.ref_name, 'renovate/'))
+        run: make lock-refresh
+
       - name: Build kernel
         run: make kernel
       - name: Kernel floor — the jar loads and runs on Java 8
@@ -150,6 +190,11 @@ jobs:
           lockfile: resolver/deps.lock
       # (no enable-graalvm: the root lock pins no GraalVM — the fixture's
       # own lock does, and the install step below fetches that major)
+
+      # Its own checkout needs a consistent lock too (see the test job).
+      - name: Refresh lock (Renovate branches)
+        if: github.actor == 'renovate[bot]' && (startsWith(github.head_ref, 'renovate/') || startsWith(github.ref_name, 'renovate/'))
+        run: make lock-refresh
 
       - name: Build
         run: make dev
