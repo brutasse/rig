@@ -6,6 +6,7 @@
             [rig.resolver.check :as check]
             [rig.resolver.edit :as edit]
             [rig.resolver.git-sync]
+            [rig.resolver.latest :as latest]
             [rig.resolver.migrate :as migrate]
             [rig.resolver.outdated :as outdated]
             [rig.resolver.publish :as publish]
@@ -83,6 +84,7 @@
                 :migrate #(migrate/migrate request)
                 :tree #(tree/tree request)
                 :outdated #(outdated/outdated request)
+                :latest #(latest/latest request)
                 :build #(build/build request)
                 :publish #(publish/publish request)
                 ;; The throw must live INSIDE the thunk: it has to be

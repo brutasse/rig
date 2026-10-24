@@ -106,43 +106,6 @@
 
 (defn- rel-deps [m] (if (= m ".") "deps.edn" (str m "/deps.edn")))
 
-(defn- select-latest
-  "Picks the newest version of coord older than its repo cooldown (force
-  bypasses). Returns {:version v :skipped [...]} (skipped in the lock's
-  skipped-list shape) or {:reason \"not-found\"} when no repo serves the
-  coord."
-  [coord-str repos cooldown force now-ms]
-  (let [md (versions/repo-metadata coord-str repos)
-        byv (get md :by-version)
-        cands (if (seq (:latest md)) (into #{} (:latest md)) (keys byv))
-        elig (fn [v]
-               (let [d (get byv v)
-                     pa (:published-at d)]
-                 (and pa
-                      (<= pa (- now-ms
-                                (versions/parse-duration-ms
-                                 (versions/cooldown-for (:repo d) cooldown)))))))
-        chosen (when (some (fn [v] (or (true? force) (elig v))) cands)
-                 (reduce (fn [a b] (if (pos? (versions/vcmp a b)) a b))
-                         (filter (fn [v] (or (true? force) (elig v))) cands)))
-        skipped (concat
-                  (when (and (true? force) chosen (not (elig chosen)))
-                    [{:coord (symbol coord-str)
-                      :version chosen
-                      :reason "forced"
-                      :published-at (versions/iso (get-in byv [chosen :published-at]))
-                      :cooldown (versions/cooldown-for (get-in byv [chosen :repo]) cooldown)}])
-                  (for [v (sort cands)
-                        :when (not (elig v))]
-                    {:coord (symbol coord-str)
-                     :version v
-                     :reason "cooldown"
-                     :published-at (versions/iso (get-in byv [v :published-at]))
-                     :cooldown (versions/cooldown-for (get-in byv [v :repo]) cooldown)}))]
-    (if (empty? cands)
-      {:reason "not-found"}
-      {:version chosen :skipped skipped})))
-
 (defn- apply-edit
   [request extra-skipped]
   (let [ws (str (:workspace request))
@@ -225,7 +188,7 @@
       (apply-edit (assoc-in request [:args :explicit?] true) nil)
       (let [ws (str (:workspace request))
             root-data (or (:data (manifest/read-manifest ws)) {})
-            sel (select-latest coord-str (resolve/all-repos ws)
+            sel (versions/select-latest coord-str (resolve/all-repos ws)
                                (resolve/cooldown-of args root-data)
                                (true? (get args :force))
                                (System/currentTimeMillis))]

@@ -331,6 +331,44 @@
     (let [res (reduce step {:selected {} :skipped [] :refused []} coords)]
       (assoc res :changed? (boolean (seq (:selected res)))))))
 
+(defn select-latest
+  "Picks the newest version of coord older than its repo cooldown (force
+  bypasses). Returns {:version v :skipped [...]} (skipped in the lock's
+  skipped-list shape) or {:reason \"not-found\"} when no repo serves the
+  coord. The single-coordinate form of select-versions, for callers with no
+  manifest to select from: edit-dep's versionless add and the latest op."
+  [coord-str repos cooldown force now-ms]
+  (let [md (repo-metadata coord-str repos)
+        byv (get md :by-version)
+        cands (if (seq (:latest md)) (into #{} (:latest md)) (keys byv))
+        elig (fn [v]
+               (let [d (get byv v)
+                     pa (:published-at d)]
+                 (and pa
+                      (<= pa (- now-ms
+                                (parse-duration-ms
+                                 (cooldown-for (:repo d) cooldown)))))))
+        chosen (when (some (fn [v] (or (true? force) (elig v))) cands)
+                 (reduce (fn [a b] (if (pos? (vcmp a b)) a b))
+                         (filter (fn [v] (or (true? force) (elig v))) cands)))
+        skipped (concat
+                  (when (and (true? force) chosen (not (elig chosen)))
+                    [{:coord (symbol coord-str)
+                      :version chosen
+                      :reason "forced"
+                      :published-at (iso (get-in byv [chosen :published-at]))
+                      :cooldown (cooldown-for (get-in byv [chosen :repo]) cooldown)}])
+                  (for [v (sort cands)
+                        :when (not (elig v))]
+                    {:coord (symbol coord-str)
+                     :version v
+                     :reason "cooldown"
+                     :published-at (iso (get-in byv [v :published-at]))
+                     :cooldown (cooldown-for (get-in byv [v :repo]) cooldown)}))]
+    (if (empty? cands)
+      {:reason "not-found"}
+      {:version chosen :skipped skipped})))
+
 (defn apply-versions
   "Substitutes exact versions for the selected coords in the manifest map.
    Only floating (RELEASE/LATEST) requirements are substituted, unless the
