@@ -62,7 +62,7 @@ tools.deps `:exec-fn`:
 
 ```edn
 :aliases
-{:test {:extra-deps {lambdaisland/kaocha {:mvn/version "1.66.1034"}}
+{:test {:extra-deps {lambdaisland/kaocha {:mvn/version "1.91.1392"}}
         :extra-paths ["test"]
         :exec-fn kaocha.runner/exec-fn
         :jvm-opts ["-Dlogback.configurationFile=test.logback.xml"]
@@ -334,7 +334,7 @@ Serving a restore requires all of:
   down, simply stay on the cold path).
 - A CRaC-capable JVM.
 - An op that tolerates re-running: lock, check, tree, outdated,
-  `aot-plan`, edit-dep, migrate.
+  `latest`, `aot-plan`, edit-dep, migrate.
 
 Ops that pass JVM flags to the kernel (build, publish and friends) never
 restore. The dump bakes those flags into the checkpoint.

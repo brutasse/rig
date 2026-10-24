@@ -120,14 +120,14 @@ when it carries expressible content, for manual development use.
   at the version the project effectively pins for tests (the version
   from the `:test` profile, else from the `:dev` profile, else the
   top-level `:dependencies`). If the project pins no such version, Rig
-  uses the `rig new` pin (`1.66.1034`).
+  uses its bundled default (`1.66.1034`).
 - `:extra-paths` — the layered path keys plus the effective
   `:test-paths`, default `["test"]`.
 - `:exec-fn kaocha.runner/exec-fn`.
 
 Kaocha added `kaocha.runner/exec-fn` in `1.0.937`. When the effective
 pin of the project predates it (a `:dev` that still pins `1.0.669`,
-say), the `:test` alias uses the `rig new` pin instead, with a warning.
+say), the `:test` alias uses that bundled default instead, with a warning.
 The `:dev` alias keeps its own version for manual runs.
 
 ## What gets dropped

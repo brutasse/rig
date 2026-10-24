@@ -48,7 +48,7 @@ across files), add the standard alias:
 
 ```edn
 :aliases
-{:test {:extra-deps {lambdaisland/kaocha {:mvn/version "1.66.1034"}}
+{:test {:extra-deps {lambdaisland/kaocha {:mvn/version "1.91.1392"}}
         :extra-paths ["test"]
         :exec-fn kaocha.runner/exec-fn}}
 ```

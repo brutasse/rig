@@ -99,6 +99,7 @@ network when the cache is warm:
 | `check` | `check` — read-only consistency report (stage 1); stage 2 also takes the `aot-plan` op |
 | `tree` | `tree` |
 | `outdated` | `outdated` |
+| `new` / `new-module` (test-runner pin) | `latest` — newest release past the cooldown |
 | `build` | `build` — `tools.build` inside the kernel JVM, on the locked classpath |
 | `publish` / `install` | `publish` — POM + deploy target only; Go does the transfer |
 | `release` | `publish`, orchestrated by Go over git |

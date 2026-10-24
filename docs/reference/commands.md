@@ -26,7 +26,7 @@ This page lists every command, what it does, and its flags.
 | `clean` | hot | Remove build-output directories. |
 | `lint` | hot | clj-kondo on the module (no lock needed). |
 | `fmt [--check]` | hot | cljfmt on the module, pinned version (no lock needed). |
-| `new <group/name>` | — | Scaffold a new project. |
+| `new <group/name>` | cold | Scaffold a new project. |
 | `new-module <name>` | cold | Scaffold a module in the workspace, add it, re-lock. |
 | `migrate [--dry-run]` | cold | Convert a legacy (`:exoscale.*` / `:slipset.*`) or Leiningen (`project.clj`) workspace to `:rig/*` in place. |
 | `jvm install <major>` | — | Install the newest Temurin JDK for a major version into the Rig state dir. |
@@ -440,6 +440,12 @@ rig new-module reporting          # add a module to the current workspace, re-lo
 `<name>/modules/<name>/deps.edn`, a runnable `src`, and a test. `new-module`
 scaffolds under `modules/`, adds the entry to `:rig/modules`, and
 re-locks.
+
+Both pin the test runner at the newest release past its
+[cooldown](../workflows/dependencies.md), so a new project starts on what
+the repositories serve rather than on a version compiled into the binary.
+`--offline` writes the version bundled with the binary, and so does a
+repository that answers nothing — with a note naming it.
 
 ### `rig self-update`
 

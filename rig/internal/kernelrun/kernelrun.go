@@ -101,7 +101,7 @@ const (
 // restore time.
 var restoreOps = map[string]bool{
 	"resolve": true, "check": true, "tree": true, "outdated": true,
-	"aot-plan": true, "edit-dep": true, "migrate": true,
+	"latest": true, "aot-plan": true, "edit-dep": true, "migrate": true,
 }
 
 // cracBanner matches the CRaC engine's stdout/stderr banner lines
