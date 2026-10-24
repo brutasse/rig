@@ -9,10 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/brutasse/rig/internal/digest"
 	"github.com/brutasse/rig/internal/jdk"
 	"github.com/brutasse/rig/internal/jvm"
-	"github.com/brutasse/rig/internal/kernel"
 )
 
 // withLTSStub points the Adoptium API at an info-endpoint stub and restores
@@ -25,25 +23,16 @@ func withLTSStub(t *testing.T, lts, code int) {
 	t.Cleanup(func() { jdk.DefaultBase = old })
 }
 
-// scaffoldKernel pins the locally built kernel jar and a JVM for the
-// scaffold's test-runner lookup, which runs the kernel. It skips when either
-// is unavailable.
+// scaffoldKernel is setKernel plus a JVM: a scaffolded project has no lock, so
+// pin the java the test-runner lookup runs on rather than let rig pick one.
 func scaffoldKernel(t *testing.T) {
 	t.Helper()
-	jar := kernelJarPath(t)
+	setKernel(t)
 	java, err := jvm.Find()
 	if err != nil {
 		t.Skipf("no java available: %v", err)
 	}
-	sha, err := digest.File(jar)
-	if err != nil {
-		t.Fatal(err)
-	}
-	oldSHA := kernel.Current.JARSHA
-	kernel.Current.JARSHA = sha
-	t.Setenv("RIG_KERNEL_JAR", jar)
 	t.Setenv("RIG_JAVA", java)
-	t.Cleanup(func() { kernel.Current.JARSHA = oldSHA })
 }
 
 // mavenStamp is maven-metadata's yyyyMMddHHmmss (UTC) for now minus ago.
