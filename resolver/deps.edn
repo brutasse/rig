@@ -27,7 +27,7 @@
  :rig/timestamp-string "2020-01-01T00:00:02Z"
 
  :aliases
- {:test {:extra-deps {lambdaisland/kaocha {:mvn/version "1.66.1034"}}
+ {:test {:extra-deps {lambdaisland/kaocha {:mvn/version "1.91.1392"}}
           ;; "runner/src": the kernel suite exercises rig.runner.
          :extra-paths ["test" "." "runner/src"]
          :exec-fn kaocha.runner/exec-fn}}}
