@@ -7,9 +7,10 @@
 #
 # What test does:
 #   1. on a renovate/* branch whose head is Renovate's own commit:
-#      'make lock-refresh' re-bakes resolver/deps.lock from the manifests and
-#      pushes it back to the branch — Renovate can move a manifest but cannot
-#      run 'rig lock', and the lock is a build input (step 4)
+#      'make lock-refresh' re-bakes resolver/deps.lock from the manifests,
+#      pushes it back to the branch, and dispatches a run onto that commit —
+#      Renovate can move a manifest but cannot run 'rig lock', and the lock is
+#      a build input (step 4)
 #   2. gofmt -w rig/ — fixes formatting in place; if anything changed,
 #      pushes a bot commit back to the branch (never fails)
 #   3. go vet
@@ -66,6 +67,9 @@ on:
     tags:
       - "v*"
     pull_request:
+  # Not dead: the lock-refresh step dispatches this workflow onto the lock
+  # commit it pushes to a renovate/* branch.
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -74,6 +78,12 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # A job-level block is what the job gets, so contents is restated; actions
+    # is for the dispatch below, and packages is dropped — this job pushes no
+    # images.
+    permissions:
+      contents: write
+      actions: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -111,8 +121,15 @@ jobs:
           # The ref is guarded here too, so the push cannot reach main or a
           # human branch even if the step's 'if' is edited later.
           case "$GITHUB_REF" in
-            refs/heads/renovate/*) git push origin HEAD:"${GITHUB_REF#refs/heads/}" ;;
+            refs/heads/renovate/*)
+              git push origin HEAD:"${GITHUB_REF#refs/heads/}"
+              # pushes from gha runs don't fire push events: run CI on the
+              # commit that will actually be merged.
+              gh workflow run ci.yml --ref "${GITHUB_REF#refs/heads/}"
+              ;;
           esac
+        env:
+          GH_TOKEN: ${{ github.token }}
 
       - name: gofmt (auto-fix)
         run: |
