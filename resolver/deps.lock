@@ -10,13 +10,13 @@
     "git/sha": "4fa9c46c6c8801d791fed0bae303fd97cdbcbc5e",
     "sha256": "ea03b818c284abc116e9ff9f63b3c39895546e475e366c392ff572ca640706ce"
   },
-  "locked_at": "2026-10-24T17:12:03Z",
+  "locked_at": "2026-10-24T17:15:05Z",
   "workspace": {
     "modules": [
       ".",
       "runner"
     ],
-    "manifest_sha256": "7d003f1968defe9789f77b24464d8c072c1713c8d78a624e3c88452ea18cda90"
+    "manifest_sha256": "0ebdf45d73d202cce8f885a1403408d6fa04ecab6bf997ca93a9ee862030a075"
   },
   "cooldown": {
     "default": "48h",
@@ -1022,20 +1022,6 @@
       "git": null
     },
     {
-      "id": "rewrite-clj/rewrite-clj:1.2.57:jar",
-      "kind": "mvn",
-      "group": "rewrite-clj",
-      "name": "rewrite-clj",
-      "version": "1.2.57",
-      "extension": "jar",
-      "classifier": null,
-      "repository": "clojars",
-      "url": "https://repo.clojars.org/rewrite-clj/rewrite-clj/1.2.57/rewrite-clj-1.2.57.jar",
-      "sha256": "46345783739cf1a3d3d90a47a0108e894bcff21bff41de2ccd44e864a2892cec",
-      "published_at": null,
-      "git": null
-    },
-    {
       "id": "org.apache.maven.resolver/maven-resolver-spi:1.9.27:jar",
       "kind": "mvn",
       "group": "org.apache.maven.resolver",
@@ -1190,6 +1176,20 @@
       "git": null
     },
     {
+      "id": "rewrite-clj/rewrite-clj:1.3.59:jar",
+      "kind": "mvn",
+      "group": "rewrite-clj",
+      "name": "rewrite-clj",
+      "version": "1.3.59",
+      "extension": "jar",
+      "classifier": null,
+      "repository": "clojars",
+      "url": "https://repo.clojars.org/rewrite-clj/rewrite-clj/1.3.59/rewrite-clj-1.3.59.jar",
+      "sha256": "185e6a02e8c016189717177adc3973079f7faf6fa1d3175f47e70d21d99721c6",
+      "published_at": null,
+      "git": null
+    },
+    {
       "id": "com.fasterxml.jackson.core/jackson-core:2.17.0:jar",
       "kind": "mvn",
       "group": "com.fasterxml.jackson.core",
@@ -1221,7 +1221,7 @@
   "skipped": [],
   "modules": {
     ".": {
-      "manifest_sha256": "7d003f1968defe9789f77b24464d8c072c1713c8d78a624e3c88452ea18cda90",
+      "manifest_sha256": "0ebdf45d73d202cce8f885a1403408d6fa04ecab6bf997ca93a9ee862030a075",
       "lib": "io.github.brutasse/rig-resolver",
       "version": "v0.1.0",
       "main": "Main",
@@ -1237,7 +1237,7 @@
         "org.clojure/clojure:1.12.6:jar",
         "org.clojure/tools.deps:0.31.1646:jar",
         "org.clojure/tools.namespace:1.5.1:jar",
-        "rewrite-clj/rewrite-clj:1.2.57:jar",
+        "rewrite-clj/rewrite-clj:1.3.59:jar",
         "com.fasterxml.jackson.core/jackson-core:2.17.0:jar",
         "com.fasterxml.jackson.dataformat/jackson-dataformat-cbor:2.17.0:jar",
         "com.fasterxml.jackson.dataformat/jackson-dataformat-smile:2.17.0:jar",
@@ -1308,7 +1308,7 @@
             "org.clojure/clojure:1.12.6:jar",
             "org.clojure/tools.deps:0.31.1646:jar",
             "org.clojure/tools.namespace:1.5.1:jar",
-            "rewrite-clj/rewrite-clj:1.2.57:jar",
+            "rewrite-clj/rewrite-clj:1.3.59:jar",
             "com.fasterxml.jackson.core/jackson-core:2.17.0:jar",
             "com.fasterxml.jackson.dataformat/jackson-dataformat-cbor:2.17.0:jar",
             "com.fasterxml.jackson.dataformat/jackson-dataformat-smile:2.17.0:jar",
