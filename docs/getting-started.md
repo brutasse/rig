@@ -94,15 +94,17 @@ The module `deps.edn` combines a standard tools.deps manifest with the
  :paths ["src"]
  :deps {org.clojure/clojure {:mvn/version "1.12.5"}}
  :aliases
- {:test {:extra-deps {lambdaisland/kaocha {:mvn/version "1.66.1034"}}
+ {:test {:extra-deps {lambdaisland/kaocha {:mvn/version "1.91.1392"}}
          :extra-paths ["test"]
          :exec-fn kaocha.runner/exec-fn}}}
 ```
 
 `:rig/lib` is the Maven coordinate under which the module publishes.
 `:rig/main` names the namespace that `rig run` launches. The `:test`
-alias declares how `rig test` runs the tests. Any test runner's
-`exec-fn` works here.
+alias declares how `rig test` runs the tests — `rig new` writes the
+newest test-runner release past its [cooldown](workflows/dependencies.md),
+resolved when it scaffolds, or the version bundled with the binary when
+it runs `--offline`. Any test runner's `exec-fn` works here.
 
 Lock and run the tests:
 

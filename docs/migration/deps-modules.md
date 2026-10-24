@@ -18,7 +18,7 @@ Root `deps.edn`:
   com.example/thing-not-core {:mvn/version "2.0.0" :exclusions [something/else]}}
 
  :exoscale.deps/managed-aliases
- {:dev {:extra-deps {lambdaisland/kaocha {:mvn/version "1.66.1034"}}}}}
+ {:dev {:extra-deps {lambdaisland/kaocha {:mvn/version "1.91.1392"}}}}}
 ```
 
 Module `deps.edn`, before the merge:
