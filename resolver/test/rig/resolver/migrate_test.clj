@@ -492,9 +492,10 @@
       (is (= {:mvn/version "1.1.6"} (get-in d [:deps 'aero/aero])))
       (is (= {:mvn/version "0.1.0" :exclusions '[z/w]} (get-in d [:deps 'x/y])))
       (is (= 'kaocha.runner/exec-fn (get-in d [:aliases :test :exec-fn])))
-      ;; 1.0.669 predates kaocha.runner/exec-fn, so :test gets the rig pin;
-      ;; :dev keeps the project's own version (no exec-fn there).
-      (is (= "1.66.1034" (get-in d [:aliases :test :extra-deps 'lambdaisland/kaocha :mvn/version])))
+      ;; 1.0.669 predates kaocha.runner/exec-fn, so :test gets the bundled
+      ;; default; :dev keeps the project's own version (no exec-fn there).
+      (is (= migrate/default-kaocha
+             (get-in d [:aliases :test :extra-deps 'lambdaisland/kaocha :mvn/version])))
       ;; lein runs tests with :dev active, so :test layers over :dev
       (is (= "2.14.235" (get-in d [:aliases :test :extra-deps 'lambdaisland/deep-diff2 :mvn/version])))
       (is (= ["test/resources" "test"] (get-in d [:aliases :test :extra-paths])))
@@ -622,12 +623,13 @@
     (is (empty? (get r "edits")))
     (is (false? (.exists (io/file ws "deps.edn"))))))
 
-(deftest leiningen-test-alias-uses-the-rig-kaocha-pin
+(deftest leiningen-test-alias-uses-the-bundled-kaocha-default
   (let [ws (temp-ws {"project.clj" "(defproject foo/bar \"1.0\")\n"})
         r (run ws)]
     (is (empty? (problems r)))
-    (is (= "1.66.1034" (get-in (file-edn ws "deps.edn")
-                               [:aliases :test :extra-deps 'lambdaisland/kaocha :mvn/version])))))
+    (is (= migrate/default-kaocha
+           (get-in (file-edn ws "deps.edn")
+                   [:aliases :test :extra-deps 'lambdaisland/kaocha :mvn/version])))))
 
 (deftest leiningen-kaocha-pin-new-enough-is-kept
   (let [ws (temp-ws {"project.clj" "(defproject foo/bar \"1.0\"
@@ -1060,7 +1062,7 @@
              (get-in m [:deps 'org.clojure/clojure])))
       (is (= ["src/clj" "resources"] (get m :paths)))
       (is (= ["src/clj" "resources"] (get m :rig/artifact-dirs)))
-      (is (= "1.66.1034"
+      (is (= migrate/default-kaocha
              (get-in m [:aliases :test :extra-deps
                         'lambdaisland/kaocha :mvn/version])))
       (is (nil? (get m :rig/publish)))
