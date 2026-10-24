@@ -10,13 +10,13 @@
     "git/sha": "4fa9c46c6c8801d791fed0bae303fd97cdbcbc5e",
     "sha256": "ea03b818c284abc116e9ff9f63b3c39895546e475e366c392ff572ca640706ce"
   },
-  "locked_at": "2026-10-24T17:15:05Z",
+  "locked_at": "2026-10-24T17:32:11Z",
   "workspace": {
     "modules": [
       ".",
       "runner"
     ],
-    "manifest_sha256": "0ebdf45d73d202cce8f885a1403408d6fa04ecab6bf997ca93a9ee862030a075"
+    "manifest_sha256": "d505cbbc7944ca2a00af65827464cf98ef02ea8ebb9d76eef345c3fa5f683ae7"
   },
   "cooldown": {
     "default": "48h",
@@ -27,6 +27,20 @@
     "requested": "8"
   },
   "artifacts": [
+    {
+      "id": "com.fasterxml.jackson.dataformat/jackson-dataformat-smile:2.21.1:jar",
+      "kind": "mvn",
+      "group": "com.fasterxml.jackson.dataformat",
+      "name": "jackson-dataformat-smile",
+      "version": "2.21.1",
+      "extension": "jar",
+      "classifier": null,
+      "repository": "central",
+      "url": "https://repo.maven.apache.org/maven2/com/fasterxml/jackson/dataformat/jackson-dataformat-smile/2.21.1/jackson-dataformat-smile-2.21.1.jar",
+      "sha256": "bcccc0e001f53285e97a822d07f2224f9d3ed32495fe64fecc43d78ec848d9ed",
+      "published_at": null,
+      "git": null
+    },
     {
       "id": "org.tcrawley/dynapath:1.1.0:jar",
       "kind": "mvn",
@@ -66,6 +80,20 @@
       "repository": "central",
       "url": "https://repo.maven.apache.org/maven2/org/apache/maven/resolver/maven-resolver-supplier/1.9.27/maven-resolver-supplier-1.9.27.jar",
       "sha256": "2da980ca88e8e15f2951a32a50768f0a5e202f075718f8ddbd558123e8594dcd",
+      "published_at": null,
+      "git": null
+    },
+    {
+      "id": "com.fasterxml.jackson.dataformat/jackson-dataformat-cbor:2.21.1:jar",
+      "kind": "mvn",
+      "group": "com.fasterxml.jackson.dataformat",
+      "name": "jackson-dataformat-cbor",
+      "version": "2.21.1",
+      "extension": "jar",
+      "classifier": null,
+      "repository": "central",
+      "url": "https://repo.maven.apache.org/maven2/com/fasterxml/jackson/dataformat/jackson-dataformat-cbor/2.21.1/jackson-dataformat-cbor-2.21.1.jar",
+      "sha256": "133b5324f7431181b46ee147e7dd0839c18187c9e752c421a353561317c07dbc",
       "published_at": null,
       "git": null
     },
@@ -280,20 +308,6 @@
       "git": null
     },
     {
-      "id": "com.fasterxml.jackson.dataformat/jackson-dataformat-cbor:2.17.0:jar",
-      "kind": "mvn",
-      "group": "com.fasterxml.jackson.dataformat",
-      "name": "jackson-dataformat-cbor",
-      "version": "2.17.0",
-      "extension": "jar",
-      "classifier": null,
-      "repository": "central",
-      "url": "https://repo.maven.apache.org/maven2/com/fasterxml/jackson/dataformat/jackson-dataformat-cbor/2.17.0/jackson-dataformat-cbor-2.17.0.jar",
-      "sha256": "d7050cb5e622848d5be382848b1792e8244d529e24c84ba1cc27aabf2496fe3b",
-      "published_at": null,
-      "git": null
-    },
-    {
       "id": "org.ow2.asm/asm:9.9.1:jar",
       "kind": "mvn",
       "group": "org.ow2.asm",
@@ -378,20 +392,6 @@
       "git": null
     },
     {
-      "id": "cheshire/cheshire:5.13.0:jar",
-      "kind": "mvn",
-      "group": "cheshire",
-      "name": "cheshire",
-      "version": "5.13.0",
-      "extension": "jar",
-      "classifier": null,
-      "repository": "clojars",
-      "url": "https://repo.clojars.org/cheshire/cheshire/5.13.0/cheshire-5.13.0.jar",
-      "sha256": "c009610160ca8a1d8a6dad5307d06d171d318cd426ec249990c17fe8e0b89aec",
-      "published_at": null,
-      "git": null
-    },
-    {
       "id": "org.clojure/tools.analyzer:1.2.0:jar",
       "kind": "mvn",
       "group": "org.clojure",
@@ -448,16 +448,16 @@
       "git": null
     },
     {
-      "id": "com.fasterxml.jackson.dataformat/jackson-dataformat-smile:2.17.0:jar",
+      "id": "cheshire/cheshire:6.2.0:jar",
       "kind": "mvn",
-      "group": "com.fasterxml.jackson.dataformat",
-      "name": "jackson-dataformat-smile",
-      "version": "2.17.0",
+      "group": "cheshire",
+      "name": "cheshire",
+      "version": "6.2.0",
       "extension": "jar",
       "classifier": null,
-      "repository": "central",
-      "url": "https://repo.maven.apache.org/maven2/com/fasterxml/jackson/dataformat/jackson-dataformat-smile/2.17.0/jackson-dataformat-smile-2.17.0.jar",
-      "sha256": "e6b2bf2a53d1f88ec02f1833da24c208aa299876e47d37f7920b1e83e214baab",
+      "repository": "clojars",
+      "url": "https://repo.clojars.org/cheshire/cheshire/6.2.0/cheshire-6.2.0.jar",
+      "sha256": "6e86771499723471f71ec9684824aacd67cd323d5f453f3ce40bbec115e98a7b",
       "published_at": null,
       "git": null
     },
@@ -626,6 +626,20 @@
       "repository": "central",
       "url": "https://repo.maven.apache.org/maven2/org/clojure/clojure/1.12.6/clojure-1.12.6.jar",
       "sha256": "21b578db389a8e74b286ce79c4a7f86ec641e26d88b12f18d69030916b0e18ca",
+      "published_at": null,
+      "git": null
+    },
+    {
+      "id": "com.fasterxml.jackson.core/jackson-core:2.21.1:jar",
+      "kind": "mvn",
+      "group": "com.fasterxml.jackson.core",
+      "name": "jackson-core",
+      "version": "2.21.1",
+      "extension": "jar",
+      "classifier": null,
+      "repository": "central",
+      "url": "https://repo.maven.apache.org/maven2/com/fasterxml/jackson/core/jackson-core/2.21.1/jackson-core-2.21.1.jar",
+      "sha256": "1edd5f2e49dca5f8e4519957c24b7b3050bd1c7ee883920da33cff031ff1f7c0",
       "published_at": null,
       "git": null
     },
@@ -1190,20 +1204,6 @@
       "git": null
     },
     {
-      "id": "com.fasterxml.jackson.core/jackson-core:2.17.0:jar",
-      "kind": "mvn",
-      "group": "com.fasterxml.jackson.core",
-      "name": "jackson-core",
-      "version": "2.17.0",
-      "extension": "jar",
-      "classifier": null,
-      "repository": "central",
-      "url": "https://repo.maven.apache.org/maven2/com/fasterxml/jackson/core/jackson-core/2.17.0/jackson-core-2.17.0.jar",
-      "sha256": "55be130f6a68038088a261856c4e383ce79957a0fc1a29ecb213a9efd6ef4389",
-      "published_at": null,
-      "git": null
-    },
-    {
       "id": "org.clojure/spec.alpha:0.5.238:jar",
       "kind": "mvn",
       "group": "org.clojure",
@@ -1221,7 +1221,7 @@
   "skipped": [],
   "modules": {
     ".": {
-      "manifest_sha256": "0ebdf45d73d202cce8f885a1403408d6fa04ecab6bf997ca93a9ee862030a075",
+      "manifest_sha256": "d505cbbc7944ca2a00af65827464cf98ef02ea8ebb9d76eef345c3fa5f683ae7",
       "lib": "io.github.brutasse/rig-resolver",
       "version": "v0.1.0",
       "main": "Main",
@@ -1231,16 +1231,16 @@
         "src"
       ],
       "classpath": [
-        "cheshire/cheshire:5.13.0:jar",
+        "cheshire/cheshire:6.2.0:jar",
         "cljfmt/cljfmt:0.9.2:jar",
         "io.github.clojure/tools.build:0.10.14:jar",
         "org.clojure/clojure:1.12.6:jar",
         "org.clojure/tools.deps:0.31.1646:jar",
         "org.clojure/tools.namespace:1.5.1:jar",
         "rewrite-clj/rewrite-clj:1.3.59:jar",
-        "com.fasterxml.jackson.core/jackson-core:2.17.0:jar",
-        "com.fasterxml.jackson.dataformat/jackson-dataformat-cbor:2.17.0:jar",
-        "com.fasterxml.jackson.dataformat/jackson-dataformat-smile:2.17.0:jar",
+        "com.fasterxml.jackson.core/jackson-core:2.21.1:jar",
+        "com.fasterxml.jackson.dataformat/jackson-dataformat-cbor:2.21.1:jar",
+        "com.fasterxml.jackson.dataformat/jackson-dataformat-smile:2.21.1:jar",
         "com.googlecode.java-diff-utils/diffutils:1.3.0:jar",
         "org.slf4j/slf4j-nop:1.7.36:jar",
         "org.clojure/core.specs.alpha:0.4.74:jar",
@@ -1301,7 +1301,7 @@
       "aliases": {
         "test": {
           "classpath": [
-            "cheshire/cheshire:5.13.0:jar",
+            "cheshire/cheshire:6.2.0:jar",
             "cljfmt/cljfmt:0.9.2:jar",
             "io.github.clojure/tools.build:0.10.14:jar",
             "lambdaisland/kaocha:1.91.1392:jar",
@@ -1309,9 +1309,9 @@
             "org.clojure/tools.deps:0.31.1646:jar",
             "org.clojure/tools.namespace:1.5.1:jar",
             "rewrite-clj/rewrite-clj:1.3.59:jar",
-            "com.fasterxml.jackson.core/jackson-core:2.17.0:jar",
-            "com.fasterxml.jackson.dataformat/jackson-dataformat-cbor:2.17.0:jar",
-            "com.fasterxml.jackson.dataformat/jackson-dataformat-smile:2.17.0:jar",
+            "com.fasterxml.jackson.core/jackson-core:2.21.1:jar",
+            "com.fasterxml.jackson.dataformat/jackson-dataformat-cbor:2.21.1:jar",
+            "com.fasterxml.jackson.dataformat/jackson-dataformat-smile:2.21.1:jar",
             "com.googlecode.java-diff-utils/diffutils:1.3.0:jar",
             "org.slf4j/slf4j-nop:1.7.36:jar",
             "aero/aero:1.1.6:jar",
