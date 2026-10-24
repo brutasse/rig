@@ -29,11 +29,15 @@ dev: kernel rig
 # link-closure fix precisely so it could build what comes next). The jar
 # version comes from resolver/VERSION (rig's version-file), so V must
 # match it; the release flow bumps VERSION in the prepare-release commit.
+# --frozen: this workspace commits its lock, so the lock is a build input. A
+# cold command without it re-resolves and rewrites deps.lock whenever a
+# manifest moved: a dependency bump that skipped 'rig lock' would build green
+# here and leave the drift uncommitted instead of failing.
 kernel: rig
 	@test "$$(cat resolver/VERSION)" = "$(V)" || { \
 		echo "resolver/VERSION ($$(cat resolver/VERSION)) != V ($(V)): bump resolver/VERSION in the release commit" >&2; exit 1; }
-	cd resolver && $(abspath $(BIN)) build --uber
-	cd resolver && $(abspath $(BIN)) build -p runner
+	cd resolver && $(abspath $(BIN)) build --frozen --uber
+	cd resolver && $(abspath $(BIN)) build -p runner --frozen
 
 # pin: stamp the kernel pin in kernel.go (version, git sha, GitHub release
 # URL, jar sha256, runner URL, runner jar sha256) from the freshly built
@@ -60,11 +64,20 @@ pin: kernel
 rig:
 	cd rig && go build -o dist/rig ./cmd/rig
 
-# test: full local verification — kernel suite (rig test: the runner
-# runs the :test alias's exec-fn on the locked test classpath, on the
-# workspace's managed Temurin 8) + Go suite (E2E tests run against the
-# just-built jars). No Clojure CLI, no host JDK: rig runs everything.
-test: dev
+# check: rig's own workspace against its own lock. The frozen build already
+# refuses a stale lock; this names the coordinate that drifted, runs the rest
+# of stage 1 (conflicts, drift, floating versions, unknown repos) and stage 2
+# (every module's namespaces load and compile).
+check: dev
+	cd resolver && RIG_KERNEL_JAR=$(abspath $(JAR)) RIG_RUNNER_JAR=$(abspath $(RUNNER)) \
+		$(abspath $(BIN)) check
+
+# test: full local verification — rig check on this workspace, the kernel
+# suite (rig test: the runner runs the :test alias's exec-fn on the locked
+# test classpath, on the workspace's managed Temurin 8) + Go suite (E2E tests
+# run against the just-built jars). No Clojure CLI, no host JDK: rig runs
+# everything.
+test: dev check
 	cd resolver && CLOJURE_CLI_ALLOW_HTTP_REPO=1 RIG_RUNNER_JAR=$(abspath $(RUNNER)) $(abspath $(BIN)) test
 	cd rig && RIG_TEST_KERNEL_JAR=$(abspath $(JAR)) RIG_TEST_RUNNER_JAR=$(abspath $(RUNNER)) \
 		go test ./...
@@ -148,4 +161,4 @@ image: release
 		--build-arg TARGETARCH=$$arch \
 		-t $(IMAGE):local .
 
-.PHONY: dev kernel pin rig test test-pier run release release-binaries image
+.PHONY: dev kernel pin rig check test test-pier run release release-binaries image

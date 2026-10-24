@@ -9,8 +9,11 @@
 #   1. gofmt -w rig/ — fixes formatting in place; if anything changed,
 #      pushes a bot commit back to the branch (never fails)
 #   2. go vet
-#   3. make test — kernel suite (rig test, via the runner) + Go suite,
-#      E2E vs the freshly built jar
+#   3. make test — make dev builds both jars --frozen, so a dependency bump
+#      that skipped 'rig lock' fails before anything else runs; then rig
+#      check on this workspace (names the drifted coordinate), the kernel
+#      suite (rig test, via the runner), and the Go suite (E2E vs the fresh
+#      jars)
 #
 # Toolchain everywhere: setup-go + brutasse/setup-rig (installs the rig
 # binary, the Temurin 8 pinned in resolver/deps.lock, and caches the
