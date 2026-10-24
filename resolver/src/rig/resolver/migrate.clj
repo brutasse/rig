@@ -341,7 +341,12 @@
     :managed-dependencies :parent-project :sub
     :java-source-paths :javac-options :uberjar-name})
 
-(def default-kaocha "1.66.1034")
+;; The runner a lein project gets when it declares none, or one too old for
+;; kaocha.runner/exec-fn. Kept equal to rig new's bundled fallback,
+;; defaultTestRunnerVersion in rig/internal/cli/new.go: Go needs its own
+;; (rig new --offline starts no JVM) and so does the kernel (a migrate op
+;; cannot be told). TestMigrateLeiningenBundledRunner holds them together.
+(def default-kaocha "1.91.1392")
 
 ;; The first kaocha release with kaocha.runner/exec-fn.
 (def kaocha-exec-fn-min "1.0.937")
@@ -1054,7 +1059,7 @@
                          (when kaocha-bump
                            [(str "the project's kaocha " declared-kaocha
                                  " predates kaocha.runner/exec-fn (introduced in "
-                                 kaocha-exec-fn-min "), so the :test alias uses the rig default pin "
+                                 kaocha-exec-fn-min "), so the :test alias uses the bundled test-runner default "
                                  default-kaocha)])
                          (map (fn [k]
                                 (str "dropped " (str k) " (no rig equivalent)"))

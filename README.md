@@ -109,7 +109,8 @@ installs the Temurin 8 pinned in `resolver/deps.lock`.
 
 ```
 make dev    # build the kernel jar, build rig
-make test   # make dev + kernel suite (rig test) + Go suite (E2E vs the fresh jar)
+make check  # make dev + rig check on this workspace (lock vs manifests)
+make test   # make dev + rig check + kernel suite (rig test) + Go suite (E2E vs the fresh jar)
 make run WS=<workspace-dir> ARGS="lock"   # run the local rig in a workspace
 make image  # build the Docker image locally (no push)
 make release V=vX.Y.Z  # package a release in rig/dist/release/ (dry run)

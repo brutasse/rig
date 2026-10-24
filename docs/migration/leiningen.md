@@ -59,7 +59,7 @@ The generated manifest for the example above:
  :deps {org.clojure/clojure {:mvn/version "1.12.1"}
         some/tool {:mvn/version "0.4.0"}}
  :aliases
- {:test {:extra-deps {lambdaisland/kaocha {:mvn/version "1.66.1034"}}
+ {:test {:extra-deps {lambdaisland/kaocha {:mvn/version "1.91.1392"}}
          :extra-paths ["test/resources" "test"]
          :jvm-opts ["-Dexample.debug=true"]
          :exec-fn kaocha.runner/exec-fn}
@@ -120,7 +120,8 @@ when it carries expressible content, for manual development use.
   at the version the project effectively pins for tests (the version
   from the `:test` profile, else from the `:dev` profile, else the
   top-level `:dependencies`). If the project pins no such version, Rig
-  uses its bundled default (`1.66.1034`).
+  uses its bundled test-runner default (`1.91.1392`, the version `rig new`
+  falls back to offline).
 - `:extra-paths` — the layered path keys plus the effective
   `:test-paths`, default `["test"]`.
 - `:exec-fn kaocha.runner/exec-fn`.

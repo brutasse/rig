@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -161,6 +162,25 @@ func TestMigrateLeiningen(t *testing.T) {
 	}
 	if !strings.Contains(out, "nothing to migrate") {
 		t.Errorf("out = %q", out)
+	}
+}
+
+// TestMigrateLeiningenBundledRunner: the runner rig falls back to when a
+// project declares none must be the one rig new falls back to. The value is
+// two literals in two languages (see migrate/default-kaocha), and this is what
+// keeps them equal.
+func TestMigrateLeiningenBundledRunner(t *testing.T) {
+	setKernel(t)
+	t.Chdir(t.TempDir())
+	writeFile(t, "project.clj", leinFixture)
+
+	code, out := runCLI(t, "migrate", "--cache-dir", t.TempDir())
+	if code != 0 {
+		t.Fatalf("migrate exit = %d, want 0; out: %s", code, out)
+	}
+	want := fmt.Sprintf(`lambdaisland/kaocha {:mvn/version %q}`, defaultTestRunnerVersion)
+	if got := readFile(t, "deps.edn"); !strings.Contains(got, want) {
+		t.Errorf("migrated manifest =\n%s\nwant the bundled runner %s", got, want)
 	}
 }
 
