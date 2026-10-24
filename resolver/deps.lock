@@ -10,13 +10,13 @@
     "git/sha": "4fa9c46c6c8801d791fed0bae303fd97cdbcbc5e",
     "sha256": "ea03b818c284abc116e9ff9f63b3c39895546e475e366c392ff572ca640706ce"
   },
-  "locked_at": "2026-10-24T10:03:15Z",
+  "locked_at": "2026-10-24T17:12:03Z",
   "workspace": {
     "modules": [
       ".",
       "runner"
     ],
-    "manifest_sha256": "473a2e691b1df2b4a575cecce9d6db8a900cf133b4826c917d7882f9fef12d76"
+    "manifest_sha256": "7d003f1968defe9789f77b24464d8c072c1713c8d78a624e3c88452ea18cda90"
   },
   "cooldown": {
     "default": "48h",
@@ -616,6 +616,20 @@
       "git": null
     },
     {
+      "id": "org.clojure/clojure:1.12.6:jar",
+      "kind": "mvn",
+      "group": "org.clojure",
+      "name": "clojure",
+      "version": "1.12.6",
+      "extension": "jar",
+      "classifier": null,
+      "repository": "central",
+      "url": "https://repo.maven.apache.org/maven2/org/clojure/clojure/1.12.6/clojure-1.12.6.jar",
+      "sha256": "21b578db389a8e74b286ce79c4a7f86ec641e26d88b12f18d69030916b0e18ca",
+      "published_at": null,
+      "git": null
+    },
+    {
       "id": "org.apache.maven/maven-repository-metadata:3.9.16:jar",
       "kind": "mvn",
       "group": "org.apache.maven",
@@ -1207,7 +1221,7 @@
   "skipped": [],
   "modules": {
     ".": {
-      "manifest_sha256": "473a2e691b1df2b4a575cecce9d6db8a900cf133b4826c917d7882f9fef12d76",
+      "manifest_sha256": "7d003f1968defe9789f77b24464d8c072c1713c8d78a624e3c88452ea18cda90",
       "lib": "io.github.brutasse/rig-resolver",
       "version": "v0.1.0",
       "main": "Main",
@@ -1220,7 +1234,7 @@
         "cheshire/cheshire:5.13.0:jar",
         "cljfmt/cljfmt:0.9.2:jar",
         "io.github.clojure/tools.build:0.10.14:jar",
-        "org.clojure/clojure:1.12.5:jar",
+        "org.clojure/clojure:1.12.6:jar",
         "org.clojure/tools.deps:0.31.1646:jar",
         "org.clojure/tools.namespace:1.5.1:jar",
         "rewrite-clj/rewrite-clj:1.2.57:jar",
@@ -1291,7 +1305,7 @@
             "cljfmt/cljfmt:0.9.2:jar",
             "io.github.clojure/tools.build:0.10.14:jar",
             "lambdaisland/kaocha:1.91.1392:jar",
-            "org.clojure/clojure:1.12.5:jar",
+            "org.clojure/clojure:1.12.6:jar",
             "org.clojure/tools.deps:0.31.1646:jar",
             "org.clojure/tools.namespace:1.5.1:jar",
             "rewrite-clj/rewrite-clj:1.2.57:jar",
