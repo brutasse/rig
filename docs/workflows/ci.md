@@ -43,7 +43,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install rig (binary, JVM, cache)
-        uses: brutasse/setup-rig@6b2679db6657d62511f8b017c53e5f805f305349 # v1.0.0
+        uses: brutasse/setup-rig@b204f6b12fde6574ebbebe0227fcaaa10391882f # v2.0.0
         with:
           version: v0.3.0
 
