@@ -80,7 +80,7 @@ jobs:
         with:
           go-version: "1.27.x"
           cache-dependency-path: rig/go.sum
-      - uses: brutasse/setup-rig@v1
+      - uses: brutasse/setup-rig@6b2679db6657d62511f8b017c53e5f805f305349 # v1
         with:
           token: ${{ github.token }}
           lockfile: resolver/deps.lock
@@ -149,7 +149,7 @@ jobs:
         with:
           go-version: "1.27.x"
           cache-dependency-path: rig/go.sum
-      - uses: brutasse/setup-rig@v1
+      - uses: brutasse/setup-rig@6b2679db6657d62511f8b017c53e5f805f305349 # v1
         with:
           token: ${{ github.token }}
           lockfile: resolver/deps.lock
@@ -184,7 +184,7 @@ jobs:
         with:
           go-version: "1.27.x"
           cache-dependency-path: rig/go.sum
-      - uses: brutasse/setup-rig@v1
+      - uses: brutasse/setup-rig@6b2679db6657d62511f8b017c53e5f805f305349 # v1
         with:
           token: ${{ github.token }}
           lockfile: resolver/deps.lock
@@ -228,7 +228,7 @@ jobs:
         with:
           go-version: "1.27.x"
           cache-dependency-path: rig/go.sum
-      - uses: brutasse/setup-rig@v1
+      - uses: brutasse/setup-rig@6b2679db6657d62511f8b017c53e5f805f305349 # v1
         with:
           token: ${{ github.token }}
           lockfile: resolver/deps.lock
