@@ -224,12 +224,14 @@ records its original URL. For floating versions, the kernel probes
 the original URL, with the per-repo bearer and subject to the cooldown.
 Artifacts themselves always come through the proxy.
 
-!!! tip "One repository for everything"
-    Redeclaring `central` under `:mvn/repos` routes every Maven artifact
-    through a single Pier-backed repository — the resolver probes `central`
-    first and Pier serves everything. Redeclare `clojars` too to also cut
-    the built-in real Clojars fallback.
-    [All artifacts through one repository](../workflows/pier.md).
+> [!TIP]
+> **One repository for everything**
+>
+> Redeclaring `central` under `:mvn/repos` routes every Maven artifact
+> through a single Pier-backed repository — the resolver probes `central`
+> first and Pier serves everything. Redeclare `clojars` too to also cut
+> the built-in real Clojars fallback.
+> [All artifacts through one repository](../workflows/pier.md).
 
 ## JVMs (`:rig/jvm`)
 
@@ -549,10 +551,12 @@ workspace.
   `deps.edn` next to where you run the command, and resolves it by
   walking up.
 
-!!! note "Rig refuses legacy keys outright"
-    Rig rejects outright a manifest still carrying
-    `:exoscale.project/*`, `:exoscale.deps/*`
-    or `:slipset.deps-deploy/*` keys: the resolver
-    names the file and tells you to run `rig migrate`. The migration
-    renames the legacy keys — `:slipset.deps-deploy/exec-args` becomes
-    `:rig/publish` — and the migration guides remove them entirely.
+> [!NOTE]
+> **Rig refuses legacy keys outright**
+>
+> Rig rejects outright a manifest still carrying
+> `:exoscale.project/*`, `:exoscale.deps/*`
+> or `:slipset.deps-deploy/*` keys: the resolver
+> names the file and tells you to run `rig migrate`. The migration
+> renames the legacy keys — `:slipset.deps-deploy/exec-args` becomes
+> `:rig/publish` — and the migration guides remove them entirely.

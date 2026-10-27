@@ -1,3 +1,7 @@
+---
+nav: list
+---
+
 # Rig
 
 Rig builds and runs Clojure projects the obvious way: one binary, one
@@ -5,6 +9,16 @@ manifest, one lockfile, one way to do each thing.
 
 No task-alias incantations, no Makefile-only knowledge, no sync step. The
 command you type is the thing that happens.
+
+## In this documentation
+
+- [Getting started](getting-started.md)
+- [Concepts](concepts/index.md)
+- [Workflows](workflows/index.md)
+- [Reference](reference/index.md)
+- [Migration](migration/index.md)
+- [How Rig works](internals/index.md)
+- [Releases](releases.md)
 
 ## Why Rig
 

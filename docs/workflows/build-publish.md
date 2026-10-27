@@ -34,7 +34,7 @@ determines the GraalVM major. The build never downloads:
 exists on the machine. Install one with `rig graalvm install <major>`
 first. The binary needs neither a JVM nor a classpath, and runs on plain
 args with `:rig/main` as the entry namespace
-(see [Native images](../reference/config.md#native-images-rig-build-native)).
+(see [Native images](../reference/config.md#native-images-rig-build---native)).
 A native build needs a C compiler and a few GB of RAM, and takes minutes.
 
 ## Installing locally

@@ -1,8 +1,15 @@
+---
+nav: list
+---
+
 # How Rig works
 
 The other pages of this site describe *what* Rig does. This section
 describes *how*: the two components, the boundary between them, and where
 each guarantee lives in the code.
+
+- [Version resolution](resolution.md)
+- [The closed build](closed-build.md)
 
 ## Two components, one rule
 

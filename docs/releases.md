@@ -125,7 +125,7 @@ list / uninstall / update`, downloaded from the
 state dir. The build never downloads: when Rig has installed no GraalVM
 for the major, `--native` fails with a `rig graalvm install <major>`
 hint. See
-[Configuration — Native images](reference/config.md#native-images-rig-build-native).
+[Configuration — Native images](reference/config.md#native-images-rig-build---native).
 
 #### Leiningen migration
 
@@ -383,7 +383,7 @@ commands reject v1 locks with an unsupported-version error. `rig lock`,
   [Java sources](concepts/java.md) (native javac, `:deps/prep-lib`,
   `:rig/javac-opts`). New reference sections:
   [JVM flags](reference/config.md#jvm-flags),
-  [Native images](reference/config.md#native-images-rig-build-native)
+  [Native images](reference/config.md#native-images-rig-build---native)
   and [Production launch](reference/config.md#production-launch-rig-launch).
   The lockfile anatomy page now covers v2. The Docker entrypoint pattern
   uses `rig launch`.

@@ -90,4 +90,4 @@ The kernel and runner jars are in the image, but the *artifact* cache is
 cold. `rig verify` in the Dockerfile fetches from your repositories and
 checks the hashes against the lockfile. For hermetic `--offline` builds,
 first warm the state dir in an earlier layer (or cache it across runs). See
-[CI](ci.md#hermetic-air-gapped-ci-opt-in-offline).
+[CI](ci.md#hermetic--air-gapped-ci-opt-in---offline).

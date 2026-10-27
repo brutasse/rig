@@ -393,7 +393,7 @@ With the `:rig/jvm` pin of the workspace, Rig scans every jar the build
 produces against it as the bytecode floor. A class that would not load on
 the pinned JVM fails the build (see [JVMs](config.md#jvms-rigjvm)).
 The command prints `built <path>` on success. See
-[Native images](config.md#native-images-rig-build-native).
+[Native images](config.md#native-images-rig-build---native).
 
 ### `rig install`
 

@@ -1,3 +1,7 @@
+---
+nav: list
+---
+
 # Concepts
 
 Two files describe a Rig project. Each file has a different job:
@@ -10,6 +14,11 @@ Two files describe a Rig project. Each file has a different job:
 The manifest states the requirements. The lockfile records the resolved
 result. A build never uses both at once: the hot path reads only the
 lockfile.
+
+- [The lockfile](lockfile.md)
+- [Security model](security.md)
+- [Workspaces and modules](workspace.md)
+- [Java sources](java.md)
 
 ## `deps.edn` keeps its job
 
