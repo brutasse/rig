@@ -4,6 +4,8 @@ Changelog for Rig.
 
 ## Unreleased
 
+## v0.3.2 — 2026-10-30
+
 ### Fixed
 
 #### Checkpoint trouble degrades instead of failing every command
