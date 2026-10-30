@@ -4,10 +4,8 @@ import (
 	"archive/zip"
 	"context"
 	"encoding/json"
-	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -98,25 +96,29 @@ func TestCallColdSeedsThenRestores(t *testing.T) {
 	}
 }
 
-func TestCallRestoreOpFailureMaps(t *testing.T) {
+// TestCallRestoreFailureRerunsCold: a nonzero exit from the restore JVM
+// is ambiguous (op failure vs a JVM that never restored) and gets no
+// say over the outcome: the op runs cold and the cold path is the only
+// voice on failure. And the chain self-heals — the image that failed to
+// serve is retired, the cold success re-bootstraps, the next command
+// restores again.
+func TestCallRestoreFailureRerunsCold(t *testing.T) {
 	jar := fakeJar(t)
 	_, ws, fake := cracSetup(t)
 	req := Request{Op: "check", Workspace: ws}
 	if _, err := Call(context.Background(), jar, fake, req); err != nil { // seed
 		t.Fatal(err)
 	}
-	t.Setenv("FAKE_RESTORE", "opfail")
+	t.Setenv("FAKE_RESTORE", "jvmfail")
 
 	out, err := Call(context.Background(), jar, fake, req)
-	if !errors.Is(err, ErrOpFailed) {
-		t.Fatalf("want ErrOpFailed, got %v (out=%s)", err, out)
+	if err != nil || string(out) != `{"ok":true,"via":"cold"}` {
+		t.Fatalf("restore failure must fall through to cold: out=%s err=%v", out, err)
 	}
-	var oe *OpError
-	if !errors.As(err, &oe) || oe.Op != "check" {
-		t.Fatalf("want *OpError for check, got %#v", err)
-	}
-	if !strings.Contains(string(out), `"ok":false`) {
-		t.Fatalf("restore op-failure output lost: %s", out)
+	t.Setenv("FAKE_RESTORE", "ok")
+	out, err = Call(context.Background(), jar, fake, req)
+	if err != nil || string(out) != `{"ok":true,"via":"restore"}` {
+		t.Fatalf("chain did not self-heal: out=%s err=%v", out, err)
 	}
 }
 

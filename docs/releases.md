@@ -4,6 +4,25 @@ Changelog for Rig.
 
 ## Unreleased
 
+### Fixed
+
+#### Checkpoint trouble degrades instead of failing every command
+
+A CRaC restore that dies before the op runs — a corrupt or unopenable
+image, say — exits 1, the same code the kernel uses for a failed op.
+Rig trusted the exit code: the cold fallback, the documented safety
+net, never ran, and every checkpoint-eligible command failed as
+`kernel: op failed`, the JVM's own error filtered away with the
+checkpoint noise. One damaged image in the machine-global chain was a
+machine-wide `rig lock` outage that only deleting the store by hand
+cleared. A nonzero restore exit without a landed dump now always
+re-runs the op cold — the cold path is the only voice on failure —
+and retires the image that could not serve it (an externally-killed
+restore leaves the image alone), so a broken chain repairs itself on
+its first failed command. A chain that fills its 6-image cap now
+rotates, the next cold run re-bootstrapping instead of parking the
+checkpoint path off for good. `-v` prints why a restore fell back.
+
 ## v0.3.1 — 2026-10-07
 
 ### Fixed

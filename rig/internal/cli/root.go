@@ -12,6 +12,7 @@ import (
 
 	"github.com/brutasse/rig/internal/cache"
 	"github.com/brutasse/rig/internal/fetch"
+	"github.com/brutasse/rig/internal/kernelrun"
 	"github.com/brutasse/rig/internal/maven"
 	"github.com/brutasse/rig/internal/workspace"
 )
@@ -115,6 +116,7 @@ func Execute() int {
 		if len(o.pathVals) == 1 {
 			o.path = o.pathVals[0]
 		}
+		kernelrun.Verbose = o.verbose
 		checkpointSweep(o)
 		return nil
 	}

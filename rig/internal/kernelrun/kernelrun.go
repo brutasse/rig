@@ -31,9 +31,15 @@
 //     so the image on disk, not the exit code, decides. CRaC banner lines
 //     pollute stdout and stderr alike (ignored-fd policy), hence the
 //     stdio noise filter.
+//   - A restore-side exit code is trusted only alongside its dump: exit 1
+//     is both "the op failed on the warm heap" and "this JVM never
+//     restored" (an unopenable image exits 1 too). Nonzero without a dump
+//     therefore never fails the user's command — it re-runs the op cold,
+//     and retires the image that failed unless the kill looks external.
 //   - Refresh dumps are deltas referencing their parent images, so the
 //     whole img-NNN chain must stay on disk until a fresh bootstrap
-//     replaces it; the chain cap bounds the disk cost.
+//     replaces it; the chain cap bounds the disk cost and Warm rotates a
+//     full chain when it fills.
 //
 // Credentials ride the REQUEST FILE, not the environment: System/getenv is
 // boot-cached inside a JVM, so a restored kernel would otherwise read the
@@ -76,8 +82,15 @@ import (
 
 // ErrUnavailable means this call cannot use the checkpoint path (no
 // capability, no image, restore failed at the infrastructure level). The
-// caller must run the op cold; nothing is promoted or deleted.
+// caller must run the op cold. A restore that reached the JVM and died
+// there retires the image it could not serve (see Restore); nothing else
+// is promoted or deleted.
 var ErrUnavailable = errors.New("kernelrun: checkpoint path unavailable")
+
+// Verbose mirrors the CLI's -v: it surfaces why a restore fell back,
+// something otherwise invisible by design (the cold path answers and
+// looks exactly like a machine that never checkpointed).
+var Verbose bool
 
 const (
 	// bootstrapMain and runnerMain are AOT'd entry classes inside the
@@ -88,7 +101,7 @@ const (
 
 	// chainCap bounds img-NNN accumulation: refresh dumps are deltas that
 	// reference ALL their ancestors, so old chain members are only
-	// deletable as a whole (rig clean / re-bootstrap, P4).
+	// deletable as a whole — Warm rotates a full chain when it fills.
 	chainCap = 6
 
 	// bootstrapXmx sizes the checkpoint heap; the restored JVM runs with
@@ -312,11 +325,13 @@ func images(keyDir string) []string {
 
 // Restore runs the request on the newest checkpoint image and refreshes
 // the image with the state this op just warmed. It returns the kernel's
-// result JSON (single line, banners filtered) and the op exit code mapped
-// exactly like the cold path's (success 0, op failures 1/2/3). Every
-// infrastructure problem — including a dump that failed after the op
-// printed — returns an error so the caller re-runs the op cold; eligible
-// ops are idempotent, so a re-run is safe.
+// result JSON (single line, banners filtered) when the warm run completed
+// cleanly; every other outcome — infrastructure trouble, or an op the
+// warm heap could not run cleanly — returns an error so the caller re-runs
+// the op cold and lets the cold path report the failure. Eligible ops are
+// idempotent, so the re-run is safe. A restore that died in the JVM also
+// retires the image it tried to serve, so a poisoned chain repairs itself
+// on its first failed command.
 func Restore(ctx context.Context, r Req) ([]byte, int, error) {
 	if !eligible(r) {
 		return nil, 0, ErrUnavailable
@@ -335,7 +350,7 @@ func Restore(ctx context.Context, r Req) ([]byte, int, error) {
 	}
 	imgs := images(kd)
 	if len(imgs) == 0 || len(imgs) >= chainCap {
-		return nil, 0, ErrUnavailable // none yet / chain capped (P4 rebuilds)
+		return nil, 0, ErrUnavailable // none yet / chain capped (Warm rotates it)
 	}
 	reqFile, err := writeReq(kd, r.Body)
 	if err != nil {
@@ -355,7 +370,12 @@ func Restore(ctx context.Context, r Req) ([]byte, int, error) {
 		"-XX:CRaCIgnoredFileDescriptors=0,1,2",
 		runnerMain, reqFile,
 	}
-	out, code, err := runKernelJVM(ctx, java, args, r, newNoiseFilter(os.Stderr))
+	// Restore-side stderr is buffered, not streamed: while the run is in
+	// flight we cannot tell an op failure from a failed restore, and every
+	// fallback below hands the op to the cold path, which streams the same
+	// text itself — unfiltered, once.
+	var jvmErr bytes.Buffer
+	out, code, err := runKernelJVM(ctx, java, args, r, &jvmErr)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -367,21 +387,32 @@ func Restore(ctx context.Context, r Req) ([]byte, int, error) {
 			return nil, 0, ErrUnavailable
 		}
 		promote(next, filepath.Join(kd, fmt.Sprintf("img-%03d", len(imgs))))
+		relay(jvmErr.Bytes())
 		return resultLine(out), 0, nil
 	}
-	switch code {
-	case 1, 2, 3:
-		// The op failed on the warm heap exactly like it would cold: the
-		// result stands, the image deliberately does NOT refresh (the
-		// Runner exits before returning into the parked loop).
-		return filtered(out), code, nil
-	case 0:
+	if code == 0 {
 		// Ran clean but the loop's dump did not land (engine config edge):
 		// result valid, image stays as-is.
+		relay(jvmErr.Bytes())
 		return resultLine(out), 0, nil
-	default:
-		return nil, 0, ErrUnavailable
 	}
+	// Nonzero without a dump. Exit 1 is the kernel's op-failure code AND
+	// the exit code of a JVM that never restored — an unopenable image
+	// dies with 1, a corrupt one with a signal — and the code alone
+	// cannot tell them apart. An earlier revision trusted it, so one
+	// poisoned image turned every eligible command on the machine into
+	// "kernel: op failed", the reason filtered out of the captured
+	// output. The safe reading is infrastructure: the cold path re-runs
+	// the op, prints the real error, and stays the single voice on
+	// failure. A genuinely failing op pays one cold re-run and costs an
+	// image; a broken chain heals on the next command.
+	if code != 137 { // 137 without a dump is an external kill: image innocent
+		dropNewest(kd)
+	}
+	if Verbose {
+		fmt.Fprintf(os.Stderr, "rig: checkpoint restore failed (exit %d), running cold. Restore JVM output:\n%s%s", code, out, jvmErr.String())
+	}
+	return nil, 0, ErrUnavailable
 }
 
 // Warm builds a fresh checkpoint by running the real request through the
@@ -390,7 +421,9 @@ func Restore(ctx context.Context, r Req) ([]byte, int, error) {
 // it is best-effort by contract — failures are silent, the cold path
 // already produced the user's result. The request runs AGAIN, which the
 // restoreOps idempotence rule makes safe; its :env map (kernel.Request.Env)
-// carries the same fresh config the cold run saw.
+// carries the same fresh config the cold run saw. A chain at the cap is
+// rotated, not extended: this call is what "the next cold run
+// re-bootstraps" means for a full chain.
 func Warm(ctx context.Context, r Req) error {
 	if !eligible(r) || !jarCheckpointable(r.Jar) {
 		return ErrUnavailable
@@ -404,8 +437,14 @@ func Warm(ctx context.Context, r Req) error {
 	if err != nil {
 		return err
 	}
-	if len(images(kd)) >= chainCap {
-		return ErrUnavailable // disk bound; P4's clean/rebuild resets it
+	if imgs := images(kd); len(imgs) >= chainCap {
+		// The cap's other half: a full chain rotates instead of parking
+		// forever (deltas are deletable only as a set, so the set goes
+		// and the bootstrap below lands as img-000). A restore racing the
+		// wipe dies into its own cold fallback — correct, just slower.
+		for _, img := range imgs {
+			_ = os.RemoveAll(filepath.Join(kd, img))
+		}
 	}
 	if err := os.MkdirAll(kd, 0o700); err != nil {
 		return err
@@ -728,6 +767,26 @@ func promote(dir, target string) {
 	}
 	if os.Rename(dir, target) == nil {
 		os.Chmod(target, 0o700)
+	}
+}
+
+// dropNewest retires the image a restore just failed to serve. Refresh
+// dumps are deltas over their ANCESTORS, so the remaining prefix stays
+// restorable and the next Warm appends a fresh bootstrap at the freed
+// index. Under a concurrent failure storm this can over-drop (each loser
+// retires whatever is newest then); over-dropping costs a re-bootstrap,
+// never a wrong answer.
+func dropNewest(keyDir string) {
+	if imgs := images(keyDir); len(imgs) > 0 {
+		_ = os.RemoveAll(filepath.Join(keyDir, imgs[len(imgs)-1]))
+	}
+}
+
+// relay replays a checkpoint JVM's buffered stderr to the user once the
+// run's result is being kept, minus the CRaC/warp noise.
+func relay(b []byte) {
+	if len(b) > 0 {
+		_, _ = newNoiseFilter(os.Stderr).Write(b)
 	}
 }
 

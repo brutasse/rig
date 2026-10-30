@@ -327,7 +327,9 @@ kernel — around 0.3 seconds. Every restored run re-dumps the
 checkpoint, so the image stays warm and current with use. The cold
 fork remains the correctness anchor and the fallback: nothing about
 workspace behavior changes when checkpointing is off, and any command
-checkpointing cannot serve simply runs cold.
+checkpointing cannot serve simply runs cold — including one whose
+restore dies mid-run, which retires the image that failed so a broken
+chain repairs itself.
 
 Serving a restore requires all of:
 

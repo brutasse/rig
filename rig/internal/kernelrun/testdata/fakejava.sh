@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Fake CRaC-capable java for kernelrun tests. Behavior switches (env):
 #   FAKE_PLAIN=1      pretend to be a JVM WITHOUT the CRaC flags
-#   FAKE_RESTORE=...  ok (default) | nodump | opfail | plainzero | crash
+#   FAKE_RESTORE=...  ok (default) | nodump | opfail | plainzero | crash | jvmfail
 #   FAKE_BOOT=...     ok (default) | fail
 #   FAKE_PWD_OUT=path restore mode records its cwd there (workspace anchor)
 args="$*"
@@ -37,8 +37,17 @@ if [[ "$args" == *CRaCRestoreFrom* ]]; then
             exit 137
             ;;
         opfail)
-            echo '{"ok":false,"problems":[]}'
+            # Real kernel protocol: an op failure prints on stderr only
+            # (main.clj emits no stdout JSON) and exits 1.
             echo 'boom' >&2
+            exit 1
+            ;;
+        jvmfail)
+            # The JVM itself gave up before the op ran: a CRaC restore of
+            # an unopenable image exits 1 with the reason on stdout and a
+            # generic JVM error on stderr.
+            echo '[0.009s][error][crac] Cannot open CRaCRestoreFrom=/nope: No such file or directory'
+            echo 'Error: Could not create the Java Virtual Machine.' >&2
             exit 1
             ;;
         plainzero)
