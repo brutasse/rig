@@ -2,11 +2,14 @@ package cli
 
 import (
 	"context"
+	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/brutasse/rig/internal/jvm"
+	"github.com/brutasse/rig/internal/kernel"
 )
 
 func newRunCmd(o *opts) *cobra.Command {
@@ -60,21 +63,28 @@ func runMain(ctx context.Context, o *opts, alias string, args []string) error {
 	return launch(jvm.Run{Java: e.java, Args: runArgs, Dir: e.modDir(m), Env: append(env, e.javaEnv...)})
 }
 
-func newReplCmd(o *opts) *cobra.Command {
-	var alias string
+func newNreplCmd(o *opts) *cobra.Command {
+	var alias, host string
+	var port int
 	c := &cobra.Command{
-		Use:   "repl",
-		Short: "Start a Clojure REPL on the target module's classpath",
+		Use:   "nrepl",
+		Short: "Start an nREPL server on the target module's classpath",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runRepl(cmd.Context(), o, alias)
+			return runNrepl(cmd.Context(), o, alias, host, port)
 		},
 	}
 	c.Flags().StringVar(&alias, "alias", "", "deps alias to run under")
+	c.Flags().StringVar(&host, "host", "", "interface to bind (default: nREPL's, loopback)")
+	c.Flags().IntVar(&port, "port", 0, "port to bind (default: a free port, printed on startup)")
 	return c
 }
 
-func runRepl(ctx context.Context, o *opts, alias string) error {
+// nreplClojureFloor is the lowest org.clojure/clojure the vendored nREPL
+// loads on: nREPL 1.x is built against Clojure 1.10.
+const nreplClojureFloor = "1.10.0"
+
+func runNrepl(ctx context.Context, o *opts, alias, host string, port int) error {
 	e, err := o.hot(ctx, false)
 	if err != nil {
 		return err
@@ -87,10 +97,14 @@ func runRepl(ctx context.Context, o *opts, alias string) error {
 	if err != nil {
 		return err
 	}
-	// repl never compiles the target itself: its declared java sources
+	// nrepl never compiles the target itself: its declared java sources
 	// are javac'd here.
 	if err := e.ensurePreps(ctx, m, mod, true); err != nil {
 		return err
+	}
+	if v := e.clojureBelowFloor(m, nreplClojureFloor); v != "" {
+		return exitf(2, "module %s locks org.clojure/clojure %s: rig nrepl's nREPL %s requires %s or newer (raise the pin, or declare nrepl/nrepl in an alias and run it with rig exec)",
+			m, v, kernel.NreplVersion, nreplClojureFloor)
 	}
 	al, env, err := e.alias(m, alias)
 	if err != nil {
@@ -100,9 +114,27 @@ func runRepl(ctx context.Context, o *opts, alias string) error {
 	if err != nil {
 		return err
 	}
+	nreplJar, err := kernel.Nrepl(e.store)
+	if err != nil {
+		return err
+	}
+	// The nREPL jar goes on the classpath last: a project that declares
+	// nrepl/nrepl (an alias, say) keeps its own version. Self-attach lets
+	// nREPL's JVMTI agent stop interrupt-immune evals on Java 21+.
+	cp += string(filepath.ListSeparator) + nreplJar
 	runArgs := append([]string{}, mod.JVMOpts...)
 	runArgs = append(runArgs, al.JVMOpts...)
-	runArgs = append(runArgs, "-cp", cp, "clojure.main")
+	runArgs = append(runArgs, "-Djdk.attach.allowAttachSelf", "-cp", cp, "clojure.main", "-m", "nrepl.cmdline")
+	if host != "" {
+		runArgs = append(runArgs, "--host", host)
+	}
+	if port != 0 {
+		runArgs = append(runArgs, "--port", strconv.Itoa(port))
+	}
+	// --interactive last: it attaches this terminal's console to the
+	// server (quitting the console stops it), and everything after it is
+	// passthrough to the boot namespace, not flags.
+	runArgs = append(runArgs, "--interactive")
 	return launch(jvm.Run{Java: e.java, Args: runArgs, Dir: e.modDir(m), Env: append(env, e.javaEnv...)})
 }
 

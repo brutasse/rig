@@ -10,9 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/brutasse/rig/internal/digest"
 	"github.com/brutasse/rig/internal/jvm"
-	"github.com/brutasse/rig/internal/kernel"
 )
 
 // mavenTs renders ms as a UTC maven timestamp (yyyyMMddHHmmss).
@@ -95,23 +93,16 @@ func cooldownWS(t *testing.T, url string) {
 			" :mvn/repos {\"f\" {:url \""+url+"\"}}}\n")
 }
 
-// kernelSetup pins the kernel jar + JARSHA and skips when java or the jar
-// are unavailable.
+// kernelSetup points RIG_KERNEL_JAR at the local test kernel jar and skips
+// when java or the jar are unavailable.
 func kernelSetup(t *testing.T) {
 	t.Helper()
 	jar := kernelJarPath(t)
 	if _, err := jvm.Find(); err != nil {
 		t.Skipf("no java available: %v", err)
 	}
-	sha, err := digest.File(jar)
-	if err != nil {
-		t.Fatal(err)
-	}
-	oldSHA := kernel.Current.JARSHA
-	kernel.Current.JARSHA = sha
 	os.Setenv("RIG_KERNEL_JAR", jar)
 	t.Cleanup(func() {
-		kernel.Current.JARSHA = oldSHA
 		os.Unsetenv("RIG_KERNEL_JAR")
 	})
 }

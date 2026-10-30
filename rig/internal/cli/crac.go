@@ -139,9 +139,9 @@ func runCRACClean(ctx context.Context, o *opts) error {
 	if err != nil {
 		return err
 	}
-	// Offline resolution: pruning is housekeeping and must never download
-	// the kernel jar.
-	jar, err := kernel.Current.Ensure(ctx, store, true)
+	// The embedded jar is materialized, never downloaded: pruning is
+	// housekeeping and must not need the network.
+	jar, err := kernel.Kernel(store)
 	if err != nil {
 		return exitf(1, "cannot resolve the kernel jar (%v); nothing pruned", err)
 	}
@@ -174,7 +174,7 @@ func checkpointSweep(o *opts) {
 	if err != nil {
 		return
 	}
-	jar, err := kernel.Current.Ensure(context.Background(), store, true)
+	jar, err := kernel.Kernel(store)
 	if err != nil {
 		return // no idea what the current jar is: nothing is stale
 	}

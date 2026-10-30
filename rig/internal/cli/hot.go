@@ -57,7 +57,7 @@ func (o *opts) hotLock(ctx context.Context) (*workspace.Root, *lockfile.Document
 	return root, root.Lock, nil
 }
 
-// hotEnv bundles what the hot commands (test, run, repl, exec, build) need
+// hotEnv bundles what the hot commands (test, run, nrepl, exec, build) need
 // once the stale-lock policy has been applied.
 type hotEnv struct {
 	root    *workspace.Root
@@ -82,10 +82,10 @@ type hotEnv struct {
 const runnerClojureFloor = "1.8.0"
 
 // clojureBelowFloor returns module m's locked org.clojure/clojure version
-// when it is below runnerClojureFloor, "" otherwise. Modules pinning no
+// when it is below the given floor, "" otherwise. Modules pinning no
 // Clojure return "" too: the load stage only runs on modules with
 // Clojure sources, and their classpath cannot host the runner anyway.
-func (e *hotEnv) clojureBelowFloor(m string) string {
+func (e *hotEnv) clojureBelowFloor(m, floor string) string {
 	mod, ok := e.lock.Modules[m]
 	if !ok {
 		return ""
@@ -102,7 +102,7 @@ func (e *hotEnv) clojureBelowFloor(m string) string {
 		if !ok || a.Group != "org.clojure" || a.Name != "clojure" {
 			continue
 		}
-		if versionBelow(a.Version, runnerClojureFloor) {
+		if versionBelow(a.Version, floor) {
 			return a.Version
 		}
 	}
@@ -158,7 +158,7 @@ func (o *opts) hot(ctx context.Context, needKernel bool) (*hotEnv, error) {
 		return nil, err
 	}
 	if needKernel {
-		if e.kernel, err = kernel.Current.Ensure(ctx, e.store, o.offline); err != nil {
+		if e.kernel, err = kernel.Kernel(e.store); err != nil {
 			return nil, err
 		}
 	}

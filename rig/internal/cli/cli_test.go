@@ -262,10 +262,10 @@ func TestLockFromResponse(t *testing.T) {
 	if lock.Artifacts[0].SHA256 != shaOf(body) {
 		t.Errorf("sha = %s, want %s", lock.Artifacts[0].SHA256, shaOf(body))
 	}
-	if lock.Resolver.Lib != kernel.Current.Lib ||
-		lock.Resolver.Version != kernel.Current.Version ||
-		lock.Resolver.GitSHA != kernel.Current.GitSHA {
-		t.Errorf("resolver identity = %+v, want pin %+v", lock.Resolver, kernel.Current)
+	if lock.Resolver.Lib != kernel.Lib ||
+		lock.Resolver.Version != kernel.Version ||
+		lock.Resolver.GitSHA != kernel.GitSHA {
+		t.Errorf("resolver identity = %+v, want %s %s %s", lock.Resolver, kernel.Lib, kernel.Version, kernel.GitSHA)
 	}
 	if lock.Resolver.SHA256 != shaOf("kernel-jar-bytes") {
 		t.Errorf("resolver sha256 = %s, want %s (the launched jar)",

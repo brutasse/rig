@@ -75,7 +75,7 @@ func runFmt(ctx context.Context, o *opts, check bool) error {
 	if err != nil {
 		return err
 	}
-	jar, err := kernel.Current.Ensure(ctx, store, o.offline)
+	jar, err := kernel.Kernel(store)
 	if err != nil {
 		return err
 	}

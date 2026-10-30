@@ -9,9 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/brutasse/rig/internal/digest"
 	"github.com/brutasse/rig/internal/jvm"
-	"github.com/brutasse/rig/internal/kernel"
 	"github.com/brutasse/rig/internal/lockfile"
 )
 
@@ -54,27 +52,19 @@ func runnerJarPath(t *testing.T) string {
 	return abs
 }
 
-// fixtureSetup pins the kernel jar and its JARSHA, overrides the runner
-// with the locally built runner jar (the two local overrides always
-// travel together), copies the named testdata fixture workspace into a
-// fresh dir, and chdirs into it. It skips when java or the jars are
-// unavailable.
+// fixtureSetup overrides the kernel and runner with the locally built
+// jars (the two local overrides always travel together), copies the named
+// testdata fixture workspace into a fresh dir, and chdirs into it. It
+// skips when java or the jars are unavailable.
 func fixtureSetup(t *testing.T, fixture string) {
 	t.Helper()
 	jar := kernelJarPath(t)
 	if _, err := jvm.Find(); err != nil {
 		t.Skipf("no java available: %v", err)
 	}
-	sha, err := digest.File(jar)
-	if err != nil {
-		t.Fatal(err)
-	}
-	oldSHA := kernel.Current.JARSHA
-	kernel.Current.JARSHA = sha
 	os.Setenv("RIG_KERNEL_JAR", jar)
 	os.Setenv("RIG_RUNNER_JAR", runnerJarPath(t))
 	t.Cleanup(func() {
-		kernel.Current.JARSHA = oldSHA
 		os.Unsetenv("RIG_KERNEL_JAR")
 		os.Unsetenv("RIG_RUNNER_JAR")
 	})
@@ -288,17 +278,10 @@ func TestHotBuildNative(t *testing.T) {
 		t.Skipf("no java available: %v", err)
 	}
 	jar := kernelJarPath(t)
-	sha, err := digest.File(jar)
-	if err != nil {
-		t.Fatal(err)
-	}
-	oldSHA := kernel.Current.JARSHA
-	kernel.Current.JARSHA = sha
 	os.Setenv("RIG_KERNEL_JAR", jar)
 	os.Setenv("RIG_JAVA", java)
 	os.Setenv("RIG_GRAALVM_HOME", graalHome)
 	t.Cleanup(func() {
-		kernel.Current.JARSHA = oldSHA
 		os.Unsetenv("RIG_KERNEL_JAR")
 		os.Unsetenv("RIG_JAVA")
 		os.Unsetenv("RIG_GRAALVM_HOME")
@@ -341,30 +324,21 @@ func TestHotTestOffline(t *testing.T) {
 	}
 }
 
-// TestHotReadOnlyStore models the install-time story: kernel.Current is
-// pinned to the locally built jars, pre-seeded into the store at the
-// pinned paths the way the Docker image ships them, and the store is made
-// read-only after one warm-up run (which fetches the locked artifacts).
-// check and test must then do their work without writing to the store:
-// the runner is an install-time artifact, never extracted at runtime.
+// TestHotReadOnlyStore models the post-install story: the first run
+// materializes the embedded kernel and runner jars into the store, and
+// after that warm-up, check and test must do their work from the read-only
+// store — the embedded jars are adopted from the cache, nothing is fetched
+// or extracted again.
 func TestHotReadOnlyStore(t *testing.T) {
-	jar := kernelJarPath(t)
-	runner := runnerJarPath(t)
 	if _, err := jvm.Find(); err != nil {
 		t.Skipf("no java available: %v", err)
 	}
-	jsha, err := digest.File(jar)
-	if err != nil {
-		t.Fatal(err)
+	for _, j := range []string{"rig-resolver.jar", "rig-runner.jar"} {
+		st, err := os.Stat(filepath.Join("..", "kernel", "embed", j))
+		if err != nil || st.Size() == 0 {
+			t.Skip("embedded jars are placeholders; build them with: make kernel")
+		}
 	}
-	rsha, err := digest.File(runner)
-	if err != nil {
-		t.Fatal(err)
-	}
-	old := kernel.Current
-	kernel.Current.JARSHA = jsha
-	kernel.Current.RunnerSHA = rsha
-	t.Cleanup(func() { kernel.Current = old })
 
 	dst := t.TempDir()
 	if err := copyTree("testdata/hot", dst); err != nil {
@@ -378,28 +352,9 @@ func TestHotReadOnlyStore(t *testing.T) {
 	cleanFixture(t)
 
 	store := t.TempDir()
-	kdir := filepath.Join(store, "kernel", kernel.Current.GitSHA)
-	rdir := filepath.Join(store, "runner", kernel.Current.GitSHA)
-	for _, d := range []string{kdir, rdir} {
-		if err := os.MkdirAll(d, 0o755); err != nil {
-			t.Fatal(err)
-		}
-	}
-	for _, pair := range [][2]string{
-		{jar, filepath.Join(kdir, "rig-resolver.jar")},
-		{runner, filepath.Join(rdir, "rig-runner.jar")},
-	} {
-		b, err := os.ReadFile(pair[0])
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(pair[1], b, 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	// Warm-up run (writable store): relocks the stale fixture, fetching
-	// the locked artifacts into the store; the fixture's failing
-	// integration test gives exit 1.
+	// Warm-up run (writable store): materializes the embedded jars and
+	// relocks the stale fixture, fetching the locked artifacts into the
+	// store; the fixture's failing integration test gives exit 1.
 	if code, out := runCLI(t, "test", "--cache-dir", store); code != 1 {
 		t.Fatalf("warm-up test exit = %d, want 1; out: %s", code, out)
 	}

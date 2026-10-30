@@ -55,9 +55,8 @@ func newInfoCmd(o *opts) *cobra.Command {
 				fmt.Print(line)
 			}
 			fmt.Printf("cache:\t%s\n", store.Root)
-			p := kernel.Current
 			fmt.Printf("rig:\t%s (%s)\n", Version, shortSHA(GitSHA))
-			fmt.Printf("kernel:\t%s %s (%s)\n", p.Lib, p.Version, shortSHA(p.GitSHA))
+			fmt.Printf("kernel:\t%s %s (%s)\n", kernel.Lib, kernel.Version, shortSHA(kernel.GitSHA))
 			return nil
 		},
 	}

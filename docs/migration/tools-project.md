@@ -99,7 +99,7 @@ Full key reference: [configuration](../reference/config.md).
 | `format-check` / `format-fix` | `rig fmt --check` / `rig fmt` |
 | `outdated` | `rig outdated` |
 | `merge-deps` / `merge-aliases` | **gone** — `rig lock` / `rig update` |
-| `prep` | folded into `build`/`test`/`run`/`repl` (auto-run, staleness-checked) |
+| `prep` | folded into `build`/`test`/`run`/`nrepl` (auto-run, staleness-checked) |
 | `release` | `rig publish` + `git tag` — [Releasing](../workflows/build-publish.md#releasing) |
 | `task` | `rig exec` |
 | `test` | `rig test` |

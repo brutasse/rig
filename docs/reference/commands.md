@@ -16,7 +16,7 @@ This page lists every command, what it does, and its flags.
 | `test [opt value…]` | hot | Run the modules' test exec-fns on locked classpaths. |
 | `run [args…]` | hot | Run the module's `:rig/main` on the (alias) classpath. |
 | `launch [jar] [args…]` | hot | Launch the built artifact with Rig's production JVM flags (G1 + AlwaysPreTouch, exit-on-OOM, loopback JMX on 10101), overridable via `:rig/launch-opts` and the `RIG_LAUNCH_OPTS` env var. Replaces its own process with the JVM (process exec) — the app is the container's PID 1. The jar's baked launch plan, or the lock, supplies the main. Never re-locks, never uses the network. |
-| `repl` | hot | `clojure.main` REPL on the (alias) classpath. |
+| `nrepl` | hot | nREPL server on the (alias) classpath (`--alias`, `--host`, `--port`). |
 | `exec <cmd> [args…]` | hot | Run a command with the locked classpath as `CLASSPATH`. |
 | `build [--uber \| --native]` | cold | Jar / uberjar / native-image binary via the locked classpath. |
 | `install` | cold | Install module jars into the local Maven repository. |
@@ -339,13 +339,25 @@ the major version of the build JVM; a different major fails with exit 2.
 A missing artifact fails too — it is not fetched — as a plain error
 (exit 1).
 
-### `rig repl`
+### `rig nrepl`
 
 ```
-rig repl [--alias <a>]
+rig nrepl [--alias <a>] [--host <iface>] [--port <n>]
 ```
 
-`clojure.main` REPL on the (alias) classpath, in the module directory.
+Start an [nREPL](https://nrepl.org) server on the (alias) classpath, in the
+module directory, using the nREPL jar Rig ships inside the binary (so no
+dependency download, and the version is Rig's, not your project's). With
+neither `--host` nor `--port`, it binds the loopback interface on a free
+port and prints the endpoint (`nREPL server started on port …`) — point
+your editor at it. `--host` and `--port` override the bind target.
+
+A project that declares `nrepl/nrepl` itself (in an alias, say) keeps its
+own version: Rig appends its jar to the classpath last, so the project's
+copy wins. The shipped nREPL needs Clojure 1.10 or newer; on an older pin
+`rig nrepl` stops with a hint to raise the pin or run your own nREPL via
+`rig exec`. `--alias <a>` selects the classpath, as with the other
+dev commands.
 
 ### `rig exec`
 
@@ -653,7 +665,7 @@ rig --autocomplete | Invoke-Expression  # PowerShell
 | 4 | security failure — artifact hash mismatch / not in the lock |
 | 5 | cooldown refused — retry with `--force` |
 
-Commands that launch a child process (`run`, `repl`, `exec`, `lint`,
+Commands that launch a child process (`run`, `nrepl`, `exec`, `lint`,
 `fmt`) propagate the exit code of the child verbatim, above these.
 `launch` is the purest form of it: it execs the JVM, so the exit code of
 the JVM is the exit code of the process. `test` and `check` interpret
