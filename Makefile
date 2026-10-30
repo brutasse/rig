@@ -5,8 +5,9 @@
 # V: version for the kernel jar and release artifacts, in release tag form
 # (vX.Y.Z). Local dev defaults to the contents of resolver/VERSION (what
 # the local tests look for). The kernel builds are stamped from that file
-# (the rig build reads it), so V must equal it: the release flow bumps
-# resolver/VERSION in the prepare-release commit and passes the tag.
+# (the rig build reads it), so V must equal it: 'make release' stamps it
+# from the tag itself (the 'prepare' target), and the release workflow
+# pushes that stamp to main after publishing.
 
 V       ?= $(shell cat resolver/VERSION 2>/dev/null || echo v0.1.0)
 REPO    := brutasse/rig
@@ -29,14 +30,14 @@ dev: kernel rig
 # released before it can shape its successor's build (v0.3.0 shipped the
 # link-closure fix precisely so it could build what comes next). The jar
 # version comes from resolver/VERSION (rig's version-file), so V must
-# match it; the release flow bumps VERSION in the prepare-release commit.
+# match it; 'make release' stamps VERSION from the tag first ('prepare').
 # --frozen: this workspace commits its lock, so the lock is a build input. A
 # cold command without it re-resolves and rewrites deps.lock whenever a
 # manifest moved: a dependency bump that skipped 'rig lock' would build green
 # here and leave the drift uncommitted instead of failing.
 kernel: rig
 	@test "$$(cat resolver/VERSION)" = "$(V)" || { \
-		echo "resolver/VERSION ($$(cat resolver/VERSION)) != V ($(V)): bump resolver/VERSION in the release commit" >&2; exit 1; }
+		echo "resolver/VERSION ($$(cat resolver/VERSION)) != V ($(V)): run 'make prepare V=$(V)'" >&2; exit 1; }
 	cd resolver && $(abspath $(BIN)) build --frozen --uber
 	cd resolver && $(abspath $(BIN)) build -p runner --frozen
 
@@ -119,12 +120,23 @@ run:
 		|| { echo "make dev first (missing kernel jar, runner jar, or rig binary)"; exit 1; }
 	cd $(or $(WS),.) && RIG_KERNEL_JAR=$(abspath $(JAR)) RIG_RUNNER_JAR=$(abspath $(RUNNER)) $(abspath $(BIN)) $(ARGS)
 
-# release: package a release — kernel jar, runner jar, stamped pin,
-# cross-compiled binaries, SHA256SUMS — in rig/dist/release/. The release
-# workflow publishes that directory; locally it doubles as a packaging
-# dry-run.
+# prepare: stamp V into the version file and re-bake the lock, so the
+# module version snapshot and the jar names follow the tag. 'release' runs
+# it first: pushing a tag is the whole release ceremony, no prepare-release
+# commit. The rig on PATH writes the lock (a release build, per
+# lock-refresh). The kernel gate stays strict: a dev build whose VERSION
+# drifted from the lock still fails.
+prepare:
+	echo "$(V)" > resolver/VERSION
+	cd resolver && $(RIG) lock
+
+# release: package a release — version stamp (prepare), kernel jar, runner
+# jar, stamped pin, cross-compiled binaries, SHA256SUMS — in
+# rig/dist/release/. The release workflow publishes that directory and
+# lands the version stamp on main; locally it doubles as a packaging
+# dry-run (clean the worktree afterwards: VERSION, deps.lock, kernel.go).
 # Usage: make release V=vX.Y.Z
-release: kernel pin release-binaries
+release: prepare kernel pin release-binaries
 	mkdir -p rig/dist/release
 	cp rig/dist/rig-linux-amd64 rig/dist/rig-linux-arm64 rig/dist/rig-darwin-amd64 rig/dist/rig-darwin-arm64 rig/dist/release/
 	cp $(JAR) rig/dist/release/
@@ -172,4 +184,4 @@ image: release
 		--build-arg TARGETARCH=$$arch \
 		-t $(IMAGE):local .
 
-.PHONY: dev kernel lock-refresh pin rig check test test-pier run release release-binaries image
+.PHONY: dev kernel lock-refresh prepare pin rig check test test-pier run release release-binaries image

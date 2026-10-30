@@ -36,11 +36,12 @@
 # floor and exercised there.
 #
 # What release does:
-#   1. builds the release jars at the tag version (self-hosted: the rig
-#      built from the tag's sources fetches the previous release's pinned
-#      kernel and builds both new jars with it — see the Makefile
-#      'kernel' target; resolver/VERSION must equal the tag — bump it in
-#      the prepare-release commit), stamps the kernel into the kernel pin
+#   1. stamps the tag version into the worktree ('make release' →
+#      'prepare': resolver/VERSION + the lock's module snapshot), builds
+#      the release jars at the tag version (self-hosted: the rig built
+#      from the tag's sources fetches the previous release's pinned kernel
+#      and builds both new jars with it — see the Makefile 'kernel'
+#      target), stamps the kernel into the kernel pin
 #      (GitHub release URL + git sha + jar sha256)
 #   2. cross-compiles rig for linux/darwin amd64/arm64 with version stamps
 #   3. builds and pushes the multi-arch Docker image (rig binary +
@@ -50,6 +51,7 @@
 #   5. re-pins the install one-liner's git sha and bumps the version
 #      examples in README.md and docs/getting-started.md on main
 #   6. pushes the stamped kernel pin to main
+#   7. pushes the version stamp (resolver/VERSION + lock) to main
 #
 # The kernel jar and runner jar are served exclusively from the GitHub
 # release (no Maven repo): rig binaries fetch them by their compiled pin,
@@ -167,7 +169,7 @@ jobs:
           ws=$(mktemp -d)
           printf '{:rig/lib x/y}\n' > "$ws/deps.edn"
           out=$(printf '{"op":"check","workspace":"%s"}' "$ws" \
-            | java -jar resolver/target/rig-resolver-v0.1.0.jar --request -)
+            | java -jar "resolver/target/rig-resolver-$(cat resolver/VERSION).jar" --request -)
           echo "$out"
           echo "$out" | grep -q '"ok"'
 
@@ -291,12 +293,15 @@ jobs:
             --notes "rig $v — binaries (linux/darwin, amd64/arm64) + resolver kernel jar (sha256 $jarsha) + runner jar (sha256 $runnersha). Install: see README (curl one-liner, pinned at the release git sha). Self-update: rig self-update." \
             rig/dist/release/*
 
-      - name: Save stamped kernel pin
+      - name: Save release stamps
         run: |
-          # 'make release' stamped kernel.go in the worktree; keep the file
-          # and clean it so the switch to main below always succeeds.
+          # 'make release' stamped kernel.go, resolver/VERSION and the lock
+          # in the worktree; keep those files and clean up so the switch to
+          # main below always succeeds.
           cp rig/internal/kernel/kernel.go "$RUNNER_TEMP/kernel-stamped.go"
-          git checkout -- rig/internal/kernel/kernel.go
+          cp resolver/VERSION "$RUNNER_TEMP/VERSION-stamped"
+          cp resolver/deps.lock "$RUNNER_TEMP/deps-stamped.lock"
+          git checkout -- rig/internal/kernel/kernel.go resolver/VERSION resolver/deps.lock
 
       - name: Pin install one-liner and version examples in README and docs
         run: |
@@ -357,4 +362,23 @@ jobs:
           git config user.name "rig-release[bot]"
           git config user.email "rig-release@users.noreply.github.com"
           git commit -m "kernel: pin ${{ github.ref_name }}"
+          git push origin HEAD:main
+
+      - name: Stamp version in main
+        run: |
+          # The tag is the version: 'make release' stamped resolver/VERSION
+          # and the lock in the worktree (Makefile 'prepare'). Land the
+          # stamp on main so the next release cuts from a stamped tree.
+          git fetch origin main
+          git checkout --detach origin/main
+          cp "$RUNNER_TEMP/VERSION-stamped" resolver/VERSION
+          cp "$RUNNER_TEMP/deps-stamped.lock" resolver/deps.lock
+          git add resolver/VERSION resolver/deps.lock
+          if git diff --cached --quiet; then
+            echo "main already stamped for ${{ github.ref_name }}; nothing to push"
+            exit 0
+          fi
+          git config user.name "rig-release[bot]"
+          git config user.email "rig-release@users.noreply.github.com"
+          git commit -m "build: stamp ${{ github.ref_name }}"
           git push origin HEAD:main
