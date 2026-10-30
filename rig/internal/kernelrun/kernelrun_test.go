@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -142,38 +143,50 @@ func TestRestoreHappyPath(t *testing.T) {
 	}
 }
 
-func TestRestoreInfraFailuresFallBack(t *testing.T) {
+func TestRestoreFailuresFallBackCold(t *testing.T) {
 	jar := fakeJar(t, true)
-	for _, mode := range []string{"nodump", "crash"} {
-		t.Run(mode, func(t *testing.T) {
+	// kept = images left behind. A restore that died in the JVM retires
+	// the image it could not serve (the poisoned-chain repair); a bare 137
+	// without a dump is an external kill, so the image survives.
+	for _, c := range []struct {
+		mode string
+		kept int
+	}{
+		{"nodump", 1},
+		{"crash", 0},
+		{"opfail", 0},  // exit 1: op or JVM — the cold path decides, not the warm heap
+		{"jvmfail", 0}, // exit 1: the JVM never restored at all
+	} {
+		t.Run(c.mode, func(t *testing.T) {
 			cracDir, ws, fake := env(t, jar)
 			kd := seedImage(t, cracDir, jar, fake, 1)
-			t.Setenv("FAKE_RESTORE", mode)
-			if _, _, err := Restore(context.Background(), req(jar, ws, fake)); err == nil {
-				t.Fatal("want infrastructure error, got success")
+			t.Setenv("FAKE_RESTORE", c.mode)
+			if _, _, err := Restore(context.Background(), req(jar, ws, fake)); !errors.Is(err, ErrUnavailable) {
+				t.Fatalf("want ErrUnavailable, got %v", err)
 			}
-			if got := countImgs(t, kd); got != 1 {
-				t.Fatalf("image must not promote on %s: %d images", mode, got)
+			if got := countImgs(t, kd); got != c.kept {
+				t.Fatalf("%s: %d images left, want %d", c.mode, got, c.kept)
 			}
 		})
 	}
 }
 
-func TestRestoreOpFailureKeepsImage(t *testing.T) {
+func TestRestoreFailureDropsOnlyNewest(t *testing.T) {
+	// Deltas reference their ancestors, never descendants: retiring the
+	// image that failed to restore must leave the rest of the chain
+	// restorable.
 	jar := fakeJar(t, true)
 	cracDir, ws, fake := env(t, jar)
-	kd := seedImage(t, cracDir, jar, fake, 1)
-	t.Setenv("FAKE_RESTORE", "opfail")
-
-	out, code, err := Restore(context.Background(), req(jar, ws, fake))
-	if err != nil {
-		t.Fatalf("op failure is not an infra error: %v", err)
+	kd := seedImage(t, cracDir, jar, fake, 3)
+	t.Setenv("FAKE_RESTORE", "jvmfail")
+	if _, _, err := Restore(context.Background(), req(jar, ws, fake)); err == nil {
+		t.Fatal("want unavailable")
 	}
-	if code != 1 || !bytes.Contains(out, []byte(`"ok":false`)) {
-		t.Fatalf("got code=%d out=%s", code, out)
+	if got := countImgs(t, kd); got != 2 {
+		t.Fatalf("%d images left, want 2", got)
 	}
-	if got := countImgs(t, kd); got != 1 {
-		t.Fatalf("failed op must not refresh: %d images", got)
+	if _, err := os.Stat(filepath.Join(kd, "img-002")); !os.IsNotExist(err) {
+		t.Fatalf("the image that failed to restore survived: %v", err)
 	}
 }
 
@@ -311,12 +324,18 @@ func TestWarmFailuresAreSilentNoOps(t *testing.T) {
 	}
 }
 
-func TestWarmAtChainCap(t *testing.T) {
+func TestWarmAtChainCapRotates(t *testing.T) {
 	jar := fakeJar(t, true)
 	cracDir, ws, fake := env(t, jar)
-	seedImage(t, cracDir, jar, fake, chainCap)
-	if err := Warm(context.Background(), req(jar, ws, fake)); err == nil {
-		t.Fatal("want unavailable at cap")
+	kd := seedImage(t, cracDir, jar, fake, chainCap)
+	if err := Warm(context.Background(), req(jar, ws, fake)); err != nil {
+		t.Fatalf("Warm at cap: %v", err)
+	}
+	if got := countImgs(t, kd); got != 1 {
+		t.Fatalf("chain did not rotate: %d images, want the fresh bootstrap only", got)
+	}
+	if _, err := os.Stat(filepath.Join(kd, "img-000", "core.img")); err != nil {
+		t.Fatalf("rotation lost img-000: %v", err)
 	}
 }
 
