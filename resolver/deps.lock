@@ -10,7 +10,7 @@
     "git/sha": "4fa9c46c6c8801d791fed0bae303fd97cdbcbc5e",
     "sha256": "ea03b818c284abc116e9ff9f63b3c39895546e475e366c392ff572ca640706ce"
   },
-  "locked_at": "2026-10-30T10:36:55Z",
+  "locked_at": "2026-10-31T09:10:49Z",
   "workspace": {
     "modules": [
       ".",
@@ -1106,20 +1106,6 @@
       "git": null
     },
     {
-      "id": "org.clojure/clojure:1.12.5:jar",
-      "kind": "mvn",
-      "group": "org.clojure",
-      "name": "clojure",
-      "version": "1.12.5",
-      "extension": "jar",
-      "classifier": null,
-      "repository": "central",
-      "url": "https://repo.maven.apache.org/maven2/org/clojure/clojure/1.12.5/clojure-1.12.5.jar",
-      "sha256": "dfdee131460216a84fef22e537bb0d0579965f8f70338d748323dff26f8e5a8b",
-      "published_at": null,
-      "git": null
-    },
-    {
       "id": "org.apache.maven.resolver/maven-resolver-transport-http:1.9.27:jar",
       "kind": "mvn",
       "group": "org.apache.maven.resolver",
@@ -1425,7 +1411,7 @@
       }
     },
     "runner": {
-      "manifest_sha256": "366f2a6fc1f2c4543f24e04cbee175d790bbca2db8468a1dc70e68761050347f",
+      "manifest_sha256": "9d91738baf0dd8c26a4eb2fe97e87b3e8eae07d40d9f8e1816a0d8a8ba747fad",
       "lib": "io.github.brutasse/rig-runner",
       "version": "v0.3.2",
       "jvm-opts": [],
@@ -1434,7 +1420,7 @@
         "src"
       ],
       "classpath": [
-        "org.clojure/clojure:1.12.5:jar",
+        "org.clojure/clojure:1.12.6:jar",
         "org.clojure/core.specs.alpha:0.4.74:jar",
         "org.clojure/spec.alpha:0.5.238:jar"
       ],
@@ -1447,7 +1433,11 @@
         "class-dir": "target/classes",
         "timestamp-string": "2020-01-01T00:00:02Z",
         "jar": true,
-        "uberjar": null
+        "uberjar": {
+          "file": "target/rig-runner-v0.3.2.jar",
+          "main": "",
+          "opts": {}
+        }
       },
       "publish": {
         "enabled": false,

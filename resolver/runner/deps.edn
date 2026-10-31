@@ -1,6 +1,11 @@
 {:paths ["src"]
- :deps {}
+ ;; The runner jar is an uber carrying the Clojure runtime: a module that
+ ;; declares no org.clojure/clojure of its own still hosts rig.runner (a
+ ;; declared Clojure wins on classpath order). Pinned with the root
+ ;; module so the workspace carries one Clojure version.
+ :deps {org.clojure/clojure {:mvn/version "1.12.6"}}
  :rig/lib io.github.brutasse/rig-runner
+ :rig/uberjar? true
  ;; No Clojure test suite here: rig.runner is exercised by the kernel
  ;; suite (rig.resolver.runner-test, via the root :test alias) and by
  ;; the Go E2Es.

@@ -66,9 +66,12 @@
   :root/:user stay nil: tools.deps would otherwise merge the machine's
   ~/.clojure/deps.edn and — from a plain library process — the root
   manifest tools.deps ships inside its own jar, whose :deps inject
-  org.clojure/clojure into every basis. Rig's manifests are complete
-  (standard repos are rig's built-ins, overrides live in :mvn/repos);
-  machine-level or jar-embedded config must not leak into a lock."
+  org.clojure/clojure into every basis. The root manifest's :paths
+  [\"src\"] default is applied to the manifest itself instead (declared
+  :paths win; absent ones fall back to it). Rig's manifests are
+  otherwise complete (standard repos are rig's built-ins, overrides live
+  in :mvn/repos); machine-level or jar-embedded config must not leak
+  into a lock."
   [dir aliases project-config override-deps]
   (try
     (let [edn (if (map? project-config)
@@ -78,6 +81,7 @@
                         :project (when edn
                                    (-> edn
                                        (assoc :mvn/repos (into {} (repos-of edn)))
+                                       (update :paths (fn [p] (or p ["src"])))
                                        (depsedn/validate {:path (str (io/file dir "deps.edn"))})
                                        (depsedn/canonicalize {:path (str (io/file dir "deps.edn"))})))
                         :root nil

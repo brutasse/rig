@@ -475,11 +475,23 @@ func (e *hotEnv) runJavaPrep(ctx context.Context, m string, mod lockfile.Module,
 // classpath, from the module's directory; the child's exit code
 // propagates verbatim. The fn is called with a single nil argument, the
 // way tools.deps' exec-prep! invokes it when the prep alias declares no
-// :exec-args.
+// :exec-args. The kernel jar is appended after the locked classpath: a
+// module manifest that declares no org.clojure/clojure has no Clojure
+// runtime of its own, and the kernel jar is an uber carrying one (a
+// declared Clojure still wins, coming first).
 func (e *hotEnv) runPrep(ctx context.Context, m string, mod lockfile.Module) error {
 	al, env, err := e.alias(m, mod.PrepAlias)
 	if err != nil {
 		return err
+	}
+	// run and repl open the environment without a kernel (hot ctx,
+	// false); fetch it lazily here, only when a prep fn actually has to
+	// run.
+	k := e.kernel
+	if k == "" {
+		if k, err = kernel.Current.Ensure(ctx, e.store, e.offline); err != nil {
+			return err
+		}
 	}
 	cp, err := e.cpOf(ctx, m, mod.PrepAlias)
 	if err != nil {
@@ -489,6 +501,6 @@ func (e *hotEnv) runPrep(ctx context.Context, m string, mod lockfile.Module) err
 		mod.PrepFn, mod.PrepFn)
 	args := append([]string{}, mod.JVMOpts...)
 	args = append(args, al.JVMOpts...)
-	args = append(args, "-cp", cp, "clojure.main", "-e", expr)
+	args = append(args, "-cp", cp+string(filepath.ListSeparator)+k, "clojure.main", "-e", expr)
 	return launch(jvm.Run{Java: e.java, Args: args, Dir: e.modDir(m), Env: append(env, e.javaEnv...)})
 }

@@ -195,6 +195,30 @@
     (is (some #(= "org.clojure/clojure:1.12.6:jar" %) alias-cp)
         (str "the alias classpath keeps the project deps, got: " (pr-str alias-cp)))))
 
+(deftest omitted-paths-default-to-src
+  ;; Regression: isolating :root/:user removed the jar-embedded root
+  ;; manifest's :paths \["src"\], the implicit default every manifest
+  ;; without an explicit :paths relied on — they locked no source paths
+  ;; at all (nothing on the classpath but declared deps). The default is
+  ;; applied to the manifest itself now: declared :paths win, absent
+  ;; ones fall back to \["src"\].
+  (let [no-paths (temp-ws
+                  (str "{:rig/lib x/y\n"
+                       " :deps {org.clojure/clojure {:mvn/version \"1.12.6\"}}}\n"))
+        declared (temp-ws
+                  (str "{:rig/lib x/y\n"
+                       " :paths [\"lib\"]\n"
+                       " :deps {org.clojure/clojure {:mvn/version \"1.12.6\"}}}\n"))
+        np-lock (-> (resolve/resolve-lock {:workspace no-paths})
+                    (get "lock"))
+        d-lock (-> (resolve/resolve-lock {:workspace declared})
+                   (get "lock"))]
+    (is (= ["src"] (get-in np-lock ["modules" "." :paths]))
+        (str "omitted :paths locks the default, got: "
+             (pr-str (get-in np-lock ["modules" "." :paths]))))
+    (is (= ["lib"] (get-in d-lock ["modules" "." :paths]))
+        "declared :paths win over the default")))
+
 (deftest nested-undeclared-local-roots-are-all-locked
   ;; An overlay whose own manifest declares a second undeclared :local/root
   ;; is followed: every level locks as a local module and reaches the

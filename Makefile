@@ -23,8 +23,8 @@ GITSHA  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo dev)
 # dev: the whole local story in one command.
 dev: kernel rig
 
-# kernel: build the resolver uberjar and the runner jar (resolver/target/
-# and resolver/runner/target/) with rig — self-hosted: the rig binary
+# kernel: build the resolver uberjar and the runner uberjar
+# (resolver/target/ and resolver/runner/target/) with rig — self-hosted: the rig binary
 # runs its kernel pin, so the previous release's kernel builds the next
 # one. The builder's op shapes the artifact, so an op fix must be
 # released before it can shape its successor's build (v0.3.0 shipped the
@@ -39,7 +39,7 @@ kernel: rig
 	@test "$$(cat resolver/VERSION)" = "$(V)" || { \
 		echo "resolver/VERSION ($$(cat resolver/VERSION)) != V ($(V)): run 'make prepare V=$(V)'" >&2; exit 1; }
 	cd resolver && $(abspath $(BIN)) build --frozen --uber
-	cd resolver && $(abspath $(BIN)) build -p runner --frozen
+	cd resolver && $(abspath $(BIN)) build -p runner --frozen --uber
 
 # pin: stamp the kernel pin in kernel.go (version, git sha, GitHub release
 # URL, jar sha256, runner URL, runner jar sha256) from the freshly built
