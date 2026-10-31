@@ -34,10 +34,10 @@ KBOOT    = $(shell test -s $(EMBED)/rig-resolver.jar && echo "$(abspath $(BIN))"
 dev: kernel rig
 
 # kernel: build the resolver uberjar and the runner uberjar
-# (resolver/target/ and resolver/runner/target/) with rig — self-hosted:
-# the rig binary runs its embedded kernel, so the previous cycle's kernel
-# builds the next
-# one. The builder's op shapes the artifact, so an op fix must be
+# (resolver/target/ and resolver/runner/target/) with the rig selected by
+# KBOOT — the previous cycle's dist/rig once it embeds the jars, the rig on
+# PATH for the bootstrap of a clean tree. The builder's op shapes the
+# artifact, so an op fix must be
 # released before it can shape its successor's build (v0.3.0 shipped the
 # link-closure fix precisely so it could build what comes next). The jar
 # version comes from resolver/VERSION (rig's version-file), so V must
@@ -46,7 +46,9 @@ dev: kernel rig
 # cold command without it re-resolves and rewrites deps.lock whenever a
 # manifest moved: a dependency bump that skipped 'rig lock' would build green
 # here and leave the drift uncommitted instead of failing.
-kernel: rig
+# No 'rig' prerequisite: KBOOT is computed at recipe time, and 'dev' runs
+# the rig target after this one, embedding the jars it just built.
+kernel:
 	@test "$$(cat resolver/VERSION)" = "$(V)" || { \
 		echo "resolver/VERSION ($$(cat resolver/VERSION)) != V ($(V)): run 'make prepare V=$(V)'" >&2; exit 1; }
 	cd resolver && $(KBOOT) build --frozen --uber
