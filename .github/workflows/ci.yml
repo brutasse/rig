@@ -304,6 +304,8 @@ jobs:
           git checkout -- rig/internal/kernel/kernel.go resolver/VERSION resolver/deps.lock
 
       - name: Pin install one-liner and version examples in README and docs
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           sha=$(git rev-parse HEAD)
           new=${GITHUB_REF_NAME}
