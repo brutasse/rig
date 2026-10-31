@@ -32,21 +32,21 @@ pinned at the git sha of the latest release; the release workflow re-pins it
 after each release):
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/brutasse/rig/4fa9c46c6c8801d791fed0bae303fd97cdbcbc5e/scripts/install-rig.sh | sh
+curl -fsSL https://raw.githubusercontent.com/brutasse/rig/fd3ebc37e0a819f2e208f89d5e2dab341151f7f6/scripts/install-rig.sh | sh
 ```
 
 Installs to `~/.local/bin` (override: `INSTALL_DIR=…`), verifies the binary
 against the release's `SHA256SUMS`. The resolver kernel jar is not
 installed: the Rig binary fetches its pinned kernel from the matching GitHub
 release on first use, hash-verified. Pass a version to install something
-other than the latest release: `sh -s -- v0.3.1`.
+other than the latest release: `sh -s -- v0.3.2`.
 
 Self-update:
 
 ```sh
 rig self-update                    # update to the latest release, if newer
 rig self-update --check            # report only
-rig self-update --version v0.3.1   # update to a specific release
+rig self-update --version v0.3.2   # update to a specific release
 ```
 
 Rig also checks for new releases at most once per 24h (TTL in the state dir;
