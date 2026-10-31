@@ -187,8 +187,10 @@ func Execute() int {
 			code = 1
 		}
 	}
-	if notice := o.updateNotice(); notice != "" {
-		fmt.Fprintln(os.Stderr, notice)
+	if !completionInvocation(o.autocomplete) {
+		if notice := o.updateNotice(); notice != "" {
+			fmt.Fprintln(os.Stderr, notice)
+		}
 	}
 	return code
 }

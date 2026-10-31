@@ -37,8 +37,8 @@ rig self-update --version v0.3.2   # update to a specific release
 `self-update` needs a writable directory for the binary. The installer puts
 the binary in `~/.local/bin`, which is writable. Rig also checks for new
 releases at most once per 24 hours. When a newer release exists, Rig prints
-one line on stderr. The `--offline` flag and local/dev builds skip this
-check.
+one line on stderr. The `--offline` flag, local/dev builds, and shell
+completion skip this check.
 
 ## Prerequisites
 

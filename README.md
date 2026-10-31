@@ -50,9 +50,9 @@ rig self-update --version v0.3.2   # update to a specific release
 ```
 
 Rig also checks for new releases at most once per 24h (TTL in the state dir;
-skipped under `--offline` and on local/dev builds) and prints one line on
-stderr when a newer release exists. `RIG_UPDATE_CHECK=0` silences the
-check.
+skipped under `--offline`, on local/dev builds, and for shell completion)
+and prints one line on stderr when a newer release exists.
+`RIG_UPDATE_CHECK=0` silences the check.
 
 Releasing Rig: tag `vX.Y.Z` and push it. The CI workflow
 (`.github/workflows/ci.yml`) runs the test suite, and once it is green the

@@ -238,4 +238,37 @@ func TestUpdateNotice(t *testing.T) {
 	if strings.Contains(out, "available") {
 		t.Errorf("offline notice must be skipped: %q", out)
 	}
+
+	// Shell completion invocations: no check at all. A fresh cache dir
+	// per run means a stale TTL would take the network path if the
+	// invocation were not exempt; no TTL file proves no check.
+	acache := t.TempDir()
+	code, out = runCLI(t, "--autocomplete", "bash", "--cache-dir", acache)
+	if code != 0 {
+		t.Fatalf("--autocomplete exit = %d; out: %s", code, out)
+	}
+	if !strings.Contains(out, "# bash completion V2 for rig") {
+		t.Errorf("bash script missing: %q", out)
+	}
+	if strings.Contains(out, "run 'rig self-update'") {
+		t.Errorf("completion run must not print the notice: %q", out)
+	}
+	if _, err := os.Stat(filepath.Join(acache, "update-check")); !os.IsNotExist(err) {
+		t.Error("--autocomplete must not check for updates (TTL file written)")
+	}
+
+	ccache := t.TempDir()
+	code, out = runCLI(t, "__complete", "test", "--cache-dir", ccache, "--path", "")
+	if code != 0 {
+		t.Fatalf("__complete exit = %d; out: %s", code, out)
+	}
+	if !strings.Contains(out, ":4") {
+		t.Errorf("completion output missing directive: %q", out)
+	}
+	if strings.Contains(out, "run 'rig self-update'") {
+		t.Errorf("completion run must not print the notice: %q", out)
+	}
+	if _, err := os.Stat(filepath.Join(ccache, "update-check")); !os.IsNotExist(err) {
+		t.Error("__complete must not check for updates (TTL file written)")
+	}
 }
