@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/spf13/cobra"
+
 	"github.com/brutasse/rig/internal/updater"
 )
 
@@ -60,6 +62,18 @@ func (o *opts) updateNotice() string {
 		return fmt.Sprintf("rig %s available — run 'rig self-update'", tag)
 	}
 	return ""
+}
+
+// completionInvocation reports whether this run is a shell completion
+// request: --autocomplete prints the completion script, and cobra's hidden
+// __complete command runs on every tab press. The update notice is skipped
+// there — completion must stay fast and quiet, so no network, no stderr.
+func completionInvocation(autocomplete string) bool {
+	if autocomplete != "" {
+		return true
+	}
+	return len(os.Args) > 1 && (os.Args[1] == cobra.ShellCompRequestCmd ||
+		os.Args[1] == cobra.ShellCompNoDescRequestCmd)
 }
 
 // writeUpdateCheck records the last seen release tag under root (best effort).
