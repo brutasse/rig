@@ -3,6 +3,7 @@
             [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.tools.deps :as td]
+            [clojure.tools.deps.edn :as depsedn]
             [clojure.tools.deps.extensions :as ext]
             [rig.resolver.manifest :as manifest]
             [rig.resolver.plan :as plan]
@@ -42,21 +43,6 @@
              {:rig/friendly? true})
     e))
 
-(defn resolve-basis
-  "The module's basis. project-config is the manifest map (or nil to read
-  the deps.edn file). override-deps are basis ARGS (:args, i.e. the
-  argmap), not deps.edn keys: tools.deps reads the resolve-time overrides
-  only from the argmap, and they force a lib's version wherever it sits
-  in the graph without adding it as a root."
-  [dir aliases project-config override-deps]
-  (try
-    (td/create-basis {:dir (io/file dir)
-                      :project (or project-config "deps.edn")
-                      :aliases aliases
-                      :args (when (seq override-deps) {:override-deps override-deps})})
-    (catch Exception e
-      (throw (clean-basis-error e)))))
-
 (defn- repos-of
   "The module's repos: the standard repos (any redeclared id replaced by the
   manifest's entry) plus every :mvn/repos entry."
@@ -64,6 +50,42 @@
   (into (vec (versions/standard-repos-of (get data :mvn/repos {})))
         (for [[id sp] (sort-by key (get data :mvn/repos {}))]
           [id sp])))
+
+(defn resolve-basis
+  "The module's basis. project-config is the manifest map (or nil to read
+  the deps.edn file; a map manifest is validated and canonicalized here,
+  as tools.deps does when it reads the file — map projects skip that).
+  :mvn/repos is always the manifest's entries plus rig's standard repos
+  (any redeclared id replaced): with :root/:user isolated nothing else
+  merges into the basis, and tools.deps resolves it only against the
+  :mvn/repos the merged edn carries.
+  override-deps are basis ARGS (:args, i.e. the argmap), not deps.edn keys:
+  tools.deps reads the resolve-time overrides only from the argmap, and
+  they force a lib's version wherever it sits in the graph without adding
+  it as a root.
+  :root/:user stay nil: tools.deps would otherwise merge the machine's
+  ~/.clojure/deps.edn and — from a plain library process — the root
+  manifest tools.deps ships inside its own jar, whose :deps inject
+  org.clojure/clojure into every basis. Rig's manifests are complete
+  (standard repos are rig's built-ins, overrides live in :mvn/repos);
+  machine-level or jar-embedded config must not leak into a lock."
+  [dir aliases project-config override-deps]
+  (try
+    (let [edn (if (map? project-config)
+                project-config
+                (depsedn/read-deps (io/file dir (or project-config "deps.edn"))))]
+      (td/create-basis {:dir (io/file dir)
+                        :project (when edn
+                                   (-> edn
+                                       (assoc :mvn/repos (into {} (repos-of edn)))
+                                       (depsedn/validate {:path (str (io/file dir "deps.edn"))})
+                                       (depsedn/canonicalize {:path (str (io/file dir "deps.edn"))})))
+                        :root nil
+                        :user nil
+                        :aliases aliases
+                        :args (when (seq override-deps) {:override-deps override-deps})}))
+    (catch Exception e
+      (throw (clean-basis-error e)))))
 
 (defn cooldown-of
   "The workspace cooldown policy: the request's :cooldown wins, else the root
@@ -104,6 +126,42 @@
                 :let [v (if (map? s) (get s :mvn/version) (when (string? s) s))]
                 :when (and (string? v) (not (contains? declared (qualify-sym c))))]
             [(qualify-sym c) {:mvn/version v}]))))
+
+(defn- root-injected-deps
+  "The libs tools.deps injects into every :local/root manifest: the local
+  extension unconditionally merges (root-deps) into the local manifest, and
+  in a plain process root-deps is the deps.edn bundled inside the
+  tools.deps.edn jar — whose :deps must not enter the basis. Rig's
+  manifests are complete, so local coords exclude exactly those libs."
+  []
+  (try
+    (vec (keys (get (depsedn/root-deps) :deps {})))
+    (catch Exception _ [])))
+
+(defn- with-local-exclusions
+  "data with :exclusions (the root-deps-injected libs) added to every
+  :local/root entry of :deps and of each alias's :extra-deps/:replace-deps,
+  cutting the injected libs from the basis before resolution. Absent
+  :extra-deps/:replace-deps keys stay absent: update would add an empty
+  map, and a present :replace-deps makes tools.deps' tool() replace the
+  manifest's :deps with it — an empty one drops every project dep from
+  the alias basis."
+  [data exclusions]
+  (when (and data (seq exclusions))
+    (let [fix (fn [deps] (into {}
+                    (for [[c s] deps]
+                      [c (if (and (map? s) (:local/root s))
+                          (assoc s :exclusions exclusions)
+                          s)])))
+          fix-alias (fn [al] (-> al
+                         (cond-> (contains? al :extra-deps)
+                           (update :extra-deps fix))
+                         (cond-> (contains? al :replace-deps)
+                           (update :replace-deps fix))))]
+      (-> data
+          (update :deps fix)
+          (update :aliases (fn [als]
+                            (into {} (for [[k v] als] [k (fix-alias v)]))))))))
 
 (defn all-repos
   "Standard repos + every :mvn/repos entry of the workspace's manifests. An id
@@ -329,6 +387,7 @@
                                                 (vals manifests)))]
                     (into (vec (versions/standard-repos-of (into #{} (map first extra))))
                           (sort-by first extra)))
+        local-excl (root-injected-deps)
         mres (into {} (for [m (concat module-dirs (keys local-mods))]
                         (let [mdir (get modules-abs m)
                               man (get manifests mdir)
@@ -341,12 +400,13 @@
                                                             overrides
                                                             respect-pins?
                                                             now-ms)
-                              proj (let [base (or (when (:changed? sel)
-                                                    (versions/apply-versions data (:selected sel) overrides))
-                                                  data)]
-                                     (when (or (:changed? sel)
-                                               (seq (versions/proxy-map)))
-                                       (versions/with-proxy-repos base)))
+                               proj (-> (let [base (or (when (:changed? sel)
+                                                         (versions/apply-versions data (:selected sel) overrides))
+                                                       data)]
+                                          (if (seq (versions/proxy-map))
+                                            (versions/with-proxy-repos base)
+                                            base))
+                                        (with-local-exclusions local-excl))
                               pool-ov (pool-overrides root-data data)
                               base-basis (resolve-basis mdir [] proj pool-ov)
                               base-mapped (plan/map-classpath (:classpath-roots base-basis) modules-abs m2 gl)

@@ -92,7 +92,16 @@
         lock (-> (resolve/resolve-lock {:workspace ws})
                  (get "lock"))]
     (is (= 2 (get lock "version")))
-    (is (contains? (get lock "modules") "."))))
+    (is (contains? (get lock "modules") "."))
+    ;; Regression: the basis must come from the workspace manifest alone.
+    ;; tools.deps' create-basis merges machine-level and jar-embedded
+    ;; root/user manifests by default; unisolated, a no-deps workspace
+    ;; picks up whatever deps they carry (the tools.deps jar embeds a
+    ;; manifest pinning org.clojure/clojure) and must resolve it from
+    ;; this fixture's fake repos.
+    (is (empty? (get lock "artifacts"))
+        (str "a no-deps workspace locks no artifacts, got: "
+             (pr-str (get lock "artifacts"))))))
 
 (deftest all-repos-sorts-custom-repos-by-id
   (let [ws (temp-ws "{:rig/lib x/y\n :mvn/repos {\"corp\" {:url \"https://example.com/corp\"} \"artifacts\" {:url \"https://example.com/artifacts\"}}}\n")
@@ -164,6 +173,27 @@
             (is (= [{"local" "dev"}] locals)
                 (str "the alias classpath references the overlay, got " (pr-str locals))))))
       (finally (.deleteOnExit ws)))))
+
+(deftest alias-basis-keeps-the-project-deps
+  ;; Regression: with-local-exclusions used to update every alias's
+  ;; :replace-deps — an absent key became an empty map, and tools.deps'
+  ;; tool() replaces the manifest's :deps with a present :replace-deps, so
+  ;; the alias basis lost every project dep and resolved only its
+  ;; extra-deps' transitive closure.
+  (let [ws (temp-ws
+            (str "{:rig/lib x/y\n"
+                 " :deps {org.clojure/clojure {:mvn/version \"1.12.6\"}}\n"
+                 " :aliases {:test {:extra-deps {org.clojure/tools.cli {:mvn/version \"1.4.256\"}}}}}\n"))
+        lock (-> (resolve/resolve-lock {:workspace ws})
+                 (get "lock"))
+        base-cp (get-in lock ["modules" "." :classpath])
+        alias-cp (get-in lock ["modules" "." :aliases :test :classpath])]
+    (is (some #(= "org.clojure/clojure:1.12.6:jar" %) base-cp)
+        (str "the base classpath carries the project dep, got: " (pr-str base-cp)))
+    (is (some #(= "org.clojure/tools.cli:1.4.256:jar" %) alias-cp)
+        (str "the alias classpath carries its extra-dep, got: " (pr-str alias-cp)))
+    (is (some #(= "org.clojure/clojure:1.12.6:jar" %) alias-cp)
+        (str "the alias classpath keeps the project deps, got: " (pr-str alias-cp)))))
 
 (deftest nested-undeclared-local-roots-are-all-locked
   ;; An overlay whose own manifest declares a second undeclared :local/root
