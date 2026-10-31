@@ -10,14 +10,14 @@
   "customManagers": [
     {
       "customType": "regex",
-      "fileMatch": [
+      "managerFilePatterns": [
         "^\\.github/workflows/docs\\.yml$"
       ],
       "matchStrings": [
         "ghcr\\.io/brutasse/colophon:(?<currentValue>v[^\\s]+)"
       ],
-      "datasource": "github-releases",
-      "packageName": "brutasse/colophon",
+      "datasourceTemplate": "github-releases",
+      "packageNameTemplate": "brutasse/colophon",
       "description": "Colophon pinned in the docs workflow's docker-run line; the docker manager does not scan run steps, so a regex manager keeps the tag bumping."
     }
   ],
