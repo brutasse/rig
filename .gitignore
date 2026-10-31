@@ -1,5 +1,6 @@
 target/
 *.jar
+!rig/internal/kernel/embed/*.jar
 rig/dist/
 .clj-kondo
 .lsp

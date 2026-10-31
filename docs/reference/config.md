@@ -50,8 +50,8 @@ Set in the `deps.edn` of each module. All keys are optional unless noted.
 | `:rig/artifact-dirs` | the module's own `:paths` entries (plain, in-module, excluding the `:rig/target-dir` tree), else `["src" "resources"]` | Directories compiled into the artifact (jar/uber/native); their non-source files (resources) are copied alongside the classes. The module's `:paths` are its classpath; artifact-dirs are what the build packages — external paths and build output on the classpath stay out of the artifact. `.clj`/`.cljc` are compiled, not shipped: a source next to its AOT `__init.class` in the jar is a load-time recompile hazard (two class identities, `ClassCastException`). |
 | `:rig/java-src-dirs` | `[]` | Java source directories (compiled into the jar). |
 | `:rig/javac-opts` | `[]` | javac options (used only when `:rig/java-src-dirs` is non-empty). When the workspace pins `:rig/jvm`, `--release <n>` is prepended unless the opts already set `--release`, `-source` or `-target`. |
-| `:deps/prep-lib` | — | The standard tools.deps prep-library key: a custom function that prepares the module (staleness-checked) before `rig build`, `rig test`, `rig run` or `rig repl` — e.g. compiling generated Java with an in-JVM Maven. Shape: `{:ensure "target/classes" :alias :prep :fn build/compile-java}`. See [prep functions](#prep-functions-depsprep-lib). |
-| `:jvm-opts` | `[]` | The standard tools.deps key: JVM flags for **dev execution** — `rig run`, `rig repl`, `rig exec`, `rig test` — and the module's prep function. It does not apply to `rig build`, `rig check` or `rig launch` (see [JVM flags](#jvm-flags)). |
+| `:deps/prep-lib` | — | The standard tools.deps prep-library key: a custom function that prepares the module (staleness-checked) before `rig build`, `rig test`, `rig run` or `rig nrepl` — e.g. compiling generated Java with an in-JVM Maven. Shape: `{:ensure "target/classes" :alias :prep :fn build/compile-java}`. See [prep functions](#prep-functions-depsprep-lib). |
+| `:jvm-opts` | `[]` | The standard tools.deps key: JVM flags for **dev execution** — `rig run`, `rig nrepl`, `rig exec`, `rig test` — and the module's prep function. It does not apply to `rig build`, `rig check` or `rig launch` (see [JVM flags](#jvm-flags)). |
 | `:rig/launch-opts` | `[]` | JVM flags for **`rig launch`** (the production entrypoint); baked into the artifact's launch descriptor at build time (see [JVM flags](#jvm-flags)). |
 | `:rig/ns-compile` | — | Extra namespaces to AOT-compile alongside the module's own sources, e.g. `[:entry.main]`. They compile even when a preload already loaded them. |
 
@@ -70,11 +70,11 @@ tools.deps `:exec-fn`:
 ```
 
 Any `exec-fn` from a runner works (kaocha, clojure.test via a small fn, …).
-The commands `rig test`, `rig run --alias`, and `rig repl --alias` apply
+The commands `rig test`, `rig run --alias`, and `rig nrepl --alias` apply
 `:jvm-opts` and `:env` from the alias, exactly as the Clojure CLI applies
 them.
 
-Other aliases (`:dev`, …) are first-class for `rig run --alias`, `rig repl
+Other aliases (`:dev`, …) are first-class for `rig run --alias`, `rig nrepl
 --alias`, `rig exec --alias`, and `rig tree --alias`. Rig resolves them
 into the lock like `:test`.
 
@@ -112,7 +112,7 @@ also compile generated Java with an in-JVM Maven:
   not `[]`. The exit status of the child propagates: a failing prep
   fails the command.
 
-`rig build`, `rig test`, `rig run` and `rig repl` prepare the target
+`rig build`, `rig test`, `rig run` and `rig nrepl` prepare the target
 module and every local module on its classpath that declares a prep (or
 `:rig/java-src-dirs`), in dependency order. The function re-runs when a
 `:ensure` path is absent, when its stamp is out of date, or when the
@@ -291,7 +291,7 @@ the key that matches how Rig uses the JVM:
 | Key | Declared in | Applies to |
 |---|---|---|
 | `:rig/compile-jvm-opts` | workspace (root manifest) | The AOT build — kernel JVM and the compile fork it launches (`rig build`) — and the check namespace load/AOT-compile (`rig check`, stage 2). |
-| `:jvm-opts` | module (standard tools.deps key) | Dev execution: `rig run`, `rig repl`, `rig exec`, `rig test`, plus the module's prep function. |
+| `:jvm-opts` | module (standard tools.deps key) | Dev execution: `rig run`, `rig nrepl`, `rig exec`, `rig test`, plus the module's prep function. |
 | `:rig/launch-opts` | module | `rig launch` only. Baked into the artifact's launch descriptor at build time, so it travels with the jar. |
 
 The `rig build` JVMs (kernel and compile fork), `rig check` and `rig

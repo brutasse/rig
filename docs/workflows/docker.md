@@ -6,23 +6,18 @@ multi-arch (`linux/amd64`, `linux/arm64`).
 
 The image contains:
 
-- the `rig` binary at `/usr/local/bin/rig`;
-- the resolver kernel jar, **pre-baked** into the Rig state dir at the
-  exact path the pin of the binary expects
-  (`/root/.local/share/rig/kernel/<git-sha>/rig-resolver.jar`). It is the
-  release jar, and Rig verified its hash. Rig fetches nothing from GitHub
-  on first use;
-- the rig.runner jar, **pre-baked** the same way
-  (`/root/.local/share/rig/runner/<git-sha>/rig-runner.jar`). Hot commands
-  append it to the project classpath, so `test` and stage 2 of `check` need
-  it;
+- the `rig` binary at `/usr/local/bin/rig`. The resolver kernel jar, the
+  rig.runner jar, and the vendored nREPL jar are embedded in it
+  (`go:embed`); on first use Rig extracts them into the state dir, and
+  fetches nothing from GitHub. Hot commands append the runner jar to the
+  project classpath, so `test` and stage 2 of `check` need it;
 - a Temurin 21 JDK, so the image is a standalone Clojure base.
 
 ## As an app base
 
 In a dev container or CI job, `rig` must work from the first layer. The
-kernel and runner jars sit pre-baked in the image, so `rig` fetches nothing
-from GitHub. It fetches only from your artifact repositories.
+tool jars are embedded in the binary, so `rig` fetches nothing from
+GitHub. It fetches only from your artifact repositories.
 
 ```dockerfile
 FROM ghcr.io/brutasse/rig:latest
@@ -45,20 +40,19 @@ variants), process and lifecycle, and per-deployment overrides.
 
 ## Multi-stage
 
-When your app image has its own base, copy the Rig pieces out of the image:
+When your app image has its own base, copy the binary out of the image:
 
 ```dockerfile
 FROM eclipse-temurin:21-jdk-jammy
 WORKDIR /app
 COPY --from=ghcr.io/brutasse/rig:latest /usr/local/bin/rig /usr/local/bin/
-COPY --from=ghcr.io/brutasse/rig:latest /root/.local/share/rig /root/.local/share/rig
 COPY . .
 RUN rig verify --frozen && rig test --frozen
 ```
 
-The second `COPY` brings the pre-baked kernel and runner jars with it, so
-`rig` needs no GitHub access at runtime. It only talks to your artifact
-repositories. The build consumes the committed `deps.lock`:
+The binary carries its tool jars, so `rig` needs no GitHub access at
+runtime. It only talks to your artifact repositories. The build consumes
+the committed `deps.lock`:
 `rig verify --frozen` fails when the lockfile is missing or stale. Locking
 is workstation work.
 
@@ -66,8 +60,7 @@ is workstation work.
 
 Base the image on the declared JDK. The `:rig/jvm "21"` pin in the root
 `deps.edn` becomes `eclipse-temurin:21-jdk` (the jammy variant above). Your
-build compiles with the JDK of the image. Because the copied state dir
-holds no
+build compiles with the JDK of the image. The state dir holds no
 rig-managed JDK for the pin, so Rig falls back to the system `java`, which
 satisfies the pin. There is no `RUN rig jvm install` step. The JDK of the
 image *is* the build JVM. When the base image carries no matching JDK, the
@@ -86,7 +79,7 @@ home dir of that user, or point every invocation at a shared dir with
 
 ## Offline builds
 
-The kernel and runner jars are in the image, but the *artifact* cache is
+The tool jars are embedded in the binary, but the *artifact* cache is
 cold. `rig verify` in the Dockerfile fetches from your repositories and
 checks the hashes against the lockfile. For hermetic `--offline` builds,
 first warm the state dir in an earlier layer (or cache it across runs). See

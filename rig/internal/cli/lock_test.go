@@ -66,11 +66,8 @@ func TestLockVerifyEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	oldSHA := kernel.Current.JARSHA
-	kernel.Current.JARSHA = sha
 	os.Setenv("RIG_KERNEL_JAR", jar)
 	t.Cleanup(func() {
-		kernel.Current.JARSHA = oldSHA
 		os.Unsetenv("RIG_KERNEL_JAR")
 	})
 
@@ -97,10 +94,10 @@ func TestLockVerifyEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if doc.Resolver.Lib != kernel.Current.Lib ||
-		doc.Resolver.Version != kernel.Current.Version ||
-		doc.Resolver.GitSHA != kernel.Current.GitSHA {
-		t.Errorf("resolver identity = %+v, want pin %+v", doc.Resolver, kernel.Current)
+	if doc.Resolver.Lib != kernel.Lib ||
+		doc.Resolver.Version != kernel.Version ||
+		doc.Resolver.GitSHA != kernel.GitSHA {
+		t.Errorf("resolver identity = %+v, want %s %s %s", doc.Resolver, kernel.Lib, kernel.Version, kernel.GitSHA)
 	}
 	if doc.Resolver.SHA256 != sha {
 		t.Errorf("resolver sha256 = %s, want %s (the launched jar)", doc.Resolver.SHA256, sha)
@@ -159,15 +156,8 @@ func TestLockNamespacedMapDeps(t *testing.T) {
 	if _, err := jvm.Find(); err != nil {
 		t.Skipf("no java available: %v", err)
 	}
-	sha, err := digest.File(jar)
-	if err != nil {
-		t.Fatal(err)
-	}
-	oldSHA := kernel.Current.JARSHA
-	kernel.Current.JARSHA = sha
 	os.Setenv("RIG_KERNEL_JAR", jar)
 	t.Cleanup(func() {
-		kernel.Current.JARSHA = oldSHA
 		os.Unsetenv("RIG_KERNEL_JAR")
 	})
 
@@ -196,15 +186,8 @@ func TestLockRecordsJVM(t *testing.T) {
 	if _, err := jvm.Find(); err != nil {
 		t.Skipf("no java available: %v", err)
 	}
-	sha, err := digest.File(jar)
-	if err != nil {
-		t.Fatal(err)
-	}
-	oldSHA := kernel.Current.JARSHA
-	kernel.Current.JARSHA = sha
 	os.Setenv("RIG_KERNEL_JAR", jar)
 	t.Cleanup(func() {
-		kernel.Current.JARSHA = oldSHA
 		os.Unsetenv("RIG_KERNEL_JAR")
 	})
 

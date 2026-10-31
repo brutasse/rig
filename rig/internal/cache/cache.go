@@ -60,14 +60,22 @@ func (s *Store) KernelDir(sha string) string {
 	return filepath.Join(s.Root, "kernel", sha)
 }
 
+// KernelJar is the embedded kernel jar, materialized at its content-sha
+// path on first use.
 func (s *Store) KernelJar(sha string) string {
 	return filepath.Join(s.KernelDir(sha), "rig-resolver.jar")
 }
 
-// RunnerJar is the rig.runner jar of the kernel identified by sha,
-// placed there at install time (image build, or first-use fetch).
+// RunnerJar is the embedded rig.runner jar, materialized at its
+// content-sha path on first use.
 func (s *Store) RunnerJar(sha string) string {
 	return filepath.Join(s.Root, "runner", sha, "rig-runner.jar")
+}
+
+// NreplJar is the embedded (vendored) nREPL jar, materialized at its
+// content-sha path on first use.
+func (s *Store) NreplJar(sha string) string {
+	return filepath.Join(s.Root, "nrepl", sha, "nrepl.jar")
 }
 
 func checkSHA(sha string) error {

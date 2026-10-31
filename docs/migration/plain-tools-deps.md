@@ -64,7 +64,7 @@ before                          after
 clj -X:test                     rig test
 clj -X:test :kaocha.filter/focus '[:unit]'    rig test :kaocha.filter/focus '[:unit]'
 clj -M -m com.example.mylib.core   rig run -p .          (or: rig run)
-clj                             rig repl
+clj                             rig nrepl
 clojure -Spath                  rig tree / rig exec (CLASSPATH is exported)
 ```
 
@@ -72,7 +72,7 @@ A minimal Makefile, if you have one:
 
 ```make
 test:  rig test
-repl:  rig repl
+repl:  rig nrepl
 jar:   rig build
 uber:  rig build --uber
 clean: rig clean

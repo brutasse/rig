@@ -52,7 +52,7 @@ func runTest(ctx context.Context, o *opts, args []string, timeout time.Duration)
 		return err
 	}
 	// rig.runner jar only, not the kernel jar (same reason as check).
-	if e.runner, err = kernel.Current.Runner(ctx, e.store, e.offline); err != nil {
+	if e.runner, err = kernel.Runner(e.store); err != nil {
 		return err
 	}
 	optsText, err := testOpts(args)
@@ -66,7 +66,7 @@ func runTest(ctx context.Context, o *opts, args []string, timeout time.Duration)
 	var failed []string
 	for _, m := range targets {
 		mod := e.lock.Modules[m]
-		if v := e.clojureBelowFloor(m); v != "" {
+		if v := e.clojureBelowFloor(m, runnerClojureFloor); v != "" {
 			return fmt.Errorf("test: %s: org.clojure/clojure %s is below the %s floor: the rig runner cannot load on Clojure 1.7.x; upgrade the pin", m, v, runnerClojureFloor)
 		}
 		// test never compiles the target itself: its declared java

@@ -37,8 +37,8 @@ curl -fsSL https://raw.githubusercontent.com/brutasse/rig/fd3ebc37e0a819f2e208f8
 
 Installs to `~/.local/bin` (override: `INSTALL_DIR=…`), verifies the binary
 against the release's `SHA256SUMS`. The resolver kernel jar is not
-installed: the Rig binary fetches its pinned kernel from the matching GitHub
-release on first use, hash-verified. Pass a version to install something
+installed: it ships embedded in the Rig binary and is extracted into the
+state dir on first use. Pass a version to install something
 other than the latest release: `sh -s -- v0.3.2`.
 
 Self-update:
@@ -56,8 +56,9 @@ check.
 
 Releasing Rig: tag `vX.Y.Z` and push it. The CI workflow
 (`.github/workflows/ci.yml`) runs the test suite, and once it is green the
-release job builds the kernel jar and cross-compiled Rig binaries, stamps
-the kernel pin, publishes the binaries + kernel jar + `SHA256SUMS` as
+release job builds the kernel jar, cross-compiles the Rig binaries with the
+fresh jars embedded (the version stamps go in via `-ldflags`), publishes
+the binaries + kernel jar + `SHA256SUMS` as
 GitHub release assets, and re-pins the install one-liner sha in this file.
 
 ## JVMs
@@ -84,16 +85,15 @@ compiler and a few GB of RAM, and takes minutes.
 ## Docker
 
 The CI workflow also publishes `ghcr.io/brutasse/rig`
-(`vX.Y.Z` + `latest`, amd64/arm64): the Rig binary plus its hash-pinned
-kernel jar, pre-baked into the Rig state dir (no first-run GitHub fetch),
-on a Temurin 21 base.
+(`vX.Y.Z` + `latest`, amd64/arm64): the Rig binary, which carries its
+resolver kernel jar, rig.runner jar, and vendored nREPL jar embedded
+(`go:embed`, nothing to pre-seed), on a Temurin 21 base.
 
 ```dockerfile
 # standalone base, or multi-stage:
 FROM ghcr.io/brutasse/rig:latest
 # — or —
 COPY --from=ghcr.io/brutasse/rig:latest /usr/local/bin/rig /usr/local/bin/
-COPY --from=ghcr.io/brutasse/rig:latest /root/.local/share/rig /root/.local/share/rig
 ```
 
 See [Docker in the docs](https://brutasse.github.io/rig/workflows/docker.html)
@@ -117,30 +117,34 @@ make release V=vX.Y.Z  # package a release in rig/dist/release/ (dry run)
 ```
 
 `make dev` is the whole loop: `resolver/target/rig-resolver-<V>.jar` and
-`resolver/runner/target/rig-runner-<V>.jar` are built by the rig binary
-(self-hosting: the rig runs its kernel pin, so the previous release's
-kernel builds the next one) and `rig/dist/rig` is built. `V` is the release tag
+`resolver/runner/target/rig-runner-<V>.jar` are built by the rig binary,
+and `rig/dist/rig` is built with the fresh jars embedded
+(`go:embed` copies them into `rig/internal/kernel/embed/` before the `go
+build`). `V` is the release tag
 form (vX.Y.Z) in both local and release builds, defaulting to the
-contents of `resolver/VERSION` locally. The kernel's identity (version, git sha) is baked into the jar
-at build time, so a lockfile's `resolver` block records the exact kernel
-that produced it. The kernel pin in
-`rig/internal/kernel/kernel.go` is a
-release-time artifact — `make pin` stamps it (version, git sha, GitHub
-release URL, jar sha256) and the release workflow pushes it to main, so
-feature branches do not commit pin changes.
+contents of `resolver/VERSION` locally. The kernel's identity (version,
+git sha) is stamped into the binary at build time via `-ldflags` (like the
+Rig version), so a lockfile's `resolver` block records the exact kernel
+that produced it.
+
+First build on a clean tree: the committed `embed/` jars for the kernel
+and the runner are 0-byte placeholders, so the rig rig/dist/rig would
+fail with "embedded kernel jar is a placeholder". `make kernel` then
+builds the resolver with the rig on PATH (a release binary, as
+`make lock-refresh` does); every later build self-hosts on `rig/dist/rig`,
+which embeds the previous cycle's jars.
 
 How the kernel jar and runner jar reach the Rig binary:
 
-- Local: `RIG_KERNEL_JAR=<absolute jar path>` and
+- Local development: `RIG_KERNEL_JAR=<absolute jar path>` and
   `RIG_RUNNER_JAR=<absolute runner jar path>` — trusted local overrides,
-  used in place of the downloaded artifacts (no hash check). The two
+  used in place of the embedded jars (no hash check). The two
   travel together: a local kernel without a local runner is an error.
-- Published: without the overrides, Rig fetches the pinned kernel and
-  runner from the GitHub release assets into its cache and hash-verifies
-  them against the `JARSHA`/`RunnerSHA` pins. The pin is stamped per
-  release by the release workflow, which pushes it to main. The runner
-  jar is an install-time artifact: the Docker image ships it pre-seeded
-  (the store stays read-only), and Rig never extracts it at runtime.
+- Embedded: without the overrides, Rig extracts the embedded kernel,
+  runner, and vendored nREPL jars into its cache at their content-sha
+  paths, adopting a cached copy when its digest matches. A clean clone's
+  placeholders error with a hint to `make kernel`. The runner jar is
+  embedded and materialized like the kernel jar.
 - `make run` sets both for you; other invocations of `rig/dist/rig` need
   them exported.
 - The Go E2E tests find the jars via `RIG_TEST_KERNEL_JAR` /

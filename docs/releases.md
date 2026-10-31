@@ -4,6 +4,37 @@ Changelog for Rig.
 
 ## Unreleased
 
+### Changed
+
+#### `rig nrepl` replaces `rig repl`
+
+`rig repl` (a bare `clojure.main` REPL) is gone: `rig nrepl` starts an
+nREPL server on the (alias) classpath instead, so an editor can attach.
+`--alias <a>` selects the classpath; `--host` and `--port` the bind
+target (default: the loopback interface on a free port, printed on
+startup). The nREPL jar is vendored inside the rig binary — one upstream
+jar whose only dependency (`org.clojure/clojure`) is provided by the
+project's own locked Clojure — and appended to the classpath last, so a
+project that declares `nrepl/nrepl` keeps its own version. The vendored
+nREPL needs Clojure 1.10 or newer; on an older pin the command stops
+with a hint.
+
+#### The tool jars ship inside the binary
+
+The resolver kernel jar, the rig.runner jar, and the vendored nREPL jar
+are embedded in the rig binary (`go:embed`) instead of fetched from the
+GitHub release at runtime against a hash pin. On first use each jar is
+extracted into the state dir at its content-sha path, adopting a cached
+copy when its digest matches: no network, no pin to maintain, and the
+Docker image is the binary alone — nothing pre-seeded, a read-only store
+works from the second run on. The kernel identity (coordinate, version,
+git sha) is stamped into the binary at release build via `-ldflags`, the
+same way as the Rig version, and the lock's `resolver` block still
+records the sha256 of the jar that actually ran. The `RIG_KERNEL_JAR` /
+`RIG_RUNNER_JAR` dev overrides work as before. The kernel and runner
+jars remain published as release assets: pre-embedding rig binaries
+still fetch them at runtime.
+
 ## v0.3.2 — 2026-10-30
 
 ### Fixed

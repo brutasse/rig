@@ -39,25 +39,23 @@
 #   1. stamps the tag version into the worktree ('make release' →
 #      'prepare': resolver/VERSION + the lock's module snapshot), builds
 #      the release jars at the tag version (self-hosted: the rig built
-#      from the tag's sources fetches the previous release's pinned kernel
-#      and builds both new jars with it — see the Makefile 'kernel'
-#      target), stamps the kernel into the kernel pin
-#      (GitHub release URL + git sha + jar sha256)
-#   2. cross-compiles rig for linux/darwin amd64/arm64 with version stamps
-#   3. builds and pushes the multi-arch Docker image (rig binary +
-#      hash-pinned kernel jar and runner jar) to ghcr.io/brutasse/rig
+#      from the tag's sources embeds the previous cycle's kernel jar and
+#      builds both new jars with it — see the Makefile 'kernel' target)
+#   2. cross-compiles rig for linux/darwin amd64/arm64 with the fresh
+#      jars embedded (go:embed) and version stamps (ldflags)
+#   3. builds and pushes the multi-arch Docker image (the rig binary
+#      alone: it embeds its own jars) to ghcr.io/brutasse/rig
 #   4. publishes a GitHub release with all binaries + kernel jar +
-#      runner jar + SHA256SUMS
+#      runner jar + SHA256SUMS (the jars stay published as assets for
+#      pre-embedding rig binaries, which fetch them by their compiled pin)
 #   5. re-pins the install one-liner's git sha and bumps the version
 #      examples in README.md and docs/getting-started.md on main
-#   6. pushes the stamped kernel pin to main
-#   7. pushes the version stamp (resolver/VERSION + lock) to main
+#   6. pushes the version stamp (resolver/VERSION + lock) to main
 #
-# The kernel jar and runner jar are served exclusively from the GitHub
-# release (no Maven repo): rig binaries fetch them by their compiled pin,
-# hash-verified. The runner jar is the install-time artifact hot commands
-# append to the project's locked classpath; pre-seeded stores (the Docker
-# image) need no writes, rig never extracts it at runtime.
+# The kernel, runner, and vendored nREPL jars ship inside the rig binary
+# (go:embed): nothing is fetched at runtime and there are no hash pins to
+# maintain. The runner jar is the install-time artifact hot commands
+# append to the project's locked classpath.
 
 name: CI
 
@@ -244,12 +242,6 @@ jobs:
           esac
           make release V="${GITHUB_REF_NAME}"
 
-      - name: Record image build args
-        run: |
-          echo "release_sha=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
-          echo "jar_sha=$(sha256sum rig/dist/release/rig-resolver-${{ github.ref_name }}.jar | cut -d' ' -f1)" >> "$GITHUB_ENV"
-          echo "runner_sha=$(sha256sum rig/dist/release/rig-runner-${{ github.ref_name }}.jar | cut -d' ' -f1)" >> "$GITHUB_ENV"
-
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
         with:
           driver: docker-container
@@ -271,11 +263,6 @@ jobs:
           tags: |
             ghcr.io/brutasse/rig:${{ github.ref_name }}
             ghcr.io/brutasse/rig:latest
-          build-args: |
-            V=${{ github.ref_name }}
-            KERNEL_GITSHA=${{ env.release_sha }}
-            JARSHA=${{ env.jar_sha }}
-            RUNNERSHA=${{ env.runner_sha }}
 
       - name: Image smoke test
         run: docker run --rm ghcr.io/brutasse/rig:${{ github.ref_name }} rig jvm list
@@ -295,13 +282,12 @@ jobs:
 
       - name: Save release stamps
         run: |
-          # 'make release' stamped kernel.go, resolver/VERSION and the lock
-          # in the worktree; keep those files and clean up so the switch to
-          # main below always succeeds.
-          cp rig/internal/kernel/kernel.go "$RUNNER_TEMP/kernel-stamped.go"
+          # 'make release' stamped resolver/VERSION and the lock in the
+          # worktree; keep those files and clean up so the switch to main
+          # below always succeeds.
           cp resolver/VERSION "$RUNNER_TEMP/VERSION-stamped"
           cp resolver/deps.lock "$RUNNER_TEMP/deps-stamped.lock"
-          git checkout -- rig/internal/kernel/kernel.go resolver/VERSION resolver/deps.lock
+          git checkout -- resolver/VERSION resolver/deps.lock
 
       - name: Pin install one-liner and version examples in README and docs
         env:
@@ -337,30 +323,6 @@ jobs:
             # GITHUB_TOKEN pushes don't fire push events: build the docs.
             gh workflow run docs.yml --ref main
           fi
-
-      - name: Pin kernel in main
-        run: |
-          git fetch origin main
-          # A pin commit must not backport branch changes: kernel.go may
-          # differ from main only in the pinned fields (a re-run may find
-          # main already stamped for this release).
-          norm() { sed -E 's/^([[:space:]]*)(Version|GitSHA|URL|JARSHA|RunnerURL|RunnerSHA)[[:space:]]*:.*/\1\2: <pin>/'; }
-          if ! diff -q <(git show "origin/main:rig/internal/kernel/kernel.go" | norm) \
-                       <(git show "${GITHUB_REF_NAME}:rig/internal/kernel/kernel.go" | norm) >/dev/null; then
-            echo "kernel.go diverged between ${GITHUB_REF_NAME} and main; merge the branch first" >&2
-            exit 1
-          fi
-          git checkout --detach origin/main
-          cp "$RUNNER_TEMP/kernel-stamped.go" rig/internal/kernel/kernel.go
-          git add rig/internal/kernel/kernel.go
-          if git diff --cached --quiet; then
-            echo "kernel pin unchanged; nothing to push"
-            exit 0
-          fi
-          git config user.name "rig-release[bot]"
-          git config user.email "rig-release@users.noreply.github.com"
-          git commit -m "kernel: pin ${{ github.ref_name }}"
-          git push origin HEAD:main
 
       - name: Stamp version in main
         run: |

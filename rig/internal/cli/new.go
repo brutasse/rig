@@ -198,7 +198,7 @@ func (o *opts) latestVersion(ctx context.Context, ws, coord string) (version, re
 	if err != nil {
 		return "", "", err
 	}
-	jar, err := kernel.Current.Ensure(ctx, store, o.offline)
+	jar, err := kernel.Kernel(store)
 	if err != nil {
 		return "", "", err
 	}

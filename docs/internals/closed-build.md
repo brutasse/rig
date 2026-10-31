@@ -6,7 +6,7 @@ more than words. This page shows the code that enforces each part of it.
 
 ## No manifest on the hot path
 
-Every command that builds a classpath (`test`, `run`, `repl`, `exec`,
+Every command that builds a classpath (`test`, `run`, `nrepl`, `exec`,
 `build`, …) goes through the same two Go steps:
 
 1. **Staleness check** — `lockfile.Stale` re-hashes the `deps.edn` of

@@ -66,7 +66,7 @@ func (o *opts) relockArgs(ctx context.Context, root *workspace.Root, extra map[s
 	if err != nil {
 		return nil, err
 	}
-	jar, err := kernel.Current.Ensure(ctx, store, o.offline)
+	jar, err := kernel.Kernel(store)
 	if err != nil {
 		return nil, err
 	}
@@ -143,9 +143,9 @@ func completeLock(ctx context.Context, client *fetch.Client, store *cache.Store,
 		return fmt.Errorf("lock: kernel jar: %w", err)
 	}
 	lock.Resolver = lockfile.Resolver{
-		Lib:     kernel.Current.Lib,
-		Version: kernel.Current.Version,
-		GitSHA:  kernel.Current.GitSHA,
+		Lib:     kernel.Lib,
+		Version: kernel.Version,
+		GitSHA:  kernel.GitSHA,
 		SHA256:  sha,
 	}
 
