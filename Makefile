@@ -168,8 +168,8 @@ release-binaries:
 IMAGE ?= ghcr.io/brutasse/rig
 
 # image: build the Docker image locally (no push) from the release artifacts.
-# The rig binary embeds its kernel/runner/nREPL jars: the image is the
-# binary alone, no store pre-seed.
+# The rig binary embeds its kernel/runner/nREPL jars, and the image
+# pre-materializes them into the store at build time: no first-run extract.
 # Usage: make image           # tags $(IMAGE):local
 image: release
 	arch=$$(uname -m); \

@@ -26,8 +26,9 @@ are embedded in the rig binary (`go:embed`) instead of fetched from the
 GitHub release at runtime against a hash pin. On first use each jar is
 extracted into the state dir at its content-sha path, adopting a cached
 copy when its digest matches: no network, no pin to maintain, and the
-Docker image is the binary alone — nothing pre-seeded, a read-only store
-works from the second run on. The kernel identity (coordinate, version,
+Docker image pre-materializes the jars into the store at their content-sha
+paths at build time, so a first use writes nothing and the image works
+with a read-only root file system. The kernel identity (coordinate, version,
 git sha) is stamped into the binary at release build via `-ldflags`, the
 same way as the Rig version, and the lock's `resolver` block still
 records the sha256 of the jar that actually ran. The `RIG_KERNEL_JAR` /

@@ -44,7 +44,8 @@
 #   2. cross-compiles rig for linux/darwin amd64/arm64 with the fresh
 #      jars embedded (go:embed) and version stamps (ldflags)
 #   3. builds and pushes the multi-arch Docker image (the rig binary
-#      alone: it embeds its own jars) to ghcr.io/brutasse/rig
+#      alone: it embeds its own jars, pre-materialized into the store)
+#      to ghcr.io/brutasse/rig
 #   4. publishes a GitHub release with all binaries + kernel jar +
 #      runner jar + SHA256SUMS (the jars stay published as assets for
 #      pre-embedding rig binaries, which fetch them by their compiled pin)

@@ -87,7 +87,8 @@ compiler and a few GB of RAM, and takes minutes.
 The CI workflow also publishes `ghcr.io/brutasse/rig`
 (`vX.Y.Z` + `latest`, amd64/arm64): the Rig binary, which carries its
 resolver kernel jar, rig.runner jar, and vendored nREPL jar embedded
-(`go:embed`, nothing to pre-seed), on a Temurin 21 base.
+(`go:embed`) and pre-materialized into the store at build time, on a
+Temurin 21 base.
 
 ```dockerfile
 # standalone base, or multi-stage:

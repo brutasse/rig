@@ -190,8 +190,9 @@ ENTRYPOINT ["rig", "launch", "/app/app.jar"]
   app compiles nothing at runtime.
 - **Copy rig into the JDK layer.** The build stage takes the binary out of
   the Rig image. The binary carries the resolver kernel, rig.runner, and
-  vendored nREPL jars embedded, so `rig verify` and `rig test` need no
-  fetch from GitHub at build time.
+  vendored nREPL jars embedded, and the image pre-materializes them into
+  the store, so `rig verify` and `rig test` need no first-run extract and
+  no fetch from GitHub at build time.
 - **The lock is the contract.** The build consumes the committed
   `deps.lock`. `rig verify --frozen` fails when the lockfile is missing or
   stale (exit 3). Locking is workstation work, and a dependency change is
