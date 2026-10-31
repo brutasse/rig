@@ -117,9 +117,14 @@
         (file/delete f)))))
 
 (defn- pinned-time-ms
-  "The build's :rig/timestamp-string as epoch millis, or nil when the
-  build declares no pin: the entry timestamps of every jar it builds,
-  and the switch for byte-identical output (see finalize-jar). An
+  "The build's :rig/timestamp-string as the epoch millis that make
+  ZipEntry/setTime stamp every entry with the string's UTC wall-clock,
+  or nil when the build declares no pin: the entry timestamps of every
+  jar it builds, and the switch for byte-identical output (see
+  finalize-jar). Zip entries store a wall-clock time and the writer
+  renders the given epoch millis in the JVM's default zone, so the
+  pin's UTC date-time is re-read as local time in that zone: the
+  stamped jar is byte-identical on every host, whatever its zone. An
   ISO-8601 instant string; zip timestamps have a 2-second resolution
   and cannot represent times before 1980-01-01 — the writer would
   clamp silently, so both are refused here."
@@ -135,7 +140,10 @@
         (throw (ex-info (str ":rig/timestamp-string " s
                              " is before 1980-01-01: zip timestamps cannot represent it")
                         {})))
-      (.toEpochMilli t))))
+      (.toEpochMilli
+       (.toInstant
+        (.atZone (.toLocalDateTime (.atZone t (java.time.ZoneOffset/UTC)))
+                 (java.time.ZoneId/systemDefault)))))))
 
 (defn- finalize-jar
   "Re-zips the jar, dropping every .clj/.cljc that sits next to its AOT

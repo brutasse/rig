@@ -375,7 +375,13 @@
                      (spit f "(ns example.core\n  (:gen-class))\n(defn -main [& args]\n  (println (str \"hello \" (apply str args))))\n")))
         ws1 (temp-dir)
         ws2 (temp-dir)
-        pinned (.toEpochMilli (java.time.Instant/parse "2026-01-01T00:00:00Z"))]
+        pinned (-> "2026-01-01T00:00:00Z"
+                   java.time.Instant/parse
+                   (.atZone (java.time.ZoneOffset/UTC))
+                   .toLocalDateTime
+                   (.atZone (java.time.ZoneId/systemDefault))
+                   .toInstant
+                   .toEpochMilli)]
     (make-src ws1)
     (make-src ws2)
     (try
@@ -403,6 +409,44 @@
       (finally
         (delete-tree ws1)
         (delete-tree ws2)))))
+
+(deftest a-pinned-timestamp-stamps-the-utc-wall-clock-in-any-zone
+  "Zip entries store a wall-clock time and the writer renders the
+  epoch millis in the JVM's default zone: the pin passed as raw epoch
+  millis stamps 05:00:00 on a UTC+5 host, where the jar must read
+  00:00:00 — the pin's UTC wall-clock, whatever the host's zone, or
+  the jar is not byte-identical across hosts. Build under a non-UTC
+  default zone and check the recorded time."
+  (let [ws-dir (temp-dir)
+        ws (str ws-dir)
+        src-root (io/file ws-dir "src")
+        src-file (io/file src-root "example" "core.clj")
+        res-root (io/file ws-dir "resources")
+        saved-zone (java.util.TimeZone/getDefault)
+        pin "2026-01-01T00:00:00Z"
+        zone (java.time.ZoneOffset/of "+05:00")
+        wanted (-> (java.time.Instant/parse pin)
+                   (.atZone (java.time.ZoneOffset/UTC))
+                   .toLocalDateTime
+                   (.atZone zone)
+                   .toInstant
+                   .toEpochMilli)]
+    (io/make-parents src-file)
+    (spit src-file "(ns example.core)\n")
+    (io/make-parents res-root)
+    (try
+      (java.util.TimeZone/setDefault (java.util.TimeZone/getTimeZone "Etc/GMT-5"))
+      (build/build
+       {:args {:builds {"."
+                        (assoc (cfg ws src-root res-root false)
+                               :timestamp-string pin)}}})
+      (is (every? #(= wanted (second %))
+                  (zip-entries (io/file ws "target" "fixture.jar")))
+          (str "entries must carry the pin's UTC wall-clock, got: "
+               (zip-entries (io/file ws "target" "fixture.jar"))))
+      (finally
+        (java.util.TimeZone/setDefault saved-zone)
+        (delete-tree ws-dir)))))
 
 (deftest build-refuses-an-unusable-timestamp-string
   ":rig/timestamp-string must be an ISO-8601 instant at or after
