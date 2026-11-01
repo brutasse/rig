@@ -1,6 +1,13 @@
 # Local development: build the kernel jar, build rig, and run the test
-# suites. The kernel pin in kernel.go is a release-time artifact (see the
-# 'pin' target). See README.md, "Local development".
+# suites. The kernel, runner, and nREPL jars ship embedded in the rig
+# binary: 'make rig' copies the built jars into internal/kernel/embed/
+# and go:embed pulls them in. See README.md, "Local development".
+#
+# First build on a clean tree: the committed embed jars for the kernel
+# and the runner are 0-byte placeholders, so the placeholder rig cannot
+# run kernel ops. 'make kernel' then builds the resolver with the rig on
+# PATH (a release binary, as 'lock-refresh' does); every later build
+# self-hosts on dist/rig, which embeds the previous cycle's jars.
 #
 # V: version for the kernel jar and release artifacts, in release tag form
 # (vX.Y.Z). Local dev defaults to the contents of resolver/VERSION (what
@@ -15,8 +22,11 @@ JAR     := resolver/target/rig-resolver-$(V).jar
 RUNNER  := resolver/runner/target/rig-runner-$(V).jar
 BIN     := rig/dist/rig
 RIG     ?= rig
-PINFILE := rig/internal/kernel/kernel.go
+EMBED   := rig/internal/kernel/embed
 GITSHA  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo dev)
+# The rig that builds the kernel jars: the embedded one once a build has
+# filled it, the release rig on PATH for the bootstrap of a clean tree.
+KBOOT    = $(shell test -s $(EMBED)/rig-resolver.jar && echo "$(abspath $(BIN))" || echo "$(RIG)")
 
 .DEFAULT_GOAL := dev
 
@@ -24,9 +34,10 @@ GITSHA  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo dev)
 dev: kernel rig
 
 # kernel: build the resolver uberjar and the runner uberjar
-# (resolver/target/ and resolver/runner/target/) with rig — self-hosted: the rig binary
-# runs its kernel pin, so the previous release's kernel builds the next
-# one. The builder's op shapes the artifact, so an op fix must be
+# (resolver/target/ and resolver/runner/target/) with the rig selected by
+# KBOOT — the previous cycle's dist/rig once it embeds the jars, the rig on
+# PATH for the bootstrap of a clean tree. The builder's op shapes the
+# artifact, so an op fix must be
 # released before it can shape its successor's build (v0.3.0 shipped the
 # link-closure fix precisely so it could build what comes next). The jar
 # version comes from resolver/VERSION (rig's version-file), so V must
@@ -35,35 +46,20 @@ dev: kernel rig
 # cold command without it re-resolves and rewrites deps.lock whenever a
 # manifest moved: a dependency bump that skipped 'rig lock' would build green
 # here and leave the drift uncommitted instead of failing.
-kernel: rig
+# No 'rig' prerequisite: KBOOT is computed at recipe time, and 'dev' runs
+# the rig target after this one, embedding the jars it just built.
+kernel:
 	@test "$$(cat resolver/VERSION)" = "$(V)" || { \
 		echo "resolver/VERSION ($$(cat resolver/VERSION)) != V ($(V)): run 'make prepare V=$(V)'" >&2; exit 1; }
-	cd resolver && $(abspath $(BIN)) build --frozen --uber
-	cd resolver && $(abspath $(BIN)) build -p runner --frozen --uber
+	cd resolver && $(KBOOT) build --frozen --uber
+	cd resolver && $(KBOOT) build -p runner --frozen --uber
 
-# pin: stamp the kernel pin in kernel.go (version, git sha, GitHub release
-# URL, jar sha256, runner URL, runner jar sha256) from the freshly built
-# jars. Release-time only — feature branches do not commit pin changes
-# (local runs use RIG_KERNEL_JAR / RIG_RUNNER_JAR).
-# Idempotent; fails loudly if any stamped field does not land.
-# The field patterns are line-anchored: URL: must not match RunnerURL:.
-pin: kernel
-	sha=$$(sha256sum $(JAR) | cut -d' ' -f1) && \
-	rsha=$$(sha256sum $(RUNNER) | cut -d' ' -f1) && \
-	gitsha=$$(git rev-parse HEAD) && \
-	sed -i -e "s/^\([[:space:]]*Version:[[:space:]]*\"\)[vV]\?[0-9][0-9A-Za-z.+-]*/\1$(V)/" \
-	        -e "s/^\([[:space:]]*GitSHA:[[:space:]]*\"\)[0-9a-f]*/\1$$gitsha/" \
-	        -e "s|^\([[:space:]]*URL:[[:space:]]*\"\)[^\"]*|\1https://github.com/$(REPO)/releases/download/$(V)/rig-resolver-$(V).jar|" \
-	        -e "s/^\([[:space:]]*JARSHA:[[:space:]]*\"\)[0-9a-f]*/\1$$sha/" \
-	        -e "s|^\([[:space:]]*RunnerURL:[[:space:]]*\"\)[^\"]*|\1https://github.com/$(REPO)/releases/download/$(V)/rig-runner-$(V).jar|" \
-	        -e "s/^\([[:space:]]*RunnerSHA:[[:space:]]*\"\)[0-9a-f]*/\1$$rsha/" $(PINFILE) && \
-	grep -qE "Version:[[:space:]]*\"$(V)\"" $(PINFILE) && \
-	grep -qF "$$gitsha" $(PINFILE) && \
-	grep -qF "$$sha" $(PINFILE) && \
-	grep -qF "$$rsha" $(PINFILE)
-
-# rig: build the rig binary (rig/dist/rig).
+# rig: build the rig binary (rig/dist/rig) with the local kernel jars
+# embedded (a clean tree keeps the committed placeholders until 'make
+# kernel' produces the first ones; 'make dev' runs both in order).
 rig:
+	test ! -f $(JAR) || cp $(JAR) $(EMBED)/rig-resolver.jar
+	test ! -f $(RUNNER) || cp $(RUNNER) $(EMBED)/rig-runner.jar
 	cd rig && go build -o dist/rig ./cmd/rig
 
 # lock-refresh: re-bake resolver/deps.lock from the manifests. One 'rig lock'
@@ -81,8 +77,7 @@ lock-refresh:
 # of stage 1 (conflicts, drift, floating versions, unknown repos) and stage 2
 # (every module's namespaces load and compile).
 check: dev
-	cd resolver && RIG_KERNEL_JAR=$(abspath $(JAR)) RIG_RUNNER_JAR=$(abspath $(RUNNER)) \
-		$(abspath $(BIN)) check
+	cd resolver && $(abspath $(BIN)) check
 
 # test: full local verification — rig check on this workspace, the kernel
 # suite (rig test: the runner runs the :test alias's exec-fn on the locked
@@ -90,7 +85,7 @@ check: dev
 # run against the just-built jars). No Clojure CLI, no host JDK: rig runs
 # everything.
 test: dev check
-	cd resolver && CLOJURE_CLI_ALLOW_HTTP_REPO=1 RIG_RUNNER_JAR=$(abspath $(RUNNER)) $(abspath $(BIN)) test
+	cd resolver && CLOJURE_CLI_ALLOW_HTTP_REPO=1 $(abspath $(BIN)) test
 	cd rig && RIG_TEST_KERNEL_JAR=$(abspath $(JAR)) RIG_TEST_RUNNER_JAR=$(abspath $(RUNNER)) \
 		go test ./...
 
@@ -131,12 +126,14 @@ prepare:
 	cd resolver && $(RIG) lock
 
 # release: package a release — version stamp (prepare), kernel jar, runner
-# jar, stamped pin, cross-compiled binaries, SHA256SUMS — in
-# rig/dist/release/. The release workflow publishes that directory and
-# lands the version stamp on main; locally it doubles as a packaging
-# dry-run (clean the worktree afterwards: VERSION, deps.lock, kernel.go).
+# jar, cross-compiled binaries with the jars and version stamps embedded,
+# SHA256SUMS — in rig/dist/release/. The release workflow publishes that
+# directory and lands the version stamp on main; locally it doubles as a
+# packaging dry-run (clean the worktree afterwards: VERSION, deps.lock).
+# The kernel and runner jars are still published as release assets: older
+# rig binaries (pre-embedding) fetch them at runtime.
 # Usage: make release V=vX.Y.Z
-release: prepare kernel pin release-binaries
+release: prepare kernel release-binaries
 	mkdir -p rig/dist/release
 	cp rig/dist/rig-linux-amd64 rig/dist/rig-linux-arm64 rig/dist/rig-darwin-amd64 rig/dist/rig-darwin-arm64 rig/dist/release/
 	cp $(JAR) rig/dist/release/
@@ -146,14 +143,17 @@ release: prepare kernel pin release-binaries
 	@echo "  (cd rig/dist/release && sha256sum -c SHA256SUMS) && gh release create $(V) rig/dist/release/*"
 
 # release-binaries: cross-compile rig for the release matrix with version
-# stamps (Version, GitSHA via ldflags). Each artifact is checked against its
-# declared architecture: a wrong-arch binary would be packaged silently and
-# break the cross-arch Docker build.
+# stamps (cli and kernel identity via ldflags; the kernel build ran first,
+# so the embedded jars are the ones built from this tag). Each artifact is
+# checked against its declared architecture: a wrong-arch binary would be
+# packaged silently and break the cross-arch Docker build.
 release-binaries:
+	test ! -f $(JAR) || cp $(JAR) $(EMBED)/rig-resolver.jar
+	test ! -f $(RUNNER) || cp $(RUNNER) $(EMBED)/rig-runner.jar
 	@for t in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do \
 		os=$${t%%/*}; arch=$${t#*/}; \
 		(cd rig && GOOS=$$os GOARCH=$$arch go build -trimpath \
-			-ldflags "-s -w -X github.com/brutasse/rig/internal/cli.Version=$(V) -X github.com/brutasse/rig/internal/cli.GitSHA=$(GITSHA)" \
+			-ldflags "-s -w -X github.com/brutasse/rig/internal/cli.Version=$(V) -X github.com/brutasse/rig/internal/cli.GitSHA=$(GITSHA) -X github.com/brutasse/rig/internal/kernel.Version=$(V) -X github.com/brutasse/rig/internal/kernel.GitSHA=$(GITSHA)" \
 			-o dist/rig-$$os-$$arch ./cmd/rig) || exit 1; \
 		case "$$t" in \
 		linux/amd64) want=x86-64 ;; \
@@ -168,6 +168,8 @@ release-binaries:
 IMAGE ?= ghcr.io/brutasse/rig
 
 # image: build the Docker image locally (no push) from the release artifacts.
+# The rig binary embeds its kernel/runner/nREPL jars, and the image
+# pre-materializes them into the store at build time: no first-run extract.
 # Usage: make image           # tags $(IMAGE):local
 image: release
 	arch=$$(uname -m); \
@@ -177,11 +179,7 @@ image: release
 		*) echo "unsupported arch: $$arch" >&2; exit 1 ;; \
 	esac; \
 	docker build \
-		--build-arg V=$(V) \
-		--build-arg KERNEL_GITSHA=$$(git rev-parse HEAD) \
-		--build-arg JARSHA=$$(sha256sum rig/dist/release/rig-resolver-$(V).jar | cut -d' ' -f1) \
-		--build-arg RUNNERSHA=$$(sha256sum rig/dist/release/rig-runner-$(V).jar | cut -d' ' -f1) \
 		--build-arg TARGETARCH=$$arch \
 		-t $(IMAGE):local .
 
-.PHONY: dev kernel lock-refresh prepare pin rig check test test-pier run release release-binaries image
+.PHONY: dev kernel lock-refresh prepare rig check test test-pier run release release-binaries image

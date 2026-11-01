@@ -11,7 +11,6 @@ import (
 
 	"github.com/brutasse/rig/internal/digest"
 	"github.com/brutasse/rig/internal/jvm"
-	"github.com/brutasse/rig/internal/kernel"
 	"github.com/brutasse/rig/internal/lockfile"
 	"github.com/brutasse/rig/internal/workspace"
 )
@@ -337,16 +336,9 @@ func TestBuildPrepEndToEnd(t *testing.T) {
 	if _, err := jvm.Find(); err != nil {
 		t.Skipf("no java available: %v", err)
 	}
-	sha, err := digest.File(jar)
-	if err != nil {
-		t.Fatal(err)
-	}
-	oldSHA := kernel.Current.JARSHA
-	kernel.Current.JARSHA = sha
 	os.Setenv("RIG_KERNEL_JAR", jar)
 	os.Setenv("RIG_RUNNER_JAR", runnerJarPath(t))
 	t.Cleanup(func() {
-		kernel.Current.JARSHA = oldSHA
 		os.Unsetenv("RIG_KERNEL_JAR")
 		os.Unsetenv("RIG_RUNNER_JAR")
 	})
@@ -552,16 +544,9 @@ func TestCompiledJavaVisibleToCheckTestRun(t *testing.T) {
 	if _, err := jvm.Find(); err != nil {
 		t.Skipf("no java available: %v", err)
 	}
-	sha, err := digest.File(jar)
-	if err != nil {
-		t.Fatal(err)
-	}
-	oldSHA := kernel.Current.JARSHA
-	kernel.Current.JARSHA = sha
 	os.Setenv("RIG_KERNEL_JAR", jar)
 	os.Setenv("RIG_RUNNER_JAR", runnerJarPath(t))
 	t.Cleanup(func() {
-		kernel.Current.JARSHA = oldSHA
 		os.Unsetenv("RIG_KERNEL_JAR")
 		os.Unsetenv("RIG_RUNNER_JAR")
 	})

@@ -38,7 +38,7 @@ launches with the flags of the jar it ships. The launching binary applies
 Rig's default set, so the policy follows Rig upgrades even for old
 artifacts.
 
-`:rig/launch-opts` never reaches dev execution (`rig run`, `rig repl`,
+`:rig/launch-opts` never reaches dev execution (`rig run`, `rig nrepl`,
 `rig test`, … — that is `:jvm-opts`), and `:rig/compile-jvm-opts` never
 reaches it either. See [JVM flags](../reference/config.md#jvm-flags) for
 the three contexts.
@@ -169,7 +169,6 @@ binary, and the artifact.
 # the declared JDK — :rig/jvm is "21" in the root deps.edn
 FROM eclipse-temurin:21-jdk-jammy AS build
 COPY --from=ghcr.io/brutasse/rig:latest /usr/local/bin/rig /usr/local/bin/
-COPY --from=ghcr.io/brutasse/rig:latest /root/.local/share/rig /root/.local/share/rig
 WORKDIR /app
 COPY . .
 RUN rig verify --frozen && rig test --frozen
@@ -184,16 +183,16 @@ ENTRYPOINT ["rig", "launch", "/app/app.jar"]
 ```
 
 - **The base is the declared JDK.** `:rig/jvm` is the contract: the build
-  stage uses the JDK the project declares. The copied state dir has no
-  rig-managed JDK for the pin, so the build compiles against the JDK of
-  the image — the matching system `java` satisfies the pin. The runtime
-  image carries the same JDK as a JRE: the launch descriptor records the
-  major version of the build JVM, and `rig launch` refuses a different
-  one. A JRE is enough: the app compiles nothing at runtime.
-- **Copy rig into the JDK layer.** The build stage takes the binary and
-  Rig's state dir out of the Rig image. The state dir holds the pre-baked
-  resolver kernel and rig.runner jars. `rig verify` and `rig test` need
-  them, and pre-baked means no fetch from GitHub at build time.
+  stage uses the JDK the project declares. The image's `java` satisfies the
+  pin, so the build compiles against it. The runtime image carries the same
+  JDK as a JRE: the launch descriptor records the major version of the
+  build JVM, and `rig launch` refuses a different one. A JRE is enough: the
+  app compiles nothing at runtime.
+- **Copy rig into the JDK layer.** The build stage takes the binary out of
+  the Rig image. The binary carries the resolver kernel, rig.runner, and
+  vendored nREPL jars embedded, and the image pre-materializes them into
+  the store, so `rig verify` and `rig test` need no first-run extract and
+  no fetch from GitHub at build time.
 - **The lock is the contract.** The build consumes the committed
   `deps.lock`. `rig verify --frozen` fails when the lockfile is missing or
   stale (exit 3). Locking is workstation work, and a dependency change is
@@ -225,7 +224,6 @@ artifact cache:
 ```dockerfile
 FROM eclipse-temurin:21-jdk-jammy AS build
 COPY --from=ghcr.io/brutasse/rig:latest /usr/local/bin/rig /usr/local/bin/
-COPY --from=ghcr.io/brutasse/rig:latest /root/.local/share/rig /root/.local/share/rig
 WORKDIR /app
 COPY . .
 RUN rig verify --frozen && rig build --frozen -p modules/app

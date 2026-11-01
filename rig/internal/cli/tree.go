@@ -39,7 +39,7 @@ func (o *opts) treePrint(ctx context.Context, root *workspace.Root, module, alia
 	if err != nil {
 		return err
 	}
-	jar, err := kernel.Current.Ensure(ctx, store, o.offline)
+	jar, err := kernel.Kernel(store)
 	if err != nil {
 		return err
 	}

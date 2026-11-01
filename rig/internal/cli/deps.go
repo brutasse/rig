@@ -193,7 +193,7 @@ func (o *opts) editDep(ctx context.Context, root *workspace.Root, module, coord,
 	if err != nil {
 		return nil, nil, err
 	}
-	jar, err := kernel.Current.Ensure(ctx, store, o.offline)
+	jar, err := kernel.Kernel(store)
 	if err != nil {
 		return nil, nil, err
 	}

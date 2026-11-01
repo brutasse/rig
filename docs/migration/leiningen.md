@@ -165,7 +165,7 @@ default `VERSION` file, like a wrapped form
 |---|---|
 | `lein test` | `rig test` |
 | `lein run` | `rig run` |
-| `lein repl` | `rig repl` |
+| `lein repl` | `rig nrepl` |
 | `lein jar` | `rig build` |
 | `lein uberjar` | `rig build --uber` |
 | `lein deploy` | `rig publish` |

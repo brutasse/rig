@@ -44,7 +44,7 @@ func runOutdated(ctx context.Context, o *opts, breakingOnly bool) error {
 	if err != nil {
 		return err
 	}
-	jar, err := kernel.Current.Ensure(ctx, store, o.offline)
+	jar, err := kernel.Kernel(store)
 	if err != nil {
 		return err
 	}

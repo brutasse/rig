@@ -47,8 +47,8 @@ type Resolver struct {
 	Lib     string `json:"lib"`
 	Version string `json:"version"`
 	GitSHA  string `json:"git/sha"`
-	// SHA256 of the kernel jar that produced the lock: the pin's JARSHA for
-	// a fetched kernel, the file hash for a RIG_KERNEL_JAR override. Stamped
+	// SHA256 of the kernel jar that produced the lock: the digest of the
+	// embedded jar, or the file hash for a RIG_KERNEL_JAR override. Stamped
 	// by Go, never by the kernel.
 	SHA256 string `json:"sha256,omitempty"`
 }
@@ -118,7 +118,7 @@ type Module struct {
 	PrepAlias      string   `json:"prep-alias,omitempty"`
 	PrepFn         string   `json:"prep-fn,omitempty"`
 	// JVMOpts are the module's tools.deps :jvm-opts: dev-execution JVM
-	// flags (rig run / repl / exec / test / prep). LaunchOpts are the
+	// flags (rig run / nrepl / exec / test / prep). LaunchOpts are the
 	// module's :rig/launch-opts, the prod JVM flags rig launch applies.
 	JVMOpts    []string         `json:"jvm-opts"`
 	LaunchOpts []string         `json:"launch-opts"`

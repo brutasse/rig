@@ -253,9 +253,15 @@ func fileHashes(path string) (string, string, error) {
 	return hex.EncodeToString(h1.Sum(nil)), hex.EncodeToString(h2.Sum(nil)), nil
 }
 
+// retryable reports whether doGet should retry a response with this status.
+// 404 is among them: CDN-fronted immutable repositories (Maven Central) can
+// answer with a transient 404 for an artifact that exists, and by the time
+// rig fetches it the coordinates have just been resolved — a genuinely
+// missing artifact still fails, after the same budget a 5xx does.
 func retryable(status int) bool {
 	switch status {
 	case http.StatusTooManyRequests,
+		http.StatusNotFound,
 		http.StatusInternalServerError,
 		http.StatusBadGateway,
 		http.StatusServiceUnavailable,
@@ -286,10 +292,10 @@ func fileResponse(path string) *http.Response {
 }
 
 // doGet performs a GET, retrying transient network errors and retryable
-// statuses (429/5xx) until fetchBudget elapses. Sleeps honor Retry-After
-// (capped at maxWait) and otherwise back off exponentially. It returns the
-// final response (even if retryable) so the caller can report it. file://
-// URLs are served from the local filesystem.
+// statuses (429/5xx, and 404 — see retryable) until fetchBudget elapses.
+// Sleeps honor Retry-After (capped at maxWait) and otherwise back off
+// exponentially. It returns the final response (even if retryable) so the
+// caller can report it. file:// URLs are served from the local filesystem.
 func (c *Client) doGet(ctx context.Context, url, repo string) (*http.Response, error) {
 	if u, err := neturl.Parse(url); err == nil && u.Scheme == "file" {
 		return fileResponse(u.Path), nil

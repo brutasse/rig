@@ -62,7 +62,7 @@ func runCheck(ctx context.Context, o *opts) error {
 	if err != nil {
 		return err
 	}
-	jar, err := kernel.Current.Ensure(ctx, store, o.offline)
+	jar, err := kernel.Kernel(store)
 	if err != nil {
 		return err
 	}
@@ -113,7 +113,7 @@ func runCheck(ctx context.Context, o *opts) error {
 		// rig.runner jar only, not the kernel jar: the jar bundles the
 		// resolver's own dependencies, which would shadow anything a module
 		// forgot to declare.
-		if e.runner, err = kernel.Current.Runner(ctx, store, o.offline); err != nil {
+		if e.runner, err = kernel.Runner(store); err != nil {
 			return err
 		}
 		targets, err := targetModules(root, o.path)
@@ -194,7 +194,7 @@ func checkModuleLoads(ctx context.Context, e *hotEnv, m string) (*checkProblem, 
 	if !hasSrc {
 		return nil, nil
 	}
-	if v := e.clojureBelowFloor(m); v != "" {
+	if v := e.clojureBelowFloor(m, runnerClojureFloor); v != "" {
 		return &checkProblem{
 			Severity: "error",
 			Kind:     "clojure-floor",

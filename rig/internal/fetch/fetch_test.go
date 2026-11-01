@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -435,6 +436,81 @@ func TestGetNewRetriesOn429(t *testing.T) {
 	}
 	if n != 3 {
 		t.Errorf("attempts = %d, want 3", n)
+	}
+}
+
+// TestGetNewRetriesOn404: a CDN-fronted repository can answer a transient
+// 404 for an artifact that exists; GetNew must ride it out and succeed.
+func TestGetNewRetriesOn404(t *testing.T) {
+	var n int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n++
+		if n <= 2 {
+			w.Header().Set("Retry-After", "0")
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.Write([]byte("retry-bytes"))
+	}))
+	t.Cleanup(srv.Close)
+	sha, _, err := New(false).GetNew(context.Background(), cache.NewAt(t.TempDir()), Item{URL: srv.URL + "/a.jar"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sha != shaOf(t, "retry-bytes") {
+		t.Errorf("sha = %s", sha)
+	}
+	if n != 3 {
+		t.Errorf("attempts = %d, want 3", n)
+	}
+}
+
+// TestGetRetriesOn404: the locked-artifact path (Get) rides out a transient
+// 404 the same way.
+func TestGetRetriesOn404(t *testing.T) {
+	var n int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n++
+		if n <= 1 {
+			w.Header().Set("Retry-After", "0")
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.Write([]byte("known-bytes"))
+	}))
+	t.Cleanup(srv.Close)
+	c := New(false)
+	_, _, err := c.Get(context.Background(), cache.NewAt(t.TempDir()), Item{URL: srv.URL + "/a.jar", SHA: shaOf(t, "known-bytes")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 2 {
+		t.Errorf("attempts = %d, want 2", n)
+	}
+}
+
+// TestGetNewPersistent404Fails: a 404 that outlives the budget is reported,
+// not masked — after being retried, not on the first response.
+func TestGetNewPersistent404Fails(t *testing.T) {
+	oldBudget, oldWait := fetchBudget, maxWait
+	fetchBudget, maxWait = 2*time.Second, 100*time.Millisecond
+	defer func() { fetchBudget, maxWait = oldBudget, oldWait }()
+
+	var n int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n++
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	t.Cleanup(srv.Close)
+	_, _, err := New(false).GetNew(context.Background(), cache.NewAt(t.TempDir()), Item{URL: srv.URL + "/missing.jar"})
+	if err == nil {
+		t.Fatal("expected failure after budget")
+	}
+	if !strings.Contains(err.Error(), "status 404") {
+		t.Errorf("err = %v, want a status 404 report", err)
+	}
+	if n < 2 {
+		t.Errorf("attempts = %d, want >= 2 (404 must be retried)", n)
 	}
 }
 

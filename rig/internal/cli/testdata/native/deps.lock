@@ -6,10 +6,11 @@
   },
   "resolver": {
     "lib": "io.github.brutasse/rig-resolver",
-    "version": "v0.1.0",
-    "git/sha": "a17bdb4d3509be22e80deb08f6ba72c42becc1df"
+    "version": "dev",
+    "git/sha": "dev",
+    "sha256": "29e777d53b44484eefe8f400e21d2af3c51e7f0e97fbf65ca5595fa13c14223c"
   },
-  "locked_at": "2026-09-25T21:36:43Z",
+  "locked_at": "2026-10-31T20:54:57Z",
   "workspace": {
     "modules": [
       ".",
@@ -30,48 +31,6 @@
     "requested": "21"
   },
   "artifacts": [
-    {
-      "id": "org.clojure/clojure:1.12.5:jar",
-      "kind": "mvn",
-      "group": "org.clojure",
-      "name": "clojure",
-      "version": "1.12.5",
-      "extension": "jar",
-      "classifier": null,
-      "repository": "central",
-      "url": "https://repo.maven.apache.org/maven2/org/clojure/clojure/1.12.5/clojure-1.12.5.jar",
-      "sha256": "dfdee131460216a84fef22e537bb0d0579965f8f70338d748323dff26f8e5a8b",
-      "published_at": null,
-      "git": null
-    },
-    {
-      "id": "org.clojure/core.specs.alpha:0.4.74:jar",
-      "kind": "mvn",
-      "group": "org.clojure",
-      "name": "core.specs.alpha",
-      "version": "0.4.74",
-      "extension": "jar",
-      "classifier": null,
-      "repository": "central",
-      "url": "https://repo.maven.apache.org/maven2/org/clojure/core.specs.alpha/0.4.74/core.specs.alpha-0.4.74.jar",
-      "sha256": "eb73ac08cf49ba840c88ba67beef11336ca554333d9408808d78946e0feb9ddb",
-      "published_at": null,
-      "git": null
-    },
-    {
-      "id": "org.clojure/spec.alpha:0.5.238:jar",
-      "kind": "mvn",
-      "group": "org.clojure",
-      "name": "spec.alpha",
-      "version": "0.5.238",
-      "extension": "jar",
-      "classifier": null,
-      "repository": "central",
-      "url": "https://repo.maven.apache.org/maven2/org/clojure/spec.alpha/0.5.238/spec.alpha-0.5.238.jar",
-      "sha256": "94cd99b6ea639641f37af4860a643b6ed399ee5a8be5d717cff0b663c8d75077",
-      "published_at": null,
-      "git": null
-    },
     {
       "id": "org.clojure/clojure:1.11.0:jar",
       "kind": "mvn",
@@ -122,14 +81,11 @@
       "lib": "",
       "version": "",
       "jvm-opts": [],
+      "launch-opts": [],
       "paths": [
         "src"
       ],
-      "classpath": [
-        "org.clojure/clojure:1.12.5:jar",
-        "org.clojure/core.specs.alpha:0.4.74:jar",
-        "org.clojure/spec.alpha:0.5.238:jar"
-      ],
+      "classpath": [],
       "aliases": {},
       "build": {
         "artifact-dirs": [
@@ -156,6 +112,7 @@
       "version": "0.1.0",
       "main": "app.core",
       "jvm-opts": [],
+      "launch-opts": [],
       "paths": [
         "src"
       ],

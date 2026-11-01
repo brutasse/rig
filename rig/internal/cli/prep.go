@@ -420,12 +420,12 @@ func (e *hotEnv) writeStamp(m string, mod lockfile.Module, st prepState, prep, f
 // classes is the module's class-dir for the prep flows; check passes a
 // temp dir instead, keeping the module's target dir untouched.
 func (e *hotEnv) runJavaPrep(ctx context.Context, m string, mod lockfile.Module, classes string) error {
-	// run and repl open the environment without a kernel (hot ctx, false);
+	// run and nrepl open the environment without a kernel (hot ctx, false);
 	// fetch it lazily here, only when a javac actually has to run.
 	k := e.kernel
 	if k == "" {
 		var err error
-		if k, err = kernel.Current.Ensure(ctx, e.store, e.offline); err != nil {
+		if k, err = kernel.Kernel(e.store); err != nil {
 			return err
 		}
 	}
@@ -484,12 +484,12 @@ func (e *hotEnv) runPrep(ctx context.Context, m string, mod lockfile.Module) err
 	if err != nil {
 		return err
 	}
-	// run and repl open the environment without a kernel (hot ctx,
+	// run and nrepl open the environment without a kernel (hot ctx,
 	// false); fetch it lazily here, only when a prep fn actually has to
 	// run.
 	k := e.kernel
 	if k == "" {
-		if k, err = kernel.Current.Ensure(ctx, e.store, e.offline); err != nil {
+		if k, err = kernel.Kernel(e.store); err != nil {
 			return err
 		}
 	}

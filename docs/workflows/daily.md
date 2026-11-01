@@ -49,8 +49,8 @@ rig run -p modules/orchestrator -- --env dev       # flags for the program
 - The working directory is the module directory.
 
 ```sh
-rig repl                      # clojure.main REPL on the module classpath
-rig repl --alias dev -p modules/orchestrator
+rig nrepl                     # nREPL server on the module classpath
+rig nrepl --alias dev -p modules/orchestrator
 ```
 
 ## The escape hatch: `rig exec`
@@ -90,7 +90,7 @@ lockfile.
 
 ## What every hot command does first
 
-`test`, `run`, `repl`, `exec`, and `build` apply the same lockfile
+`test`, `run`, `nrepl`, `exec`, and `build` apply the same lockfile
 discipline before they launch anything:
 
 1. no lockfile → `no lock at /home/dev/app/deps.lock (run 'rig lock')`, exit 3;

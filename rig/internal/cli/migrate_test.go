@@ -6,26 +6,17 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/brutasse/rig/internal/digest"
 	"github.com/brutasse/rig/internal/jvm"
-	"github.com/brutasse/rig/internal/kernel"
 )
 
-// setKernel pins kernel.Current to the local test kernel jar.
+// setKernel points RIG_KERNEL_JAR at the local test kernel jar.
 func setKernel(t *testing.T) {
 	t.Helper()
 	jar := kernelJarPath(t)
 	if _, err := jvm.Find(); err != nil {
 		t.Skipf("no java available: %v", err)
 	}
-	sha, err := digest.File(jar)
-	if err != nil {
-		t.Fatal(err)
-	}
-	oldSHA := kernel.Current.JARSHA
-	kernel.Current.JARSHA = sha
 	t.Setenv("RIG_KERNEL_JAR", jar)
-	t.Cleanup(func() { kernel.Current.JARSHA = oldSHA })
 }
 
 // legacyFixture is a minimal deps-modules-style manifest: a lib key, a

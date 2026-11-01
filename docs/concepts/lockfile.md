@@ -132,7 +132,7 @@ A real lockfile from a multi-module workspace, trimmed:
 
 ## Staleness and the hot path
 
-Every command that builds a classpath (`test`, `run`, `repl`, `exec`,
+Every command that builds a classpath (`test`, `run`, `nrepl`, `exec`,
 `build`, …) first checks the lockfile:
 
 1. **No lockfile** → Rig exits with code 3 and hints: `run 'rig lock'`.

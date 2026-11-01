@@ -16,10 +16,8 @@ import (
 	"testing"
 
 	"github.com/brutasse/rig/internal/cache"
-	"github.com/brutasse/rig/internal/digest"
 	"github.com/brutasse/rig/internal/jdk"
 	"github.com/brutasse/rig/internal/jvm"
-	"github.com/brutasse/rig/internal/kernel"
 	"github.com/brutasse/rig/internal/lockfile"
 	"github.com/brutasse/rig/internal/workspace"
 )
@@ -525,13 +523,6 @@ func ltsAPIServer(t *testing.T, lts, code int) *httptest.Server {
 // install command with the current LTS.
 func TestLockNoJavaHint(t *testing.T) {
 	jar := kernelJarPath(t) // skips when the kernel jar is absent
-	sha, err := digest.File(jar)
-	if err != nil {
-		t.Fatal(err)
-	}
-	oldSHA := kernel.Current.JARSHA
-	kernel.Current.JARSHA = sha
-	t.Cleanup(func() { kernel.Current.JARSHA = oldSHA })
 	t.Setenv("RIG_KERNEL_JAR", jar)
 	t.Setenv("RIG_JAVA", "")
 	t.Setenv("JAVA_HOME", "")

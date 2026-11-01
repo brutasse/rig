@@ -58,14 +58,18 @@ func TestCRACInstallAndStatus(t *testing.T) {
 	}
 }
 
-// Pruning semantics are covered by kernelrun.TestClean; through the CLI the
-// resolution gates are what matters: clean never downloads the kernel jar,
-// and never classifies chains while a dev jar is in play.
+// Pruning semantics are covered by kernelrun.TestClean; through the CLI
+// what matters is that clean never classifies chains while a dev jar is
+// in play — and that the embedded kernel jar resolves with an empty
+// store (materialized, never downloaded).
 func TestCRACCleanResolutionGates(t *testing.T) {
 	t.Setenv("RIG_KERNEL_JAR", "") // dev shell override must not leak into the gate
+	if st, err := os.Stat(filepath.Join("..", "kernel", "embed", "rig-resolver.jar")); err != nil || st.Size() == 0 {
+		t.Skip("embedded jar is a placeholder; build it with: make kernel")
+	}
 	code, out := runCLI(t, "crac", "clean", "--cache-dir", t.TempDir())
-	if code != 1 || !strings.Contains(out, "cannot resolve the kernel jar") {
-		t.Fatalf("clean with uncached jar: code %d; out: %s", code, out)
+	if code != 0 || !strings.Contains(out, "no stale checkpoint chains") {
+		t.Fatalf("clean with empty store: code %d; out: %s", code, out)
 	}
 
 	t.Setenv("RIG_KERNEL_JAR", filepath.Join(t.TempDir(), "dev.jar"))

@@ -47,7 +47,7 @@ the finished lock. The kernel never writes a hash, and never the lock
 
 ## The kernel protocol
 
-Go launches the pinned kernel jar with the request JSON on stdin. It
+Go launches the embedded kernel jar with the request JSON on stdin. It
 reads one JSON document: the last line of stdout. Ops that spawn
 subprocesses can print noise before it. Diagnostics go to stderr:
 
@@ -91,7 +91,7 @@ network when the cache is warm:
 
 | Command | What the kernel contributes |
 |---|---|
-| `run`, `repl`, `exec`, `verify` | nothing — pure Go |
+| `run`, `nrepl`, `exec`, `verify` | nothing — pure Go |
 | `clean`, `lint` | nothing — no lock needed at all |
 | `test` | its jar, as the *last* classpath entry: it carries `rig.runner`, the exec-fn launcher that runs the module's test alias. The project's own Clojure comes first and wins on conflicts |
 | `check` (stage 2) | the kernel computes the AOT plan (`aot-plan` op), then its jar as the *last* classpath entry: the runner's aot mode preloads the plan's requires and AOT-compiles the module's namespaces into a fresh class dir that leads the locked base classpath. Stage 1 (lock vs manifests) is the cold kernel op |
@@ -115,33 +115,37 @@ network when the cache is warm:
 A hot command that needs the network needs it only to fetch bytes the
 lock already pins ([the closed build](closed-build.md)).
 
-## The kernel is pinned too
+## The kernel ships inside the binary
 
-The kernel jar is itself a supply-chain item. The pin holds the library
-coordinate, the version, the git sha, the download URL, and the sha256 of
-the jar. Go stamps the pin into the Go binary at release time
-(`make pin`). Before any use, Go verifies the sha256 of the jar, whether
-Go downloaded it freshly or found it already in the cache
-(`~/.local/share/rig/kernel/<git-sha>/`). A mismatch is a hard error. The
-lock records the kernel that produced it in its `resolver` block: the pin
-plus the sha256 of the jar that actually ran. Go stamps it at lock time;
-the kernel never stamps it. So a lock always says who resolved it.
+The kernel jar is itself a supply-chain item, so it ships embedded in the
+rig binary (`go:embed`): the kernel uberjar, the rig.runner jar, and the
+vendored nREPL jar. On first use Go extracts each jar into the store at
+its content-sha path (`~/.local/share/rig/kernel/<sha>/`, `…/runner/<sha>/`,
+`…/nrepl/<sha>/`), adopting a cached copy when its digest matches. A
+read-only store works from the second run on: the first run extracts the
+jars, and nothing is fetched or written afterwards. There is
+no download URL and no hash pin to maintain: what the binary carries is
+what runs. The kernel's identity (coordinate, version, git sha) is stamped
+into the binary at release time via `-ldflags`, the same way as the rig
+version.
+
+The lock records the kernel that produced it in its `resolver` block: the
+identity plus the sha256 of the jar that actually ran — the digest of the
+embedded jar, or the file hash when a `RIG_KERNEL_JAR` dev override is in
+play. Go stamps it at lock time; the kernel never stamps it. So a lock
+always says who resolved it.
 
 The jar is not byte-reproducible by default, and nothing in the flow
-needs it to be. Go stamps the sha256 of the pin from the artifact as
-built (`make pin`). Go also stamps every other hash in the system this
-way: the hash in the lock, the `SHA256SUMS` entries, the Docker build
-args. A workspace that wants byte-reproducible builds opts in with
-`:rig/timestamp-string`. With it set, every entry of the built jar and
-uberjar carries the pinned timestamp, and Go writes the entries in
-name-sorted order. So the same sources, lock and build JVM (`:rig/jvm`)
-produce a byte-identical jar. The sha256 of the pin then becomes a stable
-fingerprint of the sources, lock and build config. Zip timestamps have a
-2-second resolution — the limit of the format. Rig pins the runner jar
-(the rig.runner class files only) the same way, and it is an install-time
-artifact. The Docker image pre-seeds it into the store, local runs point
-at it with `RIG_RUNNER_JAR`, and Rig never extracts or writes it at
-runtime. Hot commands run on stores that can be read-only.
+needs it to be. Go stamps every other hash in the system this way: the
+hash in the lock, the `SHA256SUMS` entries. A workspace that wants
+byte-reproducible builds opts in with `:rig/timestamp-string`. With it
+set, every entry of the built jar and uberjar carries the pinned
+timestamp, and Go writes the entries in name-sorted order. So the same
+sources, lock and build JVM (`:rig/jvm`) produce a byte-identical jar. The
+sha256 of the jar then becomes a stable fingerprint of the sources, lock
+and build config. Zip timestamps have a 2-second resolution — the limit of
+the format. Rig builds the runner jar (the rig.runner class files only)
+the same way; it is embedded and materialized like the kernel jar.
 
 ## Checkpoint/restore acceleration
 
@@ -201,7 +205,7 @@ keys track JVM builds, so channel drift would strand every image.
 | `rig.resolver.publish` | POM + deploy target (plan-only) |
 | `rig.resolver.migrate` | legacy workspace → `:rig/*`, in place |
 | `rig.resolver.git-sync` | thread-safe wrapper around the `tools.gitlibs` cache |
-| `rig.runner` | hot-path test/check launcher; its jar (an install-time artifact, shipped next to the kernel jar) is appended to the project's locked classpath, never the kernel jar itself. Requires Clojure ≥ 1.8.0 on the module's locked classpath: the gen-class wrapper's static initializer calls `clojure.lang.Util/loadWithClass(String, Class)` and modern-compiled namespace bodies reference `clojure.lang.Tuple`, both absent from Clojure 1.7.x — check/test report `clojure-floor` below it |
+| `rig.runner` | hot-path test/check launcher; its jar (embedded like the kernel jar) is appended to the project's locked classpath, never the kernel jar itself. Requires Clojure ≥ 1.8.0 on the module's locked classpath: the gen-class wrapper's static initializer calls `clojure.lang.Util/loadWithClass(String, Class)` and modern-compiled namespace bodies reference `clojure.lang.Tuple`, both absent from Clojure 1.7.x — check/test report `clojure-floor` below it |
 | `rig.fmt` | the cljfmt entry point bundled in the kernel jar |
 
 ## Where the guarantees live

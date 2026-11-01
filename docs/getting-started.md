@@ -17,13 +17,12 @@ instead of the latest release, run:
 curl -fsSL …/scripts/install-rig.sh | sh -s -- v0.3.2
 ```
 
-The binary does not include the resolver kernel. The resolver kernel is a
-pinned Clojure jar. Rig uses it for the cold commands. On first use, Rig
-fetches the kernel jar and the matching runner jar from the pinned GitHub
-release. The runner jar serves the hot commands. Rig verifies their hashes
-and stores both jars in the Rig state directory. Cold commands resolve, build, publish,
-or edit manifests (`lock`, `update`, `build`, `check`, …). The day-to-day
-commands (`test`, `run`, `repl`, …) run on the binary and the lockfile
+The resolver kernel, the runner jar, and the vendored nREPL jar are
+embedded in the binary. On first use Rig extracts them into the state dir
+at their content-sha paths; it fetches nothing from GitHub. Cold commands
+resolve, build, publish, or edit manifests (`lock`, `update`, `build`,
+`check`, …). The day-to-day
+commands (`test`, `run`, `nrepl`, …) run on the binary and the lockfile
 alone.
 
 ### Keep Rig up to date

@@ -6,8 +6,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -18,17 +16,26 @@ import (
 	"github.com/brutasse/rig/internal/jvm"
 )
 
-func TestEnsureFromEnvJar(t *testing.T) {
+// embedRunner swaps the embedded runner bytes for the duration of a test:
+// materialize reads the package's embedded vars, so tests can exercise it
+// without a real jar.
+func embedRunner(t *testing.T, b []byte) {
+	t.Helper()
+	old := runnerJar
+	runnerJar = b
+	t.Cleanup(func() { runnerJar = old })
+}
+
+func TestKernelFromEnvJar(t *testing.T) {
 	dir := t.TempDir()
 	jar := filepath.Join(dir, "kernel.jar")
 	if err := os.WriteFile(jar, []byte("fake-kernel-bytes"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	pin := Pin{GitSHA: "abc"}
 	t.Setenv("RIG_KERNEL_JAR", jar)
 
 	store := cache.NewAt(t.TempDir())
-	got, err := pin.Ensure(context.Background(), store, false)
+	got, err := Kernel(store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,12 +44,11 @@ func TestEnsureFromEnvJar(t *testing.T) {
 	}
 }
 
-func TestEnsureEnvJarMissing(t *testing.T) {
-	pin := Pin{GitSHA: "abc"}
+func TestKernelEnvJarMissing(t *testing.T) {
 	t.Setenv("RIG_KERNEL_JAR", filepath.Join(t.TempDir(), "nope.jar"))
 
 	store := cache.NewAt(t.TempDir())
-	if _, err := pin.Ensure(context.Background(), store, false); err == nil {
+	if _, err := Kernel(store); err == nil {
 		t.Error("expected error for missing RIG_KERNEL_JAR")
 	}
 }
@@ -53,11 +59,10 @@ func TestRunnerFromEnvJar(t *testing.T) {
 	if err := os.WriteFile(runner, []byte("fake-runner-bytes"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	pin := Pin{GitSHA: "abc"}
 	t.Setenv("RIG_RUNNER_JAR", runner)
 
 	store := cache.NewAt(t.TempDir())
-	got, err := pin.Runner(context.Background(), store, false)
+	got, err := Runner(store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,11 +72,10 @@ func TestRunnerFromEnvJar(t *testing.T) {
 }
 
 func TestRunnerEnvJarMissing(t *testing.T) {
-	pin := Pin{GitSHA: "abc"}
 	t.Setenv("RIG_RUNNER_JAR", filepath.Join(t.TempDir(), "nope.jar"))
 
 	store := cache.NewAt(t.TempDir())
-	if _, err := pin.Runner(context.Background(), store, false); err == nil {
+	if _, err := Runner(store); err == nil {
 		t.Error("expected error for missing RIG_RUNNER_JAR")
 	}
 }
@@ -82,11 +86,10 @@ func TestRunnerKernelOverrideRequiresRunnerOverride(t *testing.T) {
 	if err := os.WriteFile(jar, []byte("fake-kernel-bytes"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	pin := Pin{GitSHA: "abc"}
 	t.Setenv("RIG_KERNEL_JAR", jar)
 
 	store := cache.NewAt(t.TempDir())
-	_, err := pin.Runner(context.Background(), store, false)
+	_, err := Runner(store)
 	if err == nil {
 		t.Fatal("expected error: RIG_KERNEL_JAR without RIG_RUNNER_JAR")
 	}
@@ -95,85 +98,62 @@ func TestRunnerKernelOverrideRequiresRunnerOverride(t *testing.T) {
 	}
 }
 
-func TestRunnerUnpinned(t *testing.T) {
-	// A pin without a runner sha (v0.1.0 predates the runner artifact).
-	pin := Pin{Version: "v0.1.0", GitSHA: "abc"}
-
+func TestMaterializePlaceholder(t *testing.T) {
+	embedRunner(t, nil)
 	store := cache.NewAt(t.TempDir())
-	if _, err := pin.Runner(context.Background(), store, false); err == nil {
-		t.Error("expected error for a pin without a runner")
+	_, err := Runner(store)
+	if err == nil || !strings.Contains(err.Error(), "placeholder") {
+		t.Errorf("err = %v, want the placeholder hint", err)
 	}
 }
 
-func TestRunnerFetchAndCache(t *testing.T) {
-	const body = "runner-jar-bytes"
+func TestMaterializeWritesAndAdopts(t *testing.T) {
+	const body = "embedded-runner-bytes"
+	embedRunner(t, []byte(body))
 	sum := sha256.Sum256([]byte(body))
-	var n int
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		n++
-		w.Write([]byte(body))
-	}))
-	defer srv.Close()
-	pin := Pin{GitSHA: "abc", RunnerURL: srv.URL + "/rig-runner.jar", RunnerSHA: hex.EncodeToString(sum[:])}
-	ctx := context.Background()
 	store := cache.NewAt(t.TempDir())
+	want := store.RunnerJar(hex.EncodeToString(sum[:]))
 
-	if _, err := pin.Runner(ctx, store, true); err == nil || !strings.Contains(err.Error(), "offline") {
-		t.Fatalf("offline err = %v, want the offline error", err)
-	}
-	got, err := pin.Runner(ctx, store, false)
+	got, err := Runner(store)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != store.RunnerJar("abc") {
-		t.Errorf("runner = %s, want %s", got, store.RunnerJar("abc"))
+	if got != want {
+		t.Errorf("runner = %s, want the content-sha path %s", got, want)
 	}
 	if b, err := os.ReadFile(got); err != nil || string(b) != body {
-		t.Errorf("cached runner = %q (err %v), want %q", b, err, body)
+		t.Errorf("materialized = %q (err %v), want %q", b, err, body)
 	}
-	if n != 1 {
-		t.Fatalf("requests = %d, want 1", n)
+	// Second call adopts the cached copy (same path, still byte-identical).
+	got2, err := Runner(store)
+	if err != nil || got2 != got {
+		t.Errorf("second Runner = (%s, %v), want (%s, nil)", got2, err, got)
 	}
-	if _, err := pin.Runner(ctx, store, false); err != nil {
+	// A corrupted copy is rewritten, not adopted.
+	if err := os.WriteFile(got, []byte("corrupted"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if n != 1 {
-		t.Errorf("requests after cache hit = %d, want 1", n)
+	got3, err := Runner(store)
+	if err != nil || got3 != got {
+		t.Fatalf("Runner after corruption = (%s, %v)", got3, err)
+	}
+	if b, err := os.ReadFile(got); err != nil || string(b) != body {
+		t.Errorf("after corruption = %q (err %v), want %q", b, err, body)
 	}
 }
 
-func TestRunnerCachedCorruption(t *testing.T) {
-	sum := sha256.Sum256([]byte("expected-bytes"))
-	pin := Pin{GitSHA: "abc", RunnerURL: "http://example.invalid/rig-runner.jar", RunnerSHA: hex.EncodeToString(sum[:])}
+func TestEmbeddedNreplMaterializes(t *testing.T) {
+	// The vendored nREPL jar is committed, so this runs on every tree (it
+	// is the only embedded jar that is not a placeholder before 'make
+	// kernel').
 	store := cache.NewAt(t.TempDir())
-	path := store.RunnerJar("abc")
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	got, err := Nrepl(store)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte("corrupted"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := pin.Runner(context.Background(), store, false); err == nil ||
-		!strings.Contains(err.Error(), "sha256 mismatch") {
-		t.Errorf("err = %v, want the corruption error", err)
-	}
-}
-
-func TestRunnerFetchSHAMismatch(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("other-bytes"))
-	}))
-	defer srv.Close()
-	sum := sha256.Sum256([]byte("expected-bytes"))
-	pin := Pin{GitSHA: "abc", RunnerURL: srv.URL + "/rig-runner.jar", RunnerSHA: hex.EncodeToString(sum[:])}
-	store := cache.NewAt(t.TempDir())
-	if _, err := pin.Runner(context.Background(), store, false); err == nil ||
-		!strings.Contains(err.Error(), "sha256 mismatch") {
-		t.Errorf("err = %v, want the sha mismatch error", err)
-	}
-	// A rejected download must not land in the store.
-	if _, err := os.Stat(store.RunnerJar("abc")); !os.IsNotExist(err) {
-		t.Errorf("store path stat = %v, want absent", err)
+	st, err := os.Stat(got)
+	if err != nil || st.Size() == 0 {
+		t.Fatalf("nrepl jar = %s (err %v), want a materialized file", got, err)
 	}
 }
 
