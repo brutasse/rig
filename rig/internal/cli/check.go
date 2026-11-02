@@ -275,6 +275,13 @@ func checkModuleLoads(ctx context.Context, e *hotEnv, m string) (*checkProblem, 
 			Message:  fmt.Sprintf("org.clojure/clojure %s is below the %s floor: the rig runner cannot load on Clojure 1.7.x; upgrade the pin", v, runnerClojureFloor),
 		}, nil
 	}
+	// The module's locked base classpath: the plan needs it to gate the
+	// declared main on a source existing there (a Java main or a
+	// classes-only namespace has nothing to compile).
+	cp, err := e.cpOf(ctx, m, "")
+	if err != nil {
+		return nil, err
+	}
 	// The AOT plan (kernel): the non-project namespaces the module
 	// requires and its own namespaces in dependency order.
 	var plan struct {
@@ -292,6 +299,8 @@ func checkModuleLoads(ctx context.Context, e *hotEnv, m string) (*checkProblem, 
 		Args: map[string]any{
 			"src-dirs":   srcDirs,
 			"ns-compile": mod.Build.NsCompile,
+			"main":       mod.Main,
+			"classpath":  filepath.SplitList(cp),
 		},
 	}, e.javaEnv...)
 	if err != nil {
@@ -303,10 +312,6 @@ func checkModuleLoads(ctx context.Context, e *hotEnv, m string) (*checkProblem, 
 	}
 	if err := json.Unmarshal(out, &plan); err != nil {
 		return nil, fmt.Errorf("check: bad kernel response: %w", err)
-	}
-	cp, err := e.cpOf(ctx, m, "")
-	if err != nil {
-		return nil, err
 	}
 	// A fresh class dir for the AOT output, first on the classpath (like
 	// the build's working class dir): a namespace that references a

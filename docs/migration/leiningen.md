@@ -140,7 +140,11 @@ occurrence** — nothing disappears silently:
   cljfmt plugins have no Rig counterpart.
 - `:aliases` (Leiningen task aliases) — lein task invocations become
   `rig exec`.
-- `:aot`, `:global-vars`, and `:native-image` (the `:graalvm` profile).
+- `:aot` — the project's own `:main` needs nothing: `:rig/main`
+  AOT-compiles it into the artifact when its source is on the classpath.
+  Other entry-point namespaces map to `:rig/ns-compile` (declared, not
+  auto-derived).
+- `:global-vars`, and `:native-image` (the `:graalvm` profile).
 - Every profile other than `:test`, `:dev`, `:uberjar`, and `:provided`
   (a `:docgen` profile that only adds dependencies becomes a `rig exec`
   command).
