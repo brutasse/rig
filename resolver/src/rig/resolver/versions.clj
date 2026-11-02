@@ -43,6 +43,14 @@
   (when (string? v)
     (#{:release :latest} (keyword (str/lower-case v)))))
 
+(defn- snapshot?
+  "Maven snapshot versions end in -SNAPSHOT. Snapshots are excluded from
+  latest-selection: a scaffold or versionless add must pin a release, and
+  version ordering ranks 1.1.0-SNAPSHOT above the 1.0.0 it precedes, so
+  without the filter the newest snapshot would win."
+  [v]
+  (str/ends-with? (str/upper-case (str v)) "-SNAPSHOT"))
+
 (defn parse-duration-ms
   [s]
   (let [m (re-matches #"^\s*(\d+)([smhd]?)\s*$" (or s ""))]
@@ -333,14 +341,18 @@
 
 (defn select-latest
   "Picks the newest version of coord older than its repo cooldown (force
-  bypasses). Returns {:version v :skipped [...]} (skipped in the lock's
+  bypasses the cooldown and the snapshot exclusion). Snapshots are never
+  selected without force: versionless adds and scaffolds must pin a
+  release. Returns {:version v :skipped [...]} (skipped in the lock's
   skipped-list shape) or {:reason \"not-found\"} when no repo serves the
-  coord. The single-coordinate form of select-versions, for callers with no
+  coord (a repo that serves only snapshots counts as serving it not).
+  The single-coordinate form of select-versions, for callers with no
   manifest to select from: edit-dep's versionless add and the latest op."
   [coord-str repos cooldown force now-ms]
   (let [md (repo-metadata coord-str repos)
         byv (get md :by-version)
-        cands (if (seq (:latest md)) (into #{} (:latest md)) (keys byv))
+        all (if (seq (:latest md)) (into #{} (:latest md)) (keys byv))
+        cands (if (true? force) all (into #{} (remove snapshot? all)))
         elig (fn [v]
                (let [d (get byv v)
                      pa (:published-at d)]

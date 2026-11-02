@@ -77,6 +77,9 @@ The layout:
 ```
 demo/
 ├── deps.edn                          # workspace root: :rig/modules
+├── dev/
+│   ├── deps.edn                      # the development module
+│   └── user.clj                      # scratch namespace for the dev REPL
 └── modules/demo/
     ├── deps.edn                      # the module manifest
     ├── src/com/example/demo/core.clj # a runnable main
@@ -84,7 +87,10 @@ demo/
 ```
 
 The module `deps.edn` combines a standard tools.deps manifest with the
-`:rig/*` keys:
+`:rig/*` keys. The `:test` alias carries the test runner, the
+property-based and mocking tools, and the two kaocha reporters (JUnit XML
+and coverage) — the reporters sit dormant until a `rig test` run loads
+them with `:plugins` (see [day-to-day workflow](workflows/daily.md)):
 
 ```edn
 {:rig/lib com.example/demo
@@ -92,17 +98,41 @@ The module `deps.edn` combines a standard tools.deps manifest with the
  :paths ["src"]
  :deps {org.clojure/clojure {:mvn/version "1.12.5"}}
  :aliases
- {:test {:extra-deps {lambdaisland/kaocha {:mvn/version "1.91.1392"}}
+ {:test {:extra-deps {lambdaisland/kaocha {:mvn/version "1.91.1392"}
+                      org.clojure/test.check {:mvn/version "1.1.3"}
+                      tortue/spy {:mvn/version "2.15.0"}
+                      lambdaisland/kaocha-cloverage {:mvn/version "1.1.89"}
+                      lambdaisland/kaocha-junit-xml {:mvn/version "1.17.101"}}
          :extra-paths ["test"]
          :exec-fn kaocha.runner/exec-fn}}}
 ```
 
 `:rig/lib` is the Maven coordinate under which the module publishes.
 `:rig/main` names the namespace that `rig run` launches. The `:test`
-alias declares how `rig test` runs the tests — `rig new` writes the
-newest test-runner release past its [cooldown](workflows/dependencies.md),
-resolved when it scaffolds, or the version bundled with the binary when
-it runs `--offline`. Any test runner's `exec-fn` works here.
+alias declares how `rig test` runs the tests. `rig new` resolves the
+version of every test dependency at scaffold time — the newest release
+past its [cooldown](workflows/dependencies.md), one batched kernel call
+for all of them — so a new project starts on what the repositories serve
+rather than on versions compiled into the binary. `--offline` (or a
+repository that answers nothing, with a note naming it) writes the
+versions bundled with the binary. Any test runner's `exec-fn` works here.
+
+The `dev/` module is the workspace's development module: one per
+workspace, not one per module. It loads the app module by `:local/root`
+and pins the Clojure runtime (a local-root module contributes its paths,
+not its deps) plus [reloaded.repl](https://github.com/weavejester/reloaded.repl),
+the reloaded-workflow library. `user.clj` is the scratch namespace you
+open in the development REPL:
+
+```edn
+{:paths ["."]
+ :deps {com.example/demo {:local/root "../modules/demo"}
+        org.clojure/clojure {:mvn/version "1.12.5"}
+        reloaded.repl/reloaded.repl {:mvn/version "0.2.4"}}}
+```
+
+Start it with `rig nrepl -p dev`; the workflow is described in
+[day-to-day workflow](workflows/daily.md).
 
 Lock and run the tests:
 
@@ -112,7 +142,7 @@ rig lock
 ```
 
 ```
-wrote /…/demo/deps.lock: 29 artifacts, 2 modules
+wrote /…/demo/deps.lock: 41 artifacts, 3 modules
 ```
 
 `rig lock` resolves every module, fetches every artifact in the tree, hashes
@@ -144,8 +174,8 @@ hello rig
 ```
 project:	/home/…/demo
 type:	workspace
-modules:	., modules/demo
-lock:	2026-09-18T10:00:00Z by io.github.brutasse/rig-resolver v0.3.2 (546d868c4d1c, 823c7b174dfe), 29 artifacts
+modules:	., modules/demo, dev
+lock:	2026-09-18T10:00:00Z by io.github.brutasse/rig-resolver v0.3.2 (546d868c4d1c, 823c7b174dfe), 41 artifacts
 java:	/usr/bin/java (21.0.12.1)
 cache:	/home/…/.local/share/rig
 rig:	dev (dev)

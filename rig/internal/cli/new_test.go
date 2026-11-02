@@ -11,6 +11,7 @@ import (
 
 	"github.com/brutasse/rig/internal/jdk"
 	"github.com/brutasse/rig/internal/jvm"
+	"github.com/brutasse/rig/internal/lockfile"
 )
 
 // withLTSStub points the Adoptium API at an info-endpoint stub and restores
@@ -85,6 +86,8 @@ func TestNew(t *testing.T) {
 	}
 	for _, p := range []string{
 		"foo/deps.edn",
+		"foo/dev/deps.edn",
+		"foo/dev/user.clj",
 		"foo/modules/foo/deps.edn",
 		"foo/modules/foo/src/example/foo/core.clj",
 		"foo/modules/foo/test/example/foo/core_test.clj",
@@ -94,7 +97,7 @@ func TestNew(t *testing.T) {
 		}
 	}
 	root, _ := os.ReadFile("foo/deps.edn")
-	if !strings.Contains(string(root), `:rig/modules ["modules/foo"]`) {
+	if !strings.Contains(string(root), `:rig/modules ["modules/foo" "dev"]`) {
 		t.Errorf("root = %s", root)
 	}
 	if !strings.Contains(string(root), `:rig/jvm "25"`) {
@@ -107,8 +110,46 @@ func TestNew(t *testing.T) {
 	if !strings.Contains(string(mod), ":rig/main example.foo.core") {
 		t.Errorf("module main = %s", mod)
 	}
+	assertScaffoldTestDepsPinned(t, "1.2.3")
+	dev, _ := os.ReadFile("foo/dev/deps.edn")
+	if !strings.Contains(string(dev), `example/foo {:local/root "../modules/foo"}`) {
+		t.Errorf("dev manifest = %s", dev)
+	}
+	if !strings.Contains(string(dev), `reloaded.repl/reloaded.repl {:mvn/version "1.2.3"}`) {
+		t.Errorf("dev manifest = %s", dev)
+	}
+	if !strings.Contains(string(dev), `org.clojure/clojure {:mvn/version "`+appClojureVersion+`"}`) {
+		t.Errorf("dev manifest missing the Clojure pin: %s", dev)
+	}
 	if statOK("foo/deps.lock") {
 		t.Error("scaffold must not write a lock")
+	}
+}
+
+// assertScaffoldTestDepsPinned checks the scaffolded module's manifest pins
+// every scaffold test dep at version — the metadata stub answers every
+// coordinate with the same version.
+func assertScaffoldTestDepsPinned(t *testing.T, version string) {
+	t.Helper()
+	mod := readFile(t, "foo/modules/foo/deps.edn")
+	for _, d := range scaffoldTestDeps {
+		want := fmt.Sprintf("%s {:mvn/version %q}", d.coord, version)
+		if !strings.Contains(mod, want) {
+			t.Errorf("module manifest missing %q: %s", want, mod)
+		}
+	}
+}
+
+// assertScaffoldTestDepsBundled checks the scaffolded module's manifest pins
+// every scaffold test dep at its bundled fallback.
+func assertScaffoldTestDepsBundled(t *testing.T) {
+	t.Helper()
+	mod := readFile(t, "foo/modules/foo/deps.edn")
+	for _, d := range scaffoldTestDeps {
+		want := fmt.Sprintf("%s {:mvn/version %q}", d.coord, d.fallback)
+		if !strings.Contains(mod, want) {
+			t.Errorf("module manifest missing %q: %s", want, mod)
+		}
 	}
 }
 
@@ -178,10 +219,7 @@ func TestNewTestRunnerVersionResolved(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("new exit = %d, want 0; out: %s", code, out)
 	}
-	mod := readFile(t, "foo/modules/foo/deps.edn")
-	if !strings.Contains(mod, `lambdaisland/kaocha {:mvn/version "1.2.4"}`) {
-		t.Errorf("module manifest = %s, want the newest version the stub serves", mod)
-	}
+	assertScaffoldTestDepsPinned(t, "1.2.4")
 	if strings.Contains(out, "note:") {
 		t.Errorf("a resolved version needs no note: %s", out)
 	}
@@ -199,10 +237,7 @@ func TestNewTestRunnerVersionCooldown(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("new exit = %d, want 0 (a cooldown is not a failure); out: %s", code, out)
 	}
-	want := fmt.Sprintf(`lambdaisland/kaocha {:mvn/version %q}`, defaultTestRunnerVersion)
-	if mod := readFile(t, "foo/modules/foo/deps.edn"); !strings.Contains(mod, want) {
-		t.Errorf("module manifest = %s, want the bundled fallback", mod)
-	}
+	assertScaffoldTestDepsBundled(t)
 	if !strings.Contains(out, "inside its cooldown") {
 		t.Errorf("out missing the cooldown note: %s", out)
 	}
@@ -223,10 +258,7 @@ func TestNewTestRunnerVersionUnreachable(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("new exit = %d, want 0; out: %s", code, out)
 	}
-	want := fmt.Sprintf(`lambdaisland/kaocha {:mvn/version %q}`, defaultTestRunnerVersion)
-	if mod := readFile(t, "foo/modules/foo/deps.edn"); !strings.Contains(mod, want) {
-		t.Errorf("module manifest = %s, want the bundled fallback", mod)
-	}
+	assertScaffoldTestDepsBundled(t)
 	if !strings.Contains(out, "no repository of the workspace serves") {
 		t.Errorf("out missing the failed-lookup note: %s", out)
 	}
@@ -240,26 +272,27 @@ func TestNewOfflinePinsBundledRunner(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("new --offline exit = %d, want 0; out: %s", code, out)
 	}
-	want := fmt.Sprintf(`lambdaisland/kaocha {:mvn/version %q}`, defaultTestRunnerVersion)
-	if mod := readFile(t, "foo/modules/foo/deps.edn"); !strings.Contains(mod, want) {
-		t.Errorf("module manifest = %s, want the bundled fallback", mod)
-	}
+	assertScaffoldTestDepsBundled(t)
 	if strings.Contains(out, "kaocha") {
-		t.Errorf("offline scaffolding should not comment on the runner: %s", out)
+		t.Errorf("offline scaffolding should not comment on the test deps: %s", out)
 	}
 }
 
+// TestNewModule adds a second module to a scaffolded project: the scaffold's
+// app and dev modules plus the new one all end up locked. The scaffold runs
+// offline, so the pins are the bundled (real) versions the re-lock can
+// resolve.
 func TestNewModule(t *testing.T) {
-	kernelSetup(t)
+	scaffoldKernel(t)
 	dir := t.TempDir()
 	t.Chdir(dir)
-	// A pre-existing single-module workspace.
-	writeString(t, "deps.edn", "{:rig/modules [\"modules/app\"]}\n")
-	writeString(t, "modules/app/deps.edn",
-		"{:rig/lib example/app :paths [\"src\"] :deps {org.clojure/clojure {:mvn/version \"1.12.5\"}}}\n")
-	writeString(t, "modules/app/src/app/core.clj", "(ns app.core)\n")
+	code, out := runCLI(t, "new", "example/app", "--offline", "--cache-dir", t.TempDir())
+	if code != 0 {
+		t.Fatalf("new exit = %d, want 0; out: %s", code, out)
+	}
+	t.Chdir("app")
 
-	code, out := runCLI(t, "new-module", "other", "--cache-dir", t.TempDir())
+	code, out = runCLI(t, "new-module", "other", "--cache-dir", t.TempDir())
 	if code != 0 {
 		t.Fatalf("new-module exit = %d, want 0; out: %s", code, out)
 	}
@@ -273,10 +306,31 @@ func TestNewModule(t *testing.T) {
 	if !strings.Contains(string(root), "modules/app") {
 		t.Errorf("existing module lost: %s", root)
 	}
-	if !statOK("deps.lock") {
-		t.Fatal("lock not written")
+	if !strings.Contains(string(root), "\"dev\"") {
+		t.Errorf("dev module lost: %s", root)
 	}
-	if !strings.Contains(out, "added module modules/other") {
+	doc, err := lockfile.Load("deps.lock")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range []string{".", "dev", "modules/app", "modules/other"} {
+		if _, ok := doc.Modules[m]; !ok {
+			t.Errorf("lock missing module %s: %v", m, doc.Modules)
+		}
+	}
+	// The dev module loads the app module by local root: its classpath
+	// carries the app module as a local entry.
+	dev := doc.Modules["dev"]
+	local := false
+	for _, e := range dev.Classpath {
+		if e.Local != nil && *e.Local == "modules/app" {
+			local = true
+		}
+	}
+	if !local {
+		t.Errorf("dev classpath = %v, want a local entry for modules/app", dev.Classpath)
+	}
+	if !strings.Contains(out, "4 modules") {
 		t.Errorf("out = %q", out)
 	}
 }

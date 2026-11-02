@@ -24,6 +24,15 @@ var (
 	nameRe  = regexp.MustCompile(`^[a-z0-9][a-z0-9.-]*$`)
 )
 
+// scaffoldDep is a coordinate a scaffold pins, with the version written when
+// the lookup has no answer: --offline writes it without asking, and so does
+// anything else that stops the lookup (every release inside its cooldown, or
+// a repository that cannot be reached or serves nothing).
+type scaffoldDep struct {
+	coord    string
+	fallback string
+}
+
 // The test runner a scaffold starts with. Its version is resolved at scaffold
 // time by the latest op, so a rig release does not have to track kaocha's:
 // defaultTestRunnerVersion is the fallback, written under --offline and
@@ -32,23 +41,65 @@ var (
 const (
 	testRunnerCoord          = "lambdaisland/kaocha"
 	defaultTestRunnerVersion = "1.91.1392"
+	// The Clojure runtime both the scaffolded module and the dev module pin:
+	// a local-root module contributes its paths, not its deps, to the dev
+	// classpath, so without the pin the dev REPL would run on the Clojure a
+	// transitive dep happens to serve (and below the nREPL floor).
+	appClojureVersion = "1.12.5"
 )
 
-// scaffoldRepos replaces the repositories the scaffold's test-runner lookup
-// reads. It is nil in production, where the lookup reads the scaffolded
-// workspace's repositories like any other op does; tests set it to point the
-// lookup at a local metadata server.
+// The :test alias extra-deps of a scaffolded module: the test runner, the
+// property-based and mocking tools, and the kaocha reporters (JUnit XML and
+// coverage), which sit dormant until `rig test :plugins ...` loads them.
+var scaffoldTestDeps = []scaffoldDep{
+	{testRunnerCoord, defaultTestRunnerVersion},
+	{"org.clojure/test.check", "1.1.3"},
+	{"tortue/spy", "2.15.0"},
+	{"lambdaisland/kaocha-cloverage", "1.1.89"},
+	{"lambdaisland/kaocha-junit-xml", "1.17.101"},
+}
+
+// The dev module's dependency beyond the app module it loads: the
+// reloaded-workflow library
+// (https://cognitect.com/blog/2013/06/04/clojure-workflow-reloaded).
+var scaffoldDevDeps = []scaffoldDep{
+	{"reloaded.repl/reloaded.repl", "0.2.4"},
+}
+
+// scaffoldDeps is every coordinate a scaffold resolves at scaffold time, in
+// one latest-op call.
+func scaffoldDeps() []scaffoldDep {
+	return append(append([]scaffoldDep{}, scaffoldTestDeps...), scaffoldDevDeps...)
+}
+
+// scaffoldRepos replaces the repositories the scaffold's latest lookups read.
+// It is nil in production, where the lookups read the scaffolded workspace's
+// repositories like any other op does; tests set it to point the lookups at a
+// local metadata server.
 var scaffoldRepos map[string]any
 
+// depPairs renders coord {:mvn/version version} ... for the scaffold's deps,
+// without the surrounding braces.
+func depPairs(deps []scaffoldDep, versions map[string]string) string {
+	var sb strings.Builder
+	for i, d := range deps {
+		if i > 0 {
+			sb.WriteByte(' ')
+		}
+		fmt.Fprintf(&sb, "%s {:mvn/version %q}", d.coord, versions[d.coord])
+	}
+	return sb.String()
+}
+
 // moduleDepsEdn is the scaffolded module manifest: a runnable, testable Clojure
-// module that pins only the Clojure runtime and the test runner.
-func moduleDepsEdn(lib, main, testRunnerVersion string) string {
+// module that pins the Clojure runtime and the scaffold's test deps.
+func moduleDepsEdn(lib, main string, versions map[string]string) string {
 	return "{:rig/lib " + lib + "\n" +
 		" :rig/main " + main + "\n" +
 		" :paths [\"src\"]\n" +
-		" :deps {org.clojure/clojure {:mvn/version \"1.12.5\"}}\n" +
+		" :deps {org.clojure/clojure {:mvn/version \"" + appClojureVersion + "\"}}\n" +
 		" :aliases\n" +
-		" {:test {:extra-deps {" + testRunnerCoord + " {:mvn/version \"" + testRunnerVersion + "\"}}\n" +
+		" {:test {:extra-deps {" + depPairs(scaffoldTestDeps, versions) + "}\n" +
 		"         :extra-paths [\"test\"]\n" +
 		"         :exec-fn kaocha.runner/exec-fn}}}\n"
 }
@@ -63,6 +114,32 @@ func coreClj(pkg string) string {
 		"  (println (greet (or (first args) \"world\"))))\n"
 }
 
+// devDepsEdn is the dev module manifest: the app module by local root
+// (relative to the dev directory), the Clojure runtime (a local-root module
+// contributes its paths, not its deps), and the reloaded-workflow library.
+func devDepsEdn(appCoord, moduleDir string, versions map[string]string) string {
+	return "{:paths [\".\"]\n" +
+		" :deps {" + appCoord + " {:local/root \"../" + moduleDir + "\"}\n" +
+		"        org.clojure/clojure {:mvn/version \"" + appClojureVersion + "\"}\n" +
+		"        " + depPairs(scaffoldDevDeps, versions) + "}}\n"
+}
+
+// userClj is the dev module's scratch namespace: the reloaded-workflow
+// machinery, wired in once the app grows a component system.
+func userClj() string {
+	return "(ns user\n" +
+		"  \"Scratch for the development REPL: rig nrepl -p dev.\n" +
+		"\n" +
+		"  When the app grows a component system, wire the reloaded workflow to it:\n" +
+		"\n" +
+		"    (require '[reloaded.repl :as reloaded])\n" +
+		"    (reloaded/set-init! #'start-system)\n" +
+		"    (reloaded/go)     ;; start, or reload changed namespaces and restart\n" +
+		"    (reloaded/stop)\n" +
+		"    (reloaded/reset)  ;; stop, unload every namespace, start again\n" +
+		"  \")\n"
+}
+
 func coreTestClj(pkg string) string {
 	return "(ns " + pkg + ".core-test\n" +
 		"  (:require [clojure.test :refer :all]\n" +
@@ -72,17 +149,8 @@ func coreTestClj(pkg string) string {
 		"  (is (= \"hello world\" (core/greet \"world\"))))\n"
 }
 
-// writeModule lays down the module template (manifest + src + test) under
-// base/moduleRel.
-func writeModule(base, moduleRel, lib, main, pkg, testRunnerVersion string) error {
-	pkgPath := strings.Split(pkg, ".")
-	src := append(append([]string{moduleRel, "src"}, pkgPath...), "core.clj")
-	test := append(append([]string{moduleRel, "test"}, pkgPath...), "core_test.clj")
-	files := map[string]string{
-		filepath.Join(moduleRel, "deps.edn"): moduleDepsEdn(lib, main, testRunnerVersion),
-		filepath.Join(src...):                coreClj(pkg),
-		filepath.Join(test...):               coreTestClj(pkg),
-	}
+// writeFiles lays down relPath → content files under base.
+func writeFiles(base string, files map[string]string) error {
 	for relPath, content := range files {
 		p := filepath.Join(base, relPath)
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
@@ -93,6 +161,29 @@ func writeModule(base, moduleRel, lib, main, pkg, testRunnerVersion string) erro
 		}
 	}
 	return nil
+}
+
+// writeModule lays down the module template (manifest + src + test) under
+// base/moduleRel.
+func writeModule(base, moduleRel, lib, main, pkg string, versions map[string]string) error {
+	pkgPath := strings.Split(pkg, ".")
+	src := append(append([]string{moduleRel, "src"}, pkgPath...), "core.clj")
+	test := append(append([]string{moduleRel, "test"}, pkgPath...), "core_test.clj")
+	return writeFiles(base, map[string]string{
+		filepath.Join(moduleRel, "deps.edn"): moduleDepsEdn(lib, main, versions),
+		filepath.Join(src...):                coreClj(pkg),
+		filepath.Join(test...):               coreTestClj(pkg),
+	})
+}
+
+// writeDev lays down the workspace's development module under base/dev: one
+// dev directory for the whole workspace, loading the app module and the
+// reloaded-workflow library.
+func writeDev(base, appCoord, moduleDir string, versions map[string]string) error {
+	return writeFiles(base, map[string]string{
+		filepath.Join("dev", "deps.edn"): devDepsEdn(appCoord, moduleDir, versions),
+		filepath.Join("dev", "user.clj"): userClj(),
+	})
 }
 
 func newNewCmd(o *opts) *cobra.Command {
@@ -118,7 +209,7 @@ func newNewCmd(o *opts) *cobra.Command {
 			if err := os.MkdirAll(name, 0o755); err != nil {
 				return err
 			}
-			rootDeps := "{:rig/modules [\"modules/" + name + "\"]"
+			rootDeps := "{:rig/modules [\"modules/" + name + "\" \"dev\"]"
 			if jvmPin != "" {
 				rootDeps += " :rig/jvm \"" + jvmPin + "\""
 			}
@@ -126,15 +217,18 @@ func newNewCmd(o *opts) *cobra.Command {
 			if err := os.WriteFile(filepath.Join(name, "deps.edn"), []byte(rootDeps), 0o644); err != nil {
 				return err
 			}
-			// The module manifest goes down after the lookup: the kernel answers
+			// The module manifests go down after the lookup: the kernel answers
 			// from the repositories and cooldown policy of the workspace, which is
 			// on disk from the line above.
-			runner, runnerNote := o.scaffoldTestRunner(cmd.Context(), name)
-			if err := writeModule(name, "modules/"+name, coord, main, pkg, runner); err != nil {
+			versions, notes := o.scaffoldVersions(cmd.Context(), name)
+			if err := writeModule(name, "modules/"+name, coord, main, pkg, versions); err != nil {
+				return err
+			}
+			if err := writeDev(name, coord, "modules/"+name, versions); err != nil {
 				return err
 			}
 			fmt.Printf("created project %s (%s)\n", name, coord)
-			for _, note := range []string{jvmNote, runnerNote} {
+			for _, note := range append([]string{jvmNote}, notes...) {
 				if note != "" {
 					fmt.Printf("%s\n", note)
 				}
@@ -162,55 +256,74 @@ func (o *opts) newJVMPin(ctx context.Context) (pin, note string) {
 	return strconv.Itoa(lts), ""
 }
 
-// scaffoldTestRunner returns the test-runner version a scaffold pins: the
-// newest release of testRunnerCoord past its repo cooldown. --offline writes
-// the bundled fallback without asking, and anything else that stops the lookup
-// writes it with a note — a repository that cannot be reached is no reason for
-// `rig new` to fail.
-func (o *opts) scaffoldTestRunner(ctx context.Context, ws string) (version, note string) {
+// scaffoldVersions returns the version to write for every scaffold coordinate:
+// what the repositories of the workspace at ws serve, one latest-op call for
+// all of them, or the bundled fallback with a note when the lookup has no
+// answer for a coordinate. --offline writes the bundled versions without
+// asking, and anything else that stops the lookup writes them with a note — a
+// repository that cannot be reached is no reason for `rig new` to fail.
+func (o *opts) scaffoldVersions(ctx context.Context, ws string) (map[string]string, []string) {
+	deps := scaffoldDeps()
+	versions := make(map[string]string, len(deps))
 	if o.offline {
-		return defaultTestRunnerVersion, ""
+		for _, d := range deps {
+			versions[d.coord] = d.fallback
+		}
+		return versions, nil
 	}
-	v, reason, err := o.latestVersion(ctx, ws, testRunnerCoord)
-	switch {
-	case err != nil:
-		return defaultTestRunnerVersion, fmt.Sprintf("note: could not resolve the newest %s (%v); scaffolded with %s",
-			testRunnerCoord, err, defaultTestRunnerVersion)
-	case v == "" && reason == "cooldown":
-		return defaultTestRunnerVersion, fmt.Sprintf("note: every %s release is inside its cooldown; scaffolded with %s",
-			testRunnerCoord, defaultTestRunnerVersion)
-	case v == "":
-		return defaultTestRunnerVersion, fmt.Sprintf("note: no repository of the workspace serves %s; scaffolded with %s",
-			testRunnerCoord, defaultTestRunnerVersion)
+	coords := make([]string, len(deps))
+	for i, d := range deps {
+		coords[i] = d.coord
 	}
-	return v, ""
+	resolved, reasons, err := o.latestVersions(ctx, ws, coords)
+	if err != nil {
+		for _, d := range deps {
+			versions[d.coord] = d.fallback
+		}
+		return versions, []string{fmt.Sprintf("note: could not resolve the scaffold's tooling (%v); scaffolded with the bundled versions", err)}
+	}
+	var notes []string
+	for _, d := range deps {
+		if v, ok := resolved[d.coord]; ok {
+			versions[d.coord] = v
+			continue
+		}
+		versions[d.coord] = d.fallback
+		if reasons[d.coord] == "cooldown" {
+			notes = append(notes, fmt.Sprintf("note: every %s release is inside its cooldown; scaffolded with %s", d.coord, d.fallback))
+		} else {
+			notes = append(notes, fmt.Sprintf("note: no repository of the workspace serves %s; scaffolded with %s", d.coord, d.fallback))
+		}
+	}
+	return versions, notes
 }
 
-// latestVersion asks the latest op for the newest cooldown-eligible version of
-// coord as resolved by the workspace at ws. version is empty when nothing is
-// eligible, and reason then says why: "cooldown" or "not-found".
-func (o *opts) latestVersion(ctx context.Context, ws, coord string) (version, reason string, err error) {
+// latestVersions asks the latest op, in one call, for the newest
+// cooldown-eligible version of every coordinate as resolved by the workspace
+// at ws: resolved is {coord version} (the coordinates a release was found
+// for), reasons the rest, "cooldown" or "not-found".
+func (o *opts) latestVersions(ctx context.Context, ws string, coords []string) (resolved, reasons map[string]string, err error) {
 	root, err := workspace.Find(ws)
 	if err != nil {
-		return "", "", err
+		return nil, nil, err
 	}
 	store, err := o.store()
 	if err != nil {
-		return "", "", err
+		return nil, nil, err
 	}
 	jar, err := kernel.Kernel(store)
 	if err != nil {
-		return "", "", err
+		return nil, nil, err
 	}
 	java, _, err := o.pickJava(ctx, store, root)
 	if err != nil {
-		return "", "", err
+		return nil, nil, err
 	}
 	env, err := o.kernelEnv(ctx, root)
 	if err != nil {
-		return "", "", err
+		return nil, nil, err
 	}
-	args := map[string]any{"coord": coord}
+	args := map[string]any{"coords": coords}
 	if scaffoldRepos != nil {
 		args["repos"] = scaffoldRepos
 	}
@@ -220,16 +333,16 @@ func (o *opts) latestVersion(ctx context.Context, ws, coord string) (version, re
 		Args:      args,
 	}, env...)
 	if err != nil {
-		return "", "", err
+		return nil, nil, err
 	}
 	var parsed struct {
-		Version string `json:"version"`
-		Reason  string `json:"reason"`
+		Versions map[string]string `json:"versions"`
+		Reasons  map[string]string `json:"reasons"`
 	}
 	if err := json.Unmarshal(out, &parsed); err != nil {
-		return "", "", fmt.Errorf("bad kernel response: %w", err)
+		return nil, nil, fmt.Errorf("bad kernel response: %w", err)
 	}
-	return parsed.Version, parsed.Reason, nil
+	return parsed.Versions, parsed.Reasons, nil
 }
 
 func newNewModuleCmd(o *opts) *cobra.Command {
@@ -254,8 +367,8 @@ func newNewModuleCmd(o *opts) *cobra.Command {
 			if st, _ := os.Stat(filepath.Join(root.Dir, moduleRel, "deps.edn")); st != nil {
 				return exitf(1, "module %s already exists", moduleRel)
 			}
-			runner, runnerNote := o.scaffoldTestRunner(ctx, root.Dir)
-			if err := writeModule(root.Dir, moduleRel, name, name+".core", name, runner); err != nil {
+			versions, notes := o.scaffoldVersions(ctx, root.Dir)
+			if err := writeModule(root.Dir, moduleRel, name, name+".core", name, versions); err != nil {
 				return err
 			}
 			if err := addModuleToRoot(filepath.Join(root.Dir, "deps.edn"), moduleRel); err != nil {
@@ -269,8 +382,10 @@ func newNewModuleCmd(o *opts) *cobra.Command {
 			fmt.Printf("added module %s\n", moduleRel)
 			fmt.Printf("wrote %s: %d artifacts, %d modules\n",
 				root.LockPath(), len(lock.Artifacts), len(lock.Modules))
-			if runnerNote != "" {
-				fmt.Printf("%s\n", runnerNote)
+			for _, note := range notes {
+				if note != "" {
+					fmt.Printf("%s\n", note)
+				}
 			}
 			return nil
 		},
