@@ -29,17 +29,18 @@ var (
 	ErrLegacyKeys = errors.New("kernel: manifest still uses legacy keys - run rig migrate")
 )
 
-// The jars ship inside the rig binary. The kernel uberjar and the runner
-// jar are copied into embed/ by the Makefile from the local kernel build
-// ('make kernel', then 'make rig' embeds them); until a build fills them,
-// the committed files are 0-byte placeholders and every kernel op fails
-// with a hint. The runner jar is what hot commands append to the
+// The jars ship inside the rig binary and are not committed: 'make embed'
+// materializes embed/ — 0-byte placeholders for the kernel uberjar and the
+// runner jar (copied in by 'make rig' from the local kernel build,
+// 'make kernel' first) and the vendored nREPL jar, fetched from Clojars at
+// its pinned sha256. Until a build fills the placeholders, every kernel op
+// fails with a hint. The runner jar is what hot commands append to the
 // project's locked classpath (the kernel jar itself must never sit on
 // one: its bundled dependencies would load in place of anything a module
 // forgot to declare, a false green check). The nREPL jar is vendored —
 // one upstream jar whose only dependency (org.clojure/clojure) is
-// provided: the project's own locked Clojure serves it. Version bumps are
-// ordinary commits: replace the jar, rename the embed.
+// provided: the project's own locked Clojure serves it. Version bumps move
+// the Makefile fetch (URL, pin) and the embed filename.
 //
 // Lib/Version/GitSHA are the embedded kernel's identity, stamped at
 // release build time via -ldflags like cli.Version; local builds report
@@ -103,8 +104,8 @@ func Nrepl(store *cache.Store) (string, error) {
 // and returns that path: a cached copy is adopted when its digest matches
 // (it cannot mismatch by construction — the path names the digest — but a
 // corrupted file is rewritten), else the bytes land through a unique temp
-// file. An empty embedded jar is the committed placeholder of a tree that
-// never ran 'make kernel'.
+// file. An empty embedded jar is the placeholder of a tree that never ran
+// 'make kernel'.
 func materialize(name string, b []byte, at func(sha string) string) (string, error) {
 	if len(b) == 0 {
 		return "", fmt.Errorf("kernel: the embedded %s jar is a placeholder: build it with 'make kernel', then 'make rig' (or set RIG_KERNEL_JAR/RIG_RUNNER_JAR)", name)

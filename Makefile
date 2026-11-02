@@ -3,11 +3,14 @@
 # binary: 'make rig' copies the built jars into internal/kernel/embed/
 # and go:embed pulls them in. See README.md, "Local development".
 #
-# First build on a clean tree: the committed embed jars for the kernel
-# and the runner are 0-byte placeholders, so the placeholder rig cannot
-# run kernel ops. 'make kernel' then builds the resolver with the rig on
-# PATH (a release binary, as 'lock-refresh' does); every later build
-# self-hosts on dist/rig, which embeds the previous cycle's jars.
+# The embed jars are not committed: 'make embed' materializes
+# rig/internal/kernel/embed/ — 0-byte placeholders for the kernel and
+# runner jars, and the vendored nREPL jar fetched from Clojars at its
+# pinned sha256. go:embed needs every file to exist, so a clean tree
+# builds a placeholder rig that cannot run kernel ops. 'make kernel' then
+# builds the resolver with the rig on PATH (a release binary, as
+# 'lock-refresh' does); every later build self-hosts on dist/rig, which
+# embeds the previous cycle's jars.
 #
 # V: version for the kernel jar and release artifacts, in release tag form
 # (vX.Y.Z). Local dev defaults to the contents of resolver/VERSION (what
@@ -24,6 +27,11 @@ BIN     := rig/dist/rig
 RIG     ?= rig
 EMBED   := rig/internal/kernel/embed
 GITSHA  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo dev)
+# The vendored nREPL jar, fetched from Clojars by 'embed' at its pinned
+# sha256. A version bump moves the URL, the pin, and the embed filename
+# (the //go:embed line, NreplVersion).
+NREPL_URL := https://clojars.org/repo/nrepl/nrepl/1.8.0/nrepl-1.8.0.jar
+NREPL_SHA := 8419c4aa7f56e2dfe6c1907dc18207c0177110c99d4d5d8742460f7efaeca1a8
 # The rig that builds the kernel jars: the embedded one once a build has
 # filled it, the release rig on PATH for the bootstrap of a clean tree.
 KBOOT    = $(shell test -s $(EMBED)/rig-resolver.jar && echo "$(abspath $(BIN))" || echo "$(RIG)")
@@ -32,6 +40,18 @@ KBOOT    = $(shell test -s $(EMBED)/rig-resolver.jar && echo "$(abspath $(BIN))"
 
 # dev: the whole local story in one command.
 dev: kernel rig
+
+# embed: materialize $(EMBED)/ on this tree — the jars are build inputs of
+# the go build, not source. The kernel and runner jars are 0-byte
+# placeholders until 'make kernel' produces the real ones ('make rig' then
+# copies them over); the vendored nREPL jar is fetched from Clojars and
+# verified against its pin. Idempotent: existing files are never touched
+# or overwritten.
+embed:
+	@mkdir -p $(EMBED)
+	@test -s $(EMBED)/nrepl-1.8.0.jar || curl -fsSL $(NREPL_URL) -o $(EMBED)/nrepl-1.8.0.jar
+	@echo "$(NREPL_SHA)  $(EMBED)/nrepl-1.8.0.jar" | sha256sum -c --status
+	@touch $(EMBED)/rig-resolver.jar $(EMBED)/rig-runner.jar
 
 # kernel: build the resolver uberjar and the runner uberjar
 # (resolver/target/ and resolver/runner/target/) with the rig selected by
@@ -54,9 +74,9 @@ kernel:
 	cd resolver && $(KBOOT) build -p runner --uber
 
 # rig: build the rig binary (rig/dist/rig) with the local kernel jars
-# embedded (a clean tree keeps the committed placeholders until 'make
-# kernel' produces the first ones; 'make dev' runs both in order).
-rig:
+# embedded (a clean tree embeds the placeholders until 'make kernel'
+# produces the first real jars; 'make dev' runs both in order).
+rig: embed
 	test ! -f $(JAR) || cp $(JAR) $(EMBED)/rig-resolver.jar
 	test ! -f $(RUNNER) || cp $(RUNNER) $(EMBED)/rig-runner.jar
 	cd rig && go build -o dist/rig ./cmd/rig
@@ -93,7 +113,7 @@ test: dev check
 # fake OIDC issuer on :8090, pier on :8089, S3 on :9000).
 # Usage: make test-pier PIER=/path/to/pier-checkout
 PIER ?= $(HOME)/code/brutasse/rig-s3
-test-pier:
+test-pier: embed
 	cd rig && RIG_TEST_PIER=$(abspath $(PIER)) RIG_TEST_KERNEL_JAR=$(abspath $(JAR)) \
 		go test -count=1 -v -run 'TestPier' ./internal/cli/
 
@@ -102,7 +122,7 @@ test-pier:
 # (bin/native-image); the target fails with a hint when it is unset.
 # Usage: make test-native GRAALVM=/opt/graalvm
 GRAALVM ?=
-test-native:
+test-native: embed
 	@test -n "$(GRAALVM)" || { echo "set GRAALVM=/path/to/graalvm"; exit 1; }
 	cd rig && RIG_TEST_GRAALVM=$(abspath $(GRAALVM)) RIG_TEST_KERNEL_JAR=$(abspath $(JAR)) \
 		go test -count=1 -v -timeout 30m -run 'TestHotBuildNative' ./internal/cli/
@@ -146,7 +166,7 @@ release: prepare kernel release-binaries
 # so the embedded jars are the ones built from this tag). Each artifact is
 # checked against its declared architecture: a wrong-arch binary would be
 # packaged silently and break the cross-arch Docker build.
-release-binaries:
+release-binaries: embed
 	test ! -f $(JAR) || cp $(JAR) $(EMBED)/rig-resolver.jar
 	test ! -f $(RUNNER) || cp $(RUNNER) $(EMBED)/rig-runner.jar
 	@for t in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do \
@@ -181,4 +201,4 @@ image: release
 		--build-arg TARGETARCH=$$arch \
 		-t $(IMAGE):local .
 
-.PHONY: dev kernel lock-refresh prepare rig check test test-pier run release release-binaries image
+.PHONY: dev embed kernel lock-refresh prepare rig check test test-pier run release release-binaries image

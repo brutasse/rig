@@ -143,9 +143,9 @@ func TestMaterializeWritesAndAdopts(t *testing.T) {
 }
 
 func TestEmbeddedNreplMaterializes(t *testing.T) {
-	// The vendored nREPL jar is committed, so this runs on every tree (it
-	// is the only embedded jar that is not a placeholder before 'make
-	// kernel').
+	if len(nreplJar) == 0 {
+		t.Skip("embedded nREPL jar is a placeholder; run: make embed")
+	}
 	store := cache.NewAt(t.TempDir())
 	got, err := Nrepl(store)
 	if err != nil {

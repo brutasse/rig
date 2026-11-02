@@ -128,12 +128,14 @@ git sha) is stamped into the binary at build time via `-ldflags` (like the
 Rig version), so a lockfile's `resolver` block records the exact kernel
 that produced it.
 
-First build on a clean tree: the committed `embed/` jars for the kernel
-and the runner are 0-byte placeholders, so the rig rig/dist/rig would
-fail with "embedded kernel jar is a placeholder". `make kernel` then
-builds the resolver with the rig on PATH (a release binary, as
-`make lock-refresh` does); every later build self-hosts on `rig/dist/rig`,
-which embeds the previous cycle's jars.
+First build on a clean tree: the `embed/` jars are not committed —
+`make embed` materializes them (0-byte placeholders for the kernel and
+runner, the vendored nREPL jar fetched from Clojars at its pinned
+sha256), so the rig in rig/dist/rig would fail with "embedded kernel
+jar is a placeholder". `make kernel` then builds the resolver with the
+rig on PATH (a release binary, as `make lock-refresh` does); every later
+build self-hosts on `rig/dist/rig`, which embeds the previous cycle's
+jars.
 
 How the kernel jar and runner jar reach the Rig binary:
 
