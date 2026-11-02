@@ -11,7 +11,6 @@ func TestLint(t *testing.T) {
 		t.Skip("clj-kondo not on PATH")
 	}
 	hotSetup(t)
-	cleanFixture(t)
 	// A call to an undefined symbol: clj-kondo must lint it, not print
 	// its usage. (Pre-2025 clj-kondo took the path positionally; ≥ 2025.x
 	// lints only via --lint, and rig lint was a green no-op.)

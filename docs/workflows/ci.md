@@ -4,8 +4,8 @@ The CI workflow is three commands, plus the release (`rig publish` and a
 tag — [Build, publish, release](build-publish.md#releasing)):
 
 ```sh
-rig verify --frozen && rig check --frozen && rig test --frozen
-rig build --uber --frozen
+rig verify && rig check && rig test
+rig build --uber
 rig publish
 ```
 
@@ -13,17 +13,18 @@ rig publish
 
 | Step | What it proves |
 |---|---|
-| `rig verify --frozen` | the locked artifacts are byte-identical to the pinned hashes — verified from local sources on a warm cache, fetched and hash-checked on a cold one. No lock modification. This is the supply-chain gate. |
-| `rig check --frozen` | the lock still satisfies every manifest (no stale pins, conflicts, drift, floating versions), and every module's namespaces load on the locked classpath. |
-| `rig test --frozen` | the tests pass on the locked classpath, and if the lock were stale, fail instead of re-locking. |
+| `rig verify` | the locked artifacts are byte-identical to the pinned hashes — verified from local sources on a warm cache, fetched and hash-checked on a cold one. No lock modification. This is the supply-chain gate. |
+| `rig check` | the lock still satisfies every manifest (no stale pins, conflicts, drift, floating versions), and every module's namespaces load on the locked classpath. |
+| `rig test` | the tests pass on the locked classpath; a stale lock fails (exit 3) instead of re-locking. |
 
-`--frozen` is what makes this a gate: any deviation from the committed
-lockfile is a hard error (exit 3), not a silent refresh. The gate can use
-the network to fill a cold cache. Either way, Rig hash-checks every byte
-against the lockfile.
+A stale lock is a hard error on every gate command: the hot commands exit
+3, and `check` reports the stale requirement as a problem (exit 1). The
+lock is never refreshed under your feet: any deviation from the committed
+lockfile fails the pipeline. The gate can use the network to fill a cold
+cache. Either way, Rig hash-checks every byte against the lockfile.
 
-Run `rig build --uber --frozen` afterwards for artifacts (or whatever
-your pipeline builds).
+Run `rig build --uber` afterwards for artifacts (or whatever your
+pipeline builds).
 
 ## A complete example
 
@@ -47,14 +48,14 @@ jobs:
         with:
           version: v0.3.2
 
-      - name: Verify, check and test (frozen)
+      - name: Verify, check and test
         run: |
-          rig verify --frozen
-          rig check --frozen
-          rig test --frozen
+          rig verify
+          rig check
+          rig test
 
-      - name: Build uberjars (frozen)
-        run: rig build --uber --frozen
+      - name: Build uberjars
+        run: rig build --uber
 
       - name: Release
         run: |
@@ -90,7 +91,7 @@ To prove the build needs no network — or when CI itself has no network —
 add `--offline` to the gate:
 
 ```sh
-rig verify --frozen --offline && rig check --frozen --offline && rig test --frozen --offline
+rig verify --offline && rig check --offline && rig test --offline
 ```
 
 `--offline` refuses the network. Every artifact (and the kernel and runner
@@ -122,13 +123,13 @@ JDK serves only when no managed JDK exists. For CI, that means:
 
 ## Per-PR testing
 
-For branch-level CI that does not deploy, the same frozen trio works on a
+For branch-level CI that does not deploy, the same trio works on a
 subset:
 
 ```sh
-rig verify --frozen
-rig check --frozen -p modules/example   # -p restricts the ns-load stage
-rig test --frozen -p modules/example :kaocha.filter/focus '[:unit]'
+rig verify
+rig check -p modules/example   # -p restricts the ns-load stage
+rig test -p modules/example :kaocha.filter/focus '[:unit]'
 ```
 
 Stage 1 of `check` (lockfile vs manifests) is always workspace-wide. `-p`
@@ -136,7 +137,8 @@ only narrows the namespace-loading stage 2.
 
 ## What CI must NOT do
 
-- run plain `rig test` without `--frozen` — a stale lockfile would re-lock
-  in CI, and the failure you wanted would disappear;
+- run `rig lock` in CI — a stale lock must fail the gate (exit 3), not get
+  refreshed under your feet; fixing it belongs to the PR that changed the
+  requirements;
 - commit `deps.lock` changes from CI — lockfile changes belong to the PR
   that changed the requirements, where you review them.

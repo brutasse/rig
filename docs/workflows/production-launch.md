@@ -171,8 +171,8 @@ FROM eclipse-temurin:21-jdk-jammy AS build
 COPY --from=ghcr.io/brutasse/rig:latest /usr/local/bin/rig /usr/local/bin/
 WORKDIR /app
 COPY . .
-RUN rig verify --frozen && rig test --frozen
-RUN rig build --uber --frozen -p modules/app
+RUN rig verify && rig test
+RUN rig build --uber -p modules/app
 
 FROM eclipse-temurin:21-jre-jammy
 COPY --from=ghcr.io/brutasse/rig:latest /usr/local/bin/rig /usr/local/bin/
@@ -194,7 +194,7 @@ ENTRYPOINT ["rig", "launch", "/app/app.jar"]
   the store, so `rig verify` and `rig test` need no first-run extract and
   no fetch from GitHub at build time.
 - **The lock is the contract.** The build consumes the committed
-  `deps.lock`. `rig verify --frozen` fails when the lockfile is missing or
+  `deps.lock`. `rig verify` fails when the lockfile is missing or
   stale (exit 3). Locking is workstation work, and a dependency change is
   a lockfile change to commit.
 - **Copy only the binary into the JRE layer.** `rig launch` never touches
@@ -226,7 +226,7 @@ FROM eclipse-temurin:21-jdk-jammy AS build
 COPY --from=ghcr.io/brutasse/rig:latest /usr/local/bin/rig /usr/local/bin/
 WORKDIR /app
 COPY . .
-RUN rig verify --frozen && rig build --frozen -p modules/app
+RUN rig verify && rig build -p modules/app
 
 FROM eclipse-temurin:21-jre-jammy
 COPY --from=ghcr.io/brutasse/rig:latest /usr/local/bin/rig /usr/local/bin/

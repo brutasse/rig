@@ -94,15 +94,16 @@ lockfile.
 discipline before they launch anything:
 
 1. no lockfile → `no lock at /home/dev/app/deps.lock (run 'rig lock')`, exit 3;
-2. manifest changed → in development, Rig re-locks silently and prints
-   `relocked (stale: <modules>)`; with `--frozen`, Rig fails with exit 3
-   instead;
+2. manifest changed → `lock is stale (manifest changed in: <modules>); run
+   'rig lock' to refresh`, exit 3. The hot commands never write the
+   lockfile; run `rig lock` (or `rig add` / `rig remove` / `rig update`)
+   and re-run;
 3. Rig hash-checks every classpath artifact against the lockfile, securing
    it from the cache or a checksum-checked `~/.m2`. Rig downloads missing
    artifacts unless `--offline`.
 
-So you can run `rig test` from a dirty checkout: you get either the locked
-behavior or an explicit, visible re-lock — never a quiet re-resolution.
+So `rig test` from a dirty checkout runs the locked classpath, or fails
+with the hint. You never get a quiet re-resolution.
 
 ## Module targeting
 

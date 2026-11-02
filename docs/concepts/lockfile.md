@@ -140,17 +140,18 @@ Every command that builds a classpath (`test`, `run`, `nrepl`, `exec`,
    lock`, `rig add`, `rig remove` and `rig update` read the old lockfile
    without schema-checking it, keep its pins, and write the current
    schema.
-3. **A manifest changed** (its `manifest_sha256` no longer matches):
-   - Default (development): Rig re-resolves, refreshes the lockfile, prints
-     one line — `relocked (stale: modules/orchestrator)` — and continues.
-   - With `--frozen`: Rig exits with code 3. Rig does not touch the
-     lockfile. This is the CI mode.
+3. **A manifest changed** (its `manifest_sha256` no longer matches) → Rig
+   exits with code 3 and names the stale modules. These commands never
+   write the lockfile; refresh it with `rig lock` (or `rig add` / `rig
+   remove` / `rig update`) and re-run.
 4. **Lockfile is current** → Rig proceeds. It re-resolves nothing and uses
    the network only when it must first secure an artifact from the local
    sources or download it. Rig goes straight to the JVM.
 
-`rig check` uses the same staleness detection, but it never re-locks. It
-only reports. `rig lock` is always an explicit re-resolve that you start.
+`rig check` never re-locks either; it reports a stale requirement as a
+problem (exit 1) so you can fix it on purpose. `rig lock` is the command
+that refreshes a stale lock — writing the lock is its job, and it needs no
+flag.
 
 ## What a lock diff means in review
 

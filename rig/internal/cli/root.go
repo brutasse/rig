@@ -21,7 +21,6 @@ type opts struct {
 	path         string
 	pathVals     []string
 	offline      bool
-	frozen       bool
 	force        bool
 	cacheDir     string
 	verbose      bool
@@ -123,7 +122,6 @@ func Execute() int {
 	pf := root.PersistentFlags()
 	pf.StringArrayVarP(&o.pathVals, "path", "p", nil, "target module")
 	pf.BoolVar(&o.offline, "offline", false, "never use the network")
-	pf.BoolVar(&o.frozen, "frozen", false, "never modify the lock; fail if it is stale")
 	pf.BoolVar(&o.force, "force", false, "bypass cooldowns")
 	pf.StringVar(&o.cacheDir, "cache-dir", "", "state dir (default ~/.local/share/rig)")
 	pf.BoolVarP(&o.verbose, "verbose", "v", false, "debug logging")

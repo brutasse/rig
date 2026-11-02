@@ -42,17 +42,16 @@ dev: kernel rig
 # link-closure fix precisely so it could build what comes next). The jar
 # version comes from resolver/VERSION (rig's version-file), so V must
 # match it; 'make release' stamps VERSION from the tag first ('prepare').
-# --frozen: this workspace commits its lock, so the lock is a build input. A
-# cold command without it re-resolves and rewrites deps.lock whenever a
-# manifest moved: a dependency bump that skipped 'rig lock' would build green
-# here and leave the drift uncommitted instead of failing.
+# The lock is a build input: rig build fails (exit 3) when it is stale, so
+# a dependency bump that skipped 'rig lock' fails here instead of building
+# green and leaving the drift uncommitted.
 # No 'rig' prerequisite: KBOOT is computed at recipe time, and 'dev' runs
 # the rig target after this one, embedding the jars it just built.
 kernel:
 	@test "$$(cat resolver/VERSION)" = "$(V)" || { \
 		echo "resolver/VERSION ($$(cat resolver/VERSION)) != V ($(V)): run 'make prepare V=$(V)'" >&2; exit 1; }
-	cd resolver && $(KBOOT) build --frozen --uber
-	cd resolver && $(KBOOT) build -p runner --frozen --uber
+	cd resolver && $(KBOOT) build --uber
+	cd resolver && $(KBOOT) build -p runner --uber
 
 # rig: build the rig binary (rig/dist/rig) with the local kernel jars
 # embedded (a clean tree keeps the committed placeholders until 'make
@@ -72,9 +71,9 @@ rig:
 lock-refresh:
 	cd resolver && $(RIG) lock
 
-# check: rig's own workspace against its own lock. The frozen build already
-# refuses a stale lock; this names the coordinate that drifted, runs the rest
-# of stage 1 (conflicts, drift, floating versions, unknown repos) and stage 2
+# check: rig's own workspace against its own lock. The build already refuses
+# a stale lock; this names the coordinate that drifted, runs the rest of
+# stage 1 (conflicts, drift, floating versions, unknown repos) and stage 2
 # (every module's namespaces load and compile).
 check: dev
 	cd resolver && $(abspath $(BIN)) check

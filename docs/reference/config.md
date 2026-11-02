@@ -539,7 +539,7 @@ workspace.
   (exit 2) with a hint (`rig jvm install <n>`, or `JAVA_HOME`).
 - **Offline by definition.** `rig launch` runs what a previous build
   already produced and cached. The lock is inert data: it ignores a
-  stale lock, and `--frozen` has no effect on it.
+  stale lock.
 - `rig launch` replaces its own process with the JVM: the exit code of
   the JVM is the exit code of the process.
 

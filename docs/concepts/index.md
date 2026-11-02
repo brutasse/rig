@@ -50,8 +50,9 @@ The consequences:
   cache produce the same bytes, on your laptop or in CI.
 - **A stale lock does not pass silently.** Rig detects when you change a
   manifest after Rig wrote the lock. Rig re-hashes the file bytes; it does
-  not parse the EDN. In development, Rig refreshes the lock. Under
-  `--frozen`, Rig fails immediately. See [the lockfile
+  not parse the EDN. Commands that build a classpath from the lock
+  (`test`, `run`, `build`) fail with exit 3 and point at `rig lock`, which
+  writes it. See [the lockfile
   page](lockfile.md) for the full mechanics.
 
 ## One obvious way to do things

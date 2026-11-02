@@ -30,7 +30,13 @@ func TestBuildWarnsUnknownUberOptsKey(t *testing.T) {
 	if err := os.WriteFile(p, []byte(text), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	code, out := runCLI(t, "build", "-p", "modules/app", "--cache-dir", t.TempDir(), "--uber")
+	cacheDir := t.TempDir()
+	// The manifest edit invalidated the lock; the build consumes it, so
+	// refresh it first.
+	if code, out := runCLI(t, "lock", "--cache-dir", cacheDir); code != 0 {
+		t.Fatalf("lock exit = %d; out: %s", code, out)
+	}
+	code, out := runCLI(t, "build", "-p", "modules/app", "--cache-dir", cacheDir, "--uber")
 	if code != 0 {
 		t.Fatalf("build exit = %d; out: %s", code, out)
 	}

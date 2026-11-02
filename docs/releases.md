@@ -6,6 +6,22 @@ Changelog for Rig.
 
 ### Changed
 
+#### The lock gate replaces `--frozen`
+
+The `--frozen` flag is gone. The lock behavior is now fixed per command:
+
+- the locking family — `rig lock`, `rig add`, `rig remove`, `rig update`,
+  `rig new`, `rig new-module` — writes `deps.lock`. It needs no flag;
+- every command that builds a classpath from the lock (`verify`, `test`,
+  `build`, `run`, `nrepl`, `exec`, `install`, `publish`) fails with exit 3
+  when the lock is missing or stale. The dev-time re-lock (the
+  `relocked (stale: …)` line) is gone: a hand-edited `deps.edn` now needs
+  an explicit `rig lock` before the command runs;
+- `rig check` keeps its reporting contract: a stale requirement is a
+  reported problem (exit 1), and a missing lock still fails with exit 3.
+
+CI invocations drop the flag: `rig verify && rig check && rig test`.
+
 #### `rig nrepl` replaces `rig repl`
 
 `rig repl` (a bare `clojure.main` REPL) is gone: `rig nrepl` starts an

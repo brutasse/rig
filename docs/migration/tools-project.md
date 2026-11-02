@@ -253,18 +253,18 @@ requirement, every declaring module, and the lock, in one visible diff.
 
 ## Step 4 — harden CI
 
-Replace the old workflow steps with the frozen gate
+Replace the old workflow steps with the gate
 ([full example in the CI page](../workflows/ci.md)):
 
 ```yaml
-- name: Verify, check and test (frozen)
+- name: Verify, check and test
   run: |
-    rig verify --frozen
-    rig check --frozen
-    rig test --frozen
+    rig verify
+    rig check
+    rig test
 
-- name: Build uberjars (frozen)
-  run: rig build --uber --frozen
+- name: Build uberjars
+  run: rig build --uber
 
 - name: Release
   run: |
@@ -297,7 +297,7 @@ went through exactly these steps:
    `rig check` surfaced the drift above. `rig update` settled it:
    test.check → 1.1.1 everywhere, and the drifted coordinates → their
    intended versions.
-4. CI uses the frozen gate: `rig verify --frozen && rig check --frozen && rig test --frozen`, `rig build --uber --frozen`, and `rig publish` plus a tag.
+4. CI uses the gate: `rig verify && rig check && rig test`, `rig build --uber`, and `rig publish` plus a tag.
 5. You delete the legacy targets.
 
 Result: `rig test` green, `rig build --uber` green, and the same

@@ -184,11 +184,11 @@ rig check            # must be clean before you retire lein
 rig test
 ```
 
-Then swap the Makefile/CI invocations, and in CI the frozen gate
+Then swap the Makefile/CI invocations, and in CI the gate
 ([details](../workflows/ci.md)):
 
 ```sh
-rig verify --frozen && rig check --frozen && rig test --frozen
+rig verify && rig check && rig test
 ```
 
 `project.clj` is inert at that point — nothing reads it. Delete it (or

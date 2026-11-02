@@ -13,11 +13,11 @@
 #   2. gofmt -w rig/ — fixes formatting in place; if anything changed,
 #      pushes a bot commit back to the branch (never fails)
 #   3. go vet
-#   4. make test — make dev builds both jars --frozen, so a dependency bump
-#      that skipped 'rig lock' fails before anything else runs; then rig
-#      check on this workspace (names the drifted coordinate), the kernel
-#      suite (rig test, via the runner), and the Go suite (E2E vs the fresh
-#      jars)
+#   4. make test — make dev builds both jars against the committed lock, so
+#      a dependency bump that skipped 'rig lock' fails before anything else
+#      runs; then rig check on this workspace (names the drifted
+#      coordinate), the kernel suite (rig test, via the runner), and the Go
+#      suite (E2E vs the fresh jars)
 #
 # Toolchain everywhere: setup-go + brutasse/setup-rig (installs the rig
 # binary, the Temurin 8 pinned in resolver/deps.lock, and caches the
@@ -87,8 +87,7 @@ jobs:
           lockfile: resolver/deps.lock
       - name: Refresh lock (Renovate branches)
         # A Renovate Clojure bump can only move a manifest, and the lock is a
-        # build input — so its own PR fails the frozen kernel build until the
-        # lock is re-baked. Do that here, and push the result back so the PR
+        # build input — so its own PR fails the kernel build until the lock
         # carries manifest and lock together. Both halves of the guard are
         # load-bearing: the branch prefix is what keeps an automated commit off
         # main and off every human branch, and the actor is what keeps a human's

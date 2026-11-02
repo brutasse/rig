@@ -77,6 +77,11 @@ func TestHotCompileJVMOpts(t *testing.T) {
 	loggingJava(t, logPath)
 	cacheDir := t.TempDir()
 
+	// The root rewrite invalidated the lock; the gated commands consume it,
+	// so refresh it first.
+	if code, out := runCLI(t, "lock", "--cache-dir", cacheDir); code != 0 {
+		t.Fatalf("lock exit = %d; out: %s", code, out)
+	}
 	if code, out := runCLI(t, "build", "-p", "modules/app", "--cache-dir", cacheDir); code != 0 {
 		t.Fatalf("build exit = %d; out: %s", code, out)
 	}
@@ -103,7 +108,7 @@ func TestHotCompileJVMOpts(t *testing.T) {
 		t.Errorf("kernel JVMs carrying the compile flag = %d, want 1 (the build's):\n%s", with, strings.Join(kernels, "\n"))
 	}
 	if without < 1 {
-		t.Errorf("kernel JVMs without the compile flag = %d, want >= 1 (the re-lock and check stage 1):\n%s", without, strings.Join(kernels, "\n"))
+		t.Errorf("kernel JVMs without the compile flag = %d, want >= 1 (the lock and check stage 1):\n%s", without, strings.Join(kernels, "\n"))
 	}
 	// The check ns-load JVM (rig.runner) carries the flag.
 	if got := logLinesWith(lines, "rig.runner"); len(got) != 1 || !strings.Contains(got[0], flag) {
