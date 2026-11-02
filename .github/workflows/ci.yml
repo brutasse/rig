@@ -54,9 +54,11 @@
 #   6. pushes the version stamp (resolver/VERSION + lock) to main
 #
 # The kernel, runner, and vendored nREPL jars ship inside the rig binary
-# (go:embed): nothing is fetched at runtime and there are no hash pins to
-# maintain. The runner jar is the install-time artifact hot commands
-# append to the project's locked classpath.
+# (go:embed) and are not committed: 'make embed' materializes embed/ —
+# placeholders for the kernel/runner jars, the nREPL jar fetched from
+# Clojars at its pinned sha256. Nothing is fetched at runtime. The runner
+# jar is the install-time artifact hot commands append to the project's
+# locked classpath.
 
 name: CI
 
@@ -129,7 +131,12 @@ jobs:
           esac
 
       - name: go vet
-        run: cd rig && go vet ./...
+        # 'embed' materializes the untracked go:embed inputs (the two
+        # placeholder jars, the fetched nREPL jar) so vet can load the
+        # kernel package on a clean tree.
+        run: |
+          make embed
+          cd rig && go vet ./...
 
       - name: Test
         run: make test
