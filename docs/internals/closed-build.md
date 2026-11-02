@@ -75,14 +75,15 @@ sha256 over the bytes it keeps.
 only ever downloads from a URL that appears in a reviewed lock diff.
 Changing a repository changes the lock.
 
-## `verify`: tampering surfaces, never heals
+## `check` stage 1: tampering surfaces, never heals
 
-`rig verify` uses `VerifyGet`, the security-gate variant of the fetch.
-If a cache entry fails its hash, `rig verify` **reports a mismatch**. It
-never re-fetches the entry: a re-fetch could replace tampered bytes with
-clean ones and hide the incident. `rig verify` obtains missing entries
-from m2 or the repository, and checks them the same way. That is the
-difference between "the build works" and "the build proves what it ran."
+`rig check`'s first stage uses `VerifyGet`, the security-gate variant of
+the fetch. If a cache entry fails its hash, `check` **reports a
+mismatch**. It never re-fetches the entry: a re-fetch could replace
+tampered bytes with clean ones and hide the incident. `check` obtains
+missing entries from m2 or the repository, and checks them the same way.
+That is the difference between "the build works" and "the build proves
+what it ran."
 
 ## Git dependencies: commit-pinned, never fetched on the hot path
 
@@ -100,7 +101,7 @@ points (`rig.resolver.git-sync`).
 | Flag / state | Effect | Exit |
 |---|---|---|
 | `--offline` | no network, ever: cache or m2 only | 1 when an artifact is in neither |
-| stale lock | a command that consumes the lock fails; run `rig lock` | 3 |
+| stale lock | the hot commands fail and point at `rig lock`; `check` reports the stale module instead | 3 (`check`: 1) |
 | hash mismatch | abort, no self-heal | 4 |
 | cooldown refused everything | `rig lock` fails; retry with `--force` | 5 |
 
@@ -110,12 +111,12 @@ error when the lock has pins to compare, because it needs the metadata.
 
 ## Drift without re-resolving: `rig check`
 
-`rig check` (a kernel op, read-only — no network, never writes the lock)
+`rig check` never re-resolves and never writes the lock. Its kernel stage
 compares the manifests against the lock:
 
 | Problem | Severity |
 |---|---|
-| `stale-lock` — a requirement the lock's pin does not satisfy | error |
+| `stale-lock` — a requirement the lock's pin does not satisfy, or a manifest whose bytes changed since the lock was written | error |
 | `conflict` — two modules require mutually unsatisfiable versions | error |
 | `drift` — a module's requirement differs from the workspace's shared one | warn |
 | `floating-version` — a manifest still says `RELEASE`/`LATEST` | error |

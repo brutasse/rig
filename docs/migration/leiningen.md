@@ -188,7 +188,7 @@ Then swap the Makefile/CI invocations, and in CI the gate
 ([details](../workflows/ci.md)):
 
 ```sh
-rig verify && rig check && rig test
+rig check && rig test
 ```
 
 `project.clj` is inert at that point — nothing reads it. Delete it (or

@@ -12,7 +12,7 @@ The image contains:
   content-sha paths: first use reads the store and writes nothing, so the
   image works with a read-only root file system for the tool jars. Hot
   commands append the runner jar to the project classpath, so `test` and
-  stage 2 of `check` need it. The *artifact* cache is still a runtime
+  stage 3 of `check` need it. The *artifact* cache is still a runtime
   store — warm it in an earlier layer or mount a writable dir;
 - a Temurin 21 JDK, so the image is a standalone Clojure base.
 
@@ -27,7 +27,7 @@ repositories.
 FROM ghcr.io/brutasse/rig:latest
 WORKDIR /app
 COPY . .
-RUN rig verify && rig test
+RUN rig check && rig test
 ```
 
 ## As an app entrypoint
@@ -51,12 +51,12 @@ FROM eclipse-temurin:21-jdk-jammy
 WORKDIR /app
 COPY --from=ghcr.io/brutasse/rig:latest /usr/local/bin/rig /usr/local/bin/
 COPY . .
-RUN rig verify && rig test
+RUN rig check && rig test
 ```
 
 The binary carries its tool jars, so `rig` needs no GitHub access at
 runtime. It only talks to your artifact repositories. The build consumes
-the committed `deps.lock`: `rig verify` fails when the lockfile is missing
+the committed `deps.lock`: `rig check` fails when the lockfile is missing
 or stale. Locking is workstation work.
 
 ## Pinned JVMs
@@ -83,7 +83,7 @@ home dir of that user, or point every invocation at a shared dir with
 ## Offline builds
 
 The tool jars are pre-materialized in the image, but the *artifact* cache
-is cold. `rig verify` in the Dockerfile fetches from your repositories and
+is cold. `rig check` in the Dockerfile fetches from your repositories and
 checks the hashes against the lockfile. For hermetic `--offline` builds,
 first warm the state dir in an earlier layer (or cache it across runs). See
 [CI](ci.md#hermetic--air-gapped-ci-opt-in---offline).

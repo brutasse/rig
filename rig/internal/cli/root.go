@@ -131,7 +131,6 @@ func Execute() int {
 	root.Flags().Lookup("autocomplete").NoOptDefVal = autocompleteSentinel
 	root.AddCommand(
 		newAuthCmd(o),
-		newVerifyCmd(o),
 		newCleanCmd(o),
 		newVersionCmd(o),
 		newInfoCmd(o),

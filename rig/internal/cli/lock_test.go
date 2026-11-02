@@ -50,8 +50,10 @@ func TestLockVerifyEndToEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 	os.Setenv("RIG_KERNEL_JAR", jar)
+	os.Setenv("RIG_RUNNER_JAR", runnerJarPath(t))
 	t.Cleanup(func() {
 		os.Unsetenv("RIG_KERNEL_JAR")
+		os.Unsetenv("RIG_RUNNER_JAR")
 	})
 
 	dir := t.TempDir()
@@ -86,12 +88,12 @@ func TestLockVerifyEndToEnd(t *testing.T) {
 		t.Errorf("resolver sha256 = %s, want %s (the launched jar)", doc.Resolver.SHA256, sha)
 	}
 
-	code, out = runCLI(t, "verify", "--cache-dir", cacheDir)
+	code, out = runCLI(t, "check", "--cache-dir", cacheDir)
 	if code != 0 {
-		t.Fatalf("verify exit = %d, want 0; out: %s", code, out)
+		t.Fatalf("check exit = %d, want 0; out: %s", code, out)
 	}
 	if !strings.Contains(out, "verified 3 artifacts") {
-		t.Fatalf("verify out = %q", out)
+		t.Fatalf("check out = %q", out)
 	}
 
 	entries, err := os.ReadDir(filepath.Join(cacheDir, "artifacts"))
@@ -107,12 +109,12 @@ func TestLockVerifyEndToEnd(t *testing.T) {
 	if err := os.WriteFile(corrupted, b, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	code, out = runCLI(t, "verify", "--cache-dir", cacheDir)
+	code, out = runCLI(t, "check", "--cache-dir", cacheDir)
 	if code != 4 {
-		t.Fatalf("corrupted verify exit = %d, want 4; out: %s", code, out)
+		t.Fatalf("corrupted check exit = %d, want 4; out: %s", code, out)
 	}
 	if !strings.Contains(out, "hash mismatch") {
-		t.Fatalf("corrupted verify out = %q", out)
+		t.Fatalf("corrupted check out = %q", out)
 	}
 
 	if err := os.RemoveAll(cacheDir); err != nil {
@@ -120,13 +122,13 @@ func TestLockVerifyEndToEnd(t *testing.T) {
 	}
 	home := os.Getenv("HOME")
 	os.Setenv("HOME", t.TempDir())
-	code, out = runCLI(t, "verify", "--offline", "--cache-dir", cacheDir)
+	code, out = runCLI(t, "check", "--offline", "--cache-dir", cacheDir)
 	os.Setenv("HOME", home)
 	if code != 1 {
-		t.Fatalf("offline verify exit = %d, want 1; out: %s", code, out)
+		t.Fatalf("offline check exit = %d, want 1; out: %s", code, out)
 	}
 	if !strings.Contains(out, "offline") {
-		t.Fatalf("offline verify out = %q", out)
+		t.Fatalf("offline check out = %q", out)
 	}
 }
 

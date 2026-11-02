@@ -91,10 +91,10 @@ network when the cache is warm:
 
 | Command | What the kernel contributes |
 |---|---|
-| `run`, `nrepl`, `exec`, `verify` | nothing — pure Go |
+| `run`, `nrepl`, `exec` | nothing — pure Go |
 | `clean` | nothing — no lock needed at all |
 | `test` | its jar, as the *last* classpath entry: it carries `rig.runner`, the exec-fn launcher that runs the module's test alias. The project's own Clojure comes first and wins on conflicts |
-| `check` (stage 2) | the kernel computes the AOT plan (`aot-plan` op), then its jar as the *last* classpath entry: the runner's aot mode preloads the plan's requires and AOT-compiles the module's namespaces into a fresh class dir that leads the locked base classpath. Stage 1 (lock vs manifests) is the cold kernel op |
+| `check` (stage 3) | the kernel computes the AOT plan (`aot-plan` op), then its jar as the *last* classpath entry: the runner's aot mode preloads the plan's requires and AOT-compiles the module's namespaces into a fresh class dir that leads the locked base classpath. Stage 2 (lock vs manifests) is the cold kernel op; stage 1 (artifact hashes) is pure Go |
 | `fmt` | its jar, run directly: a pinned `cljfmt` bundled inside it |
 
 **Cold commands run a kernel process**:
@@ -103,7 +103,7 @@ network when the cache is warm:
 |---|---|
 | `lock` | `resolve` |
 | `add` / `remove` / `update` | `edit-dep`, then `resolve` |
-| `check` | `check` — read-only consistency report (stage 1); stage 2 also takes the `aot-plan` op |
+| `check` | `check` — read-only consistency report (stage 2); stage 3 also takes the `aot-plan` op |
 | `tree` | `tree` |
 | `outdated` | `outdated` |
 | `new` / `new-module` (test-runner pin) | `latest` — newest release past the cooldown |
@@ -200,7 +200,7 @@ keys track JVM builds, so channel drift would strand every image.
 | `rig.resolver.edit` | format-preserving manifest edits (`rewrite-clj` + cljfmt) |
 | `rig.resolver.tree` | dependency tree display |
 | `rig.resolver.outdated` | what's newer upstream |
-| `rig.resolver.aot` | the AOT plan: the non-project require closure (preloads) and the module's namespaces in dependency order — drives the two-phase AOT compile of `build` and `check` (stage 2) |
+| `rig.resolver.aot` | the AOT plan: the non-project require closure (preloads) and the module's namespaces in dependency order — drives the two-phase AOT compile of `build` and `check` (stage 3) |
 | `rig.resolver.build` | jar/uberjar via `tools.build` from the locked classpath, with the two-phase AOT compile |
 | `rig.resolver.publish` | POM + deploy target (plan-only) |
 | `rig.resolver.migrate` | legacy workspace → `:rig/*`, in place |

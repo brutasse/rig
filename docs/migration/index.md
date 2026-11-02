@@ -45,7 +45,7 @@ Whatever you start from, the migration follows the same five steps.
    check` now surfaces it. Resolve each finding with an explicit
    `rig update`.
 4. **Harden CI.** Replace the workflow steps with the gate:
-   `rig verify && rig check && rig test`, `rig build --uber`, and `rig publish` + tag.
+   `rig check && rig test`, `rig build --uber`, and `rig publish` + tag.
 5. **Clean out.** Delete the Makefile targets that only wrapped the old
    tooling and drop the old tools from the toolchain entirely.
 

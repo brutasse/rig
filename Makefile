@@ -71,10 +71,11 @@ rig:
 lock-refresh:
 	cd resolver && $(RIG) lock
 
-# check: rig's own workspace against its own lock. The build already refuses
-# a stale lock; this names the coordinate that drifted, runs the rest of
-# stage 1 (conflicts, drift, floating versions, unknown repos) and stage 2
-# (every module's namespaces load and compile).
+# check: rig's own workspace against its own lock. Stage 1 re-hashes every
+# locked artifact (a mismatch exits 4). Stage 2 is the kernel consistency
+# report (conflicts, drift, floating versions, unknown repos) and names a
+# stale manifest (the build already refuses a stale lock; check reports
+# it). Stage 3 loads and compiles every module's namespaces.
 check: dev
 	cd resolver && $(abspath $(BIN)) check
 
@@ -88,13 +89,14 @@ test: dev check
 	cd rig && RIG_TEST_KERNEL_JAR=$(abspath $(JAR)) RIG_TEST_RUNNER_JAR=$(abspath $(RUNNER)) \
 		go test ./...
 
-# test-pier: Pier E2E — rig lock/publish/verify against a live OIDC-gated
+# test-pier: Pier E2E — rig lock/publish/check against a live OIDC-gated
 # Maven repo. The Pier test env must be running (see the checkout's .scratch:
 # fake OIDC issuer on :8090, pier on :8089, S3 on :9000).
 # Usage: make test-pier PIER=/path/to/pier-checkout
 PIER ?= $(HOME)/code/brutasse/rig-s3
 test-pier:
 	cd rig && RIG_TEST_PIER=$(abspath $(PIER)) RIG_TEST_KERNEL_JAR=$(abspath $(JAR)) \
+		RIG_TEST_RUNNER_JAR=$(abspath $(RUNNER)) \
 		go test -count=1 -v -run 'TestPier' ./internal/cli/
 
 # test-native: native-image E2E — builds the testdata/native fixture into a

@@ -63,7 +63,7 @@ repository:
 
 - floating-version probes (repository metadata),
 - the native m2 resolution of `rig lock`,
-- the lockfile's URL attribution — and therefore `rig verify`,
+- the lockfile's URL attribution — and therefore `rig check`,
 - the newest-version lookup of `rig add`.
 
 - Redeclaring `central` routes every artifact — public and corporate —
@@ -132,5 +132,5 @@ against the upstream on a 24h TTL.
 In CI the runner injects a short-lived token as `RIG_TOKEN_PIER` (the
 gate's environment variable). Nothing static lives in the repository or in
 Rig's state. The usual CI gate ([ci.md](ci.md)) works unchanged:
-`rig verify` fetches from the lockfile's URLs — that is, from
+`rig check` fetches from the lockfile's URLs — that is, from
 Pier — with the bearer.

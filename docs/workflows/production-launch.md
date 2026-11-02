@@ -171,7 +171,7 @@ FROM eclipse-temurin:21-jdk-jammy AS build
 COPY --from=ghcr.io/brutasse/rig:latest /usr/local/bin/rig /usr/local/bin/
 WORKDIR /app
 COPY . .
-RUN rig verify && rig test
+RUN rig check && rig test
 RUN rig build --uber -p modules/app
 
 FROM eclipse-temurin:21-jre-jammy
@@ -191,12 +191,12 @@ ENTRYPOINT ["rig", "launch", "/app/app.jar"]
 - **Copy rig into the JDK layer.** The build stage takes the binary out of
   the Rig image. The binary carries the resolver kernel, rig.runner, and
   vendored nREPL jars embedded, and the image pre-materializes them into
-  the store, so `rig verify` and `rig test` need no first-run extract and
+  the store, so `rig check` and `rig test` need no first-run extract and
   no fetch from GitHub at build time.
 - **The lock is the contract.** The build consumes the committed
-  `deps.lock`. `rig verify` fails when the lockfile is missing or
-  stale (exit 3). Locking is workstation work, and a dependency change is
-  a lockfile change to commit.
+  `deps.lock`. `rig check` fails when the lockfile is missing (exit 3)
+  or stale (reported problem, exit 1). Locking is workstation work, and
+  a dependency change is a lockfile change to commit.
 - **Copy only the binary into the JRE layer.** `rig launch` never touches
   the resolver kernel or the runner, and a standalone uberjar is
   self-describing: the launch plan sits baked in the jar. The launch
@@ -226,7 +226,7 @@ FROM eclipse-temurin:21-jdk-jammy AS build
 COPY --from=ghcr.io/brutasse/rig:latest /usr/local/bin/rig /usr/local/bin/
 WORKDIR /app
 COPY . .
-RUN rig verify && rig build -p modules/app
+RUN rig check && rig build -p modules/app
 
 FROM eclipse-temurin:21-jre-jammy
 COPY --from=ghcr.io/brutasse/rig:latest /usr/local/bin/rig /usr/local/bin/

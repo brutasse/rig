@@ -1,9 +1,12 @@
 package cli
 
 import (
+	"bytes"
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/brutasse/rig/internal/lockfile"
 )
 
 // mutateFile rewrites path applying fn to its contents.
@@ -47,6 +50,35 @@ func TestCheckStale(t *testing.T) {
 	}
 }
 
+func TestCheckByteStale(t *testing.T) {
+	hotSetup(t)
+	// A comment-only manifest edit: byte-stale, semantically identical. The
+	// kernel's per-requirement stale-lock does not fire, so check's own
+	// byte-level report names the module. It never re-locks.
+	lockBefore, err := os.ReadFile("deps.lock")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mutateFile(t, "modules/app/deps.edn",
+		func(s string) string { return s + " ; touched\n" })
+	code, out := runCLI(t, "check", "--cache-dir", t.TempDir())
+	if code != 1 {
+		t.Fatalf("check exit = %d, want 1; out: %s", code, out)
+	}
+	if !strings.Contains(out, "stale-lock") {
+		t.Errorf("check out missing stale-lock: %q", out)
+	}
+	if !strings.Contains(out, "modules/app") {
+		t.Errorf("check out must name the stale module: %q", out)
+	}
+	if !strings.Contains(out, "manifest changed since the lock was written") {
+		t.Errorf("check out missing the byte-stale message: %q", out)
+	}
+	if lockAfter, err := os.ReadFile("deps.lock"); err != nil || !bytes.Equal(lockBefore, lockAfter) {
+		t.Errorf("check re-wrote deps.lock")
+	}
+}
+
 func TestCheckDrift(t *testing.T) {
 	hotSetup(t)
 	// The workspace manages clojure at the locked version; the module requires
@@ -74,10 +106,25 @@ func TestCheckPoolUnpinnedWarns(t *testing.T) {
 	// A shared pool entry nothing resolves — no module declares it and none
 	// pulls it transitively: no lock run can ever produce a pin for it, so
 	// demanding one was a permanent red. It is a warning naming the entry.
-	mutateFile(t, "deps.edn", func(s string) string {
-		return strings.Replace(s, `["modules/app"]}`,
-			`["modules/app"] :rig/deps {orphan/orphan {:mvn/version "9.9.9"}}}`, 1)
-	})
+	root, err := os.ReadFile("deps.edn")
+	if err != nil {
+		t.Fatal(err)
+	}
+	newRoot := strings.Replace(string(root), `["modules/app"]}`,
+		`["modules/app"] :rig/deps {orphan/orphan {:mvn/version "9.9.9"}}}`, 1)
+	if err := os.WriteFile("deps.edn", []byte(newRoot), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// The root manifest moved; re-stamp the lock so the test isolates the
+	// pool-unpinned warning from the byte-staleness report.
+	doc, err := lockfile.Load("deps.lock")
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc.FreshFor(map[string]string{".": newRoot})
+	if err := doc.Save("deps.lock"); err != nil {
+		t.Fatal(err)
+	}
 	code, out := runCLI(t, "check", "--cache-dir", t.TempDir())
 	if code != 0 {
 		t.Fatalf("check exit = %d, want 0; out: %s", code, out)

@@ -12,7 +12,9 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/brutasse/rig/internal/cache"
 	"github.com/brutasse/rig/internal/classpath"
+	"github.com/brutasse/rig/internal/fetch"
 	"github.com/brutasse/rig/internal/jvm"
 	"github.com/brutasse/rig/internal/kernel"
 	"github.com/brutasse/rig/internal/workspace"
@@ -29,18 +31,22 @@ type checkProblem struct {
 func newCheckCmd(o *opts) *cobra.Command {
 	return &cobra.Command{
 		Use:   "check",
-		Short: "Verify the workspace is consistent (lock vs manifests, and code loads)",
+		Short: "Verify the workspace: lock artifacts, lock vs manifests, and code loads",
 		Long: `Checks the workspace without modifying it.
 
-Stage 1 verifies the lock against every manifest: stale pins, version
-conflicts, drift, floating RELEASE/LATEST, publish without a lib, unknown
-repos. Stage 2 loads and AOT-compiles each target module's namespaces on
-its locked base classpath (requires preloaded, dependency order),
-catching code that does not load or compile. -p restricts stage 2 only;
-stage 1 is always workspace-wide.
+Stage 1 verifies every lock artifact against the cache (the supply-chain
+gate): a hash mismatch exits 4, and a tampered entry is reported, never
+re-fetched and healed. Stage 2 verifies the lock against every manifest:
+stale pins, version conflicts, drift, floating RELEASE/LATEST, publish
+without a lib, unknown repos. Stage 3 loads and AOT-compiles each target
+module's namespaces on its locked base classpath (requires preloaded,
+dependency order), catching code that does not load or compile. -p
+restricts stage 3 only; stages 1 and 2 are always workspace-wide.
 
-rig check never re-locks; it reports. It exits 1 when any error-severity
-problem is found, 0 otherwise (warnings do not fail the check).`,
+rig check never re-locks; it reports. A stale lock is a reported problem,
+not a gate failure. It exits 4 on a hash mismatch, 3 when the lock is
+missing, 1 when any error-severity problem is found, 0 otherwise
+(warnings do not fail the check).`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runCheck(cmd.Context(), o)
@@ -57,6 +63,12 @@ func runCheck(ctx context.Context, o *opts) error {
 	// every consistency problem would be "no pin — run rig lock" anyway.
 	if root.Lock == nil {
 		return exitf(3, "no lock at %s (run 'rig lock')", root.LockPath())
+	}
+	// check never re-locks: a stale lock is reported as a problem below,
+	// not a gate failure (the other lock-consuming commands exit 3).
+	stale, err := root.Lock.Stale(root.Dir)
+	if err != nil {
+		return err
 	}
 	store, err := o.store()
 	if err != nil {
@@ -76,7 +88,40 @@ func runCheck(ctx context.Context, o *opts) error {
 
 	var problems []checkProblem
 
-	// Stage 1: kernel consistency report (workspace-wide, read-only).
+	// Stage 1: every lock artifact against the cache (the security gate,
+	// run first — it fails before any JVM launches). VerifyGet never
+	// re-fetches a tampered entry: a mismatch exits 4.
+	var items []fetch.Item
+	var gitCount int
+	m2 := o.m2Root()
+	for _, a := range root.Lock.Artifacts {
+		switch a.Kind {
+		case "mvn":
+			if a.URL != "" {
+				items = append(items, fetch.Item{URL: a.URL, Repo: a.Repository, Ext: a.Extension, Local: classpath.M2Path(m2, a), SHA: a.SHA256})
+			}
+		case "git":
+			gitCount++
+		}
+	}
+	cached, fetched, err := fetch.VerifyAll(ctx, o.fetchClient(ctx, root), store, items, 2)
+	if err != nil {
+		switch {
+		case errors.Is(err, cache.ErrMismatch):
+			return exitf(4, "artifact hash mismatch: %v", err)
+		case errors.Is(err, fetch.ErrOffline):
+			return exitf(1, "offline: %v", err)
+		default:
+			return err
+		}
+	}
+	fmt.Printf("check: verified %d artifacts (%d cached, %d fetched", len(items), cached, fetched)
+	if gitCount > 0 {
+		fmt.Printf(", %d git deps pinned by commit sha", gitCount)
+	}
+	fmt.Println(")")
+
+	// Stage 2: kernel consistency report (workspace-wide, read-only).
 	req := kernel.Request{
 		Op:        "check",
 		Workspace: root.Dir,
@@ -99,8 +144,9 @@ func runCheck(ctx context.Context, o *opts) error {
 		return fmt.Errorf("check: bad kernel response: %w", err)
 	}
 	problems = append(problems, stage1.Problems...)
+	problems = append(problems, byteStaleProblems(stale, problems)...)
 
-	// Stage 2: load and AOT-compile each target module on its locked base
+	// Stage 3: load and AOT-compile each target module on its locked base
 	// classpath.
 	if root.Lock != nil {
 		e := &hotEnv{root: root, lock: root.Lock, store: store, m2root: o.m2Root(), oidc: o.bearerFor(ctx, root), kernel: jar}
@@ -159,6 +205,33 @@ func runCheck(ctx context.Context, o *opts) error {
 		return exitf(1, "check: %d error(s), %d warning(s)", errs, warns)
 	}
 	return nil
+}
+
+// byteStaleProblems reports a byte-stale manifest as a stale-lock problem,
+// except for modules the kernel already names: a changed requirement makes
+// the manifest byte-stale too, and the kernel's per-requirement stale-lock
+// line is the finer report. The byte-level line covers what the kernel
+// misses — a manifest that changed without changing any requirement.
+func byteStaleProblems(stale []string, problems []checkProblem) []checkProblem {
+	var out []checkProblem
+	for _, m := range stale {
+		named := false
+		for _, p := range problems {
+			if p.Kind == "stale-lock" && p.Module == m {
+				named = true
+				break
+			}
+		}
+		if !named {
+			out = append(out, checkProblem{
+				Severity: "error",
+				Kind:     "stale-lock",
+				Module:   m,
+				Message:  "manifest changed since the lock was written — run 'rig lock' to refresh",
+			})
+		}
+	}
+	return out
 }
 
 // checkModuleLoads loads and AOT-compiles module m's namespaces on its

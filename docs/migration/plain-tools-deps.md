@@ -82,7 +82,7 @@ And in CI, the gate instead of "cache m2 and run the CLI"
 ([details](../workflows/ci.md)):
 
 ```sh
-rig verify && rig check && rig test
+rig check && rig test
 ```
 
 ## Multi module

@@ -19,6 +19,7 @@ import (
 
 	"github.com/brutasse/rig/internal/cache"
 	"github.com/brutasse/rig/internal/fetch"
+	"github.com/brutasse/rig/internal/jvm"
 	"github.com/brutasse/rig/internal/kernel"
 	"github.com/brutasse/rig/internal/lockfile"
 )
@@ -134,39 +135,53 @@ func artifactServer(t *testing.T, body string) *httptest.Server {
 	return srv
 }
 
-func TestVerifyNoLock(t *testing.T) {
-	dir := t.TempDir()
-	t.Chdir(dir)
-	writeFile(t, "deps.edn", "{:rig/lib x/y}\n")
-	code, out := runCLI(t, "verify")
-	if code != 3 {
-		t.Errorf("exit = %d, want 3; out: %s", code, out)
+// kernelGate skips when java or the locally built kernel/runner jars are
+// unavailable, and overrides both with the local jars (the two overrides
+// always travel together).
+func kernelGate(t *testing.T) {
+	t.Helper()
+	if _, err := jvm.Find(); err != nil {
+		t.Skipf("no java available: %v", err)
 	}
-	if !strings.Contains(out, "no lock") {
-		t.Errorf("out = %q", out)
-	}
+	os.Setenv("RIG_KERNEL_JAR", kernelJarPath(t))
+	os.Setenv("RIG_RUNNER_JAR", runnerJarPath(t))
+	t.Cleanup(func() {
+		os.Unsetenv("RIG_KERNEL_JAR")
+		os.Unsetenv("RIG_RUNNER_JAR")
+	})
 }
 
-func TestVerifyStale(t *testing.T) {
+func TestCheckStaleLock(t *testing.T) {
+	kernelGate(t)
+	body := "stale-lock-artifact-bytes"
+	srv := artifactServer(t, body)
 	dir := t.TempDir()
 	t.Chdir(dir)
 	// Lock whose recorded manifest sha does NOT match the deps.edn on disk:
-	// the lock is stale. verify never re-locks and must exit 3.
+	// the lock is stale. check never re-locks and never gates on it: it
+	// reports the stale manifest as a problem (the other lock-consuming
+	// commands exit 3).
 	doc := lockfile.ForTest(".")
+	doc.Artifacts[0].SHA256 = shaOf(body)
+	doc.Artifacts[0].URL = srv.URL + "/a.jar"
 	writeFile(t, "deps.edn", "{:rig/lib x/y}\n")
 	if err := doc.Save("deps.lock"); err != nil {
 		t.Fatal(err)
 	}
-	code, out := runCLI(t, "verify", "--cache-dir", t.TempDir())
-	if code != 3 {
-		t.Errorf("exit = %d, want 3; out: %s", code, out)
+	code, out := runCLI(t, "check", "--cache-dir", t.TempDir())
+	if code != 1 {
+		t.Errorf("exit = %d, want 1; out: %s", code, out)
 	}
-	if !strings.Contains(out, "stale") {
+	if !strings.Contains(out, "stale-lock") {
+		t.Errorf("out = %q", out)
+	}
+	if !strings.Contains(out, "manifest changed since the lock was written") {
 		t.Errorf("out = %q", out)
 	}
 }
 
-func TestVerifyOK(t *testing.T) {
+func TestCheckHashOK(t *testing.T) {
+	kernelGate(t)
 	cacheDir := t.TempDir()
 	body := "test-artifact-bytes"
 	srv := artifactServer(t, body)
@@ -182,7 +197,7 @@ func TestVerifyOK(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	code, out := runCLI(t, "verify", "--cache-dir", cacheDir)
+	code, out := runCLI(t, "check", "--cache-dir", cacheDir)
 	if code != 0 {
 		t.Errorf("exit = %d, want 0; out: %s", code, out)
 	}
@@ -194,16 +209,17 @@ func TestVerifyOK(t *testing.T) {
 		t.Errorf("artifact not cached: %v", err)
 	}
 
-	code, out = runCLI(t, "verify", "--cache-dir", cacheDir)
+	code, out = runCLI(t, "check", "--cache-dir", cacheDir)
 	if code != 0 {
-		t.Errorf("second verify exit = %d; out: %s", code, out)
+		t.Errorf("second check exit = %d; out: %s", code, out)
 	}
 	if !strings.Contains(out, "1 cached, 0 fetched") {
 		t.Errorf("out = %q", out)
 	}
 }
 
-func TestVerifyHashMismatch(t *testing.T) {
+func TestCheckHashMismatch(t *testing.T) {
+	kernelGate(t)
 	srv := artifactServer(t, "server-served-other-bytes")
 	dir := t.TempDir()
 	t.Chdir(dir)
@@ -215,7 +231,7 @@ func TestVerifyHashMismatch(t *testing.T) {
 	if err := doc.Save("deps.lock"); err != nil {
 		t.Fatal(err)
 	}
-	code, out := runCLI(t, "verify", "--cache-dir", t.TempDir())
+	code, out := runCLI(t, "check", "--cache-dir", t.TempDir())
 	if code != 4 {
 		t.Errorf("exit = %d, want 4; out: %s", code, out)
 	}
@@ -224,7 +240,8 @@ func TestVerifyHashMismatch(t *testing.T) {
 	}
 }
 
-func TestVerifyOfflineMissing(t *testing.T) {
+func TestCheckHashOffline(t *testing.T) {
+	kernelGate(t)
 	srv := artifactServer(t, "x")
 	dir := t.TempDir()
 	t.Chdir(dir)
@@ -236,7 +253,7 @@ func TestVerifyOfflineMissing(t *testing.T) {
 	if err := doc.Save("deps.lock"); err != nil {
 		t.Fatal(err)
 	}
-	code, out := runCLI(t, "verify", "--offline", "--cache-dir", t.TempDir())
+	code, out := runCLI(t, "check", "--offline", "--cache-dir", t.TempDir())
 	if code != 1 {
 		t.Errorf("exit = %d, want 1; out: %s", code, out)
 	}

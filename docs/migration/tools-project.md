@@ -256,9 +256,8 @@ Replace the old workflow steps with the gate
 ([full example in the CI page](../workflows/ci.md)):
 
 ```yaml
-- name: Verify, check and test
+- name: Check and test
   run: |
-    rig verify
     rig check
     rig test
 
@@ -296,7 +295,7 @@ went through exactly these steps:
    `rig check` surfaced the drift above. `rig update` settled it:
    test.check → 1.1.1 everywhere, and the drifted coordinates → their
    intended versions.
-4. CI uses the gate: `rig verify && rig check && rig test`, `rig build --uber`, and `rig publish` plus a tag.
+4. CI uses the gate: `rig check && rig test`, `rig build --uber`, and `rig publish` plus a tag.
 5. You delete the legacy targets.
 
 Result: `rig test` green, `rig build --uber` green, and the same

@@ -18,7 +18,7 @@ lockfile:
   checksum-checked `~/.m2` copy → Rig uses it;
 - missing → Rig downloads it and hashes it (unless `--offline`);
 - **mismatch → the command aborts with exit code 4.** There is no
-  automatic repair: `verify` and the hot commands fail the build. A byte
+  automatic repair: `check` and the hot commands fail the build. A byte
   difference in a pinned artifact is a supply-chain incident, not an
   inconvenience.
 
@@ -39,24 +39,24 @@ When the cache does not hold an artifact, Rig tries these sources in order:
 Credentials for private repositories come from `~/.m2/settings.xml`. Maven
 and tools.deps use the same file.
 
-## `verify`: the CI security gate
+## `check`: the CI security gate
 
 ```sh
-rig verify
+rig check
 ```
 
 ```
-verified 528 artifacts (510 cached, 18 fetched, 2 git deps pinned by commit sha)
+check: verified 528 artifacts (510 cached, 18 fetched, 2 git deps pinned by commit sha)
 ```
 
-`verify` re-checks every artifact in the lockfile against the pinned
-hashes. On a warm cache it uses local sources and checks their hashes. If
-the cache is cold, it fetches each artifact and checks its hash. `verify`
-never writes the lockfile. It fails (exit 3) when the lock is missing or
-stale, so a green `verify` means: "Rig pinned these exact bytes, and they
-are what will run." Add `--offline`
+`check`'s first stage re-checks every artifact in the lockfile against
+the pinned hashes. On a warm cache it uses local sources and checks their
+hashes. If the cache is cold, it fetches each artifact and checks its
+hash. The stage runs before any JVM launches, and `check` never writes
+the lockfile, so a green first stage means: "Rig pinned these exact
+bytes, and they are what will run." Add `--offline`
 to also prove that the build needs no network. That form needs a warm
-cache, and air-gapped CI uses it. Place it as the first gate in a CI
+cache, and air-gapped CI uses it. Run `check` as the first gate in a CI
 pipeline (see [CI](../workflows/ci.md)).
 
 The exit codes that matter here:
@@ -65,8 +65,11 @@ The exit codes that matter here:
 |---|---|
 | 0 | everything matches |
 | 1 | `--offline`: an artifact is in neither the cache nor `~/.m2` |
-| 3 | lock missing or stale |
+| 3 | lock missing |
 | 4 | hash mismatch — artifact bytes differ from the lock |
+
+A stale lock does not gate `check`: it is reported as a `stale-lock`
+problem (exit 1), and the lock is never re-written.
 
 ## Cooldowns: the adoption window
 
@@ -113,16 +116,16 @@ A build is a function of three things: your source tree, `deps.lock`, and
 the artifact cache. CI runs it against the committed lockfile:
 
 ```sh
-rig verify && rig check && rig test
+rig check && rig test
 ```
 
 The gate can use the network to fill a cold cache. Either way, Rig
 hash-checks every byte against the lockfile. For the strongest claim — a
-hermetic or air-gapped build — add `--offline` to the three commands. That
+hermetic or air-gapped build — add `--offline` to the two commands. That
 needs a warm cache:
 
 ```sh
-rig verify --offline && rig check --offline && rig test --offline
+rig check --offline && rig test --offline
 ```
 
 If that passes on a machine with no network access, the bytes that ran are

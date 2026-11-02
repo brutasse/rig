@@ -11,8 +11,7 @@ This page lists every command, what it does, and its flags.
 | `update [coord [version]]` | cold | Re-resolve, or bump/pin one requirement (shared propagation). |
 | `add <coord> [version]` | cold | Add a requirement (shared by default). |
 | `remove <coord>` | cold | Remove a requirement (shared, from all modules). |
-| `verify` | hot | Check every lock artifact against the cache. The CI security gate. |
-| `check` | cold+hot | Lock-vs-manifest consistency + namespace load and AOT-compile per module. Never re-locks. |
+| `check` | cold+hot | Verify every lock artifact against the cache (the CI security gate), lock-vs-manifest consistency, and namespace load + AOT-compile per module. Never re-locks. |
 | `test [opt value…]` | hot | Run the modules' test exec-fns on locked classpaths. |
 | `run [args…]` | hot | Run the module's `:rig/main` on the (alias) classpath. |
 | `launch [jar] [args…]` | hot | Launch the built artifact with Rig's production JVM flags (G1 + AlwaysPreTouch, exit-on-OOM, loopback JMX on 10101), overridable via `:rig/launch-opts` and the `RIG_LAUNCH_OPTS` env var. Replaces its own process with the JVM (process exec) — the app is the container's PID 1. The jar's baked launch plan, or the lock, supplies the main. Never re-locks, never uses the network. |
@@ -73,9 +72,10 @@ wrote /home/dev/app/deps.lock: 528 artifacts, 8 modules
 ```
 
 Writing the lock is the command's whole job, and it needs no flag. The
-commands that consume the lock — `verify`, `test`, and the rest of the hot
-family — never write it. A missing or stale lock fails them (exit 3) and
-points back here.
+commands that consume the lock — `test` and the rest of the hot family —
+never write it. A missing or stale lock fails them (exit 3) and points
+back here. `check` consumes the lock too, but reports staleness instead
+of failing it: the stale module is a problem, and the command exits 1.
 
 When a cooldown refuses a requirement, the command aborts with exit 5:
 
@@ -178,31 +178,30 @@ conflicts, stale pins).
 
 ## Inspection
 
-### `rig verify`
-
-Re-check every lock artifact against the cache.
-
-```
-verified 528 artifacts (510 cached, 18 fetched, 2 git deps pinned by commit sha)
-```
-
-The command exits 4 on any hash mismatch, and 3 when the lock is absent or
-stale. It is the intended first CI gate: it verifies the committed lock,
-never a fresh re-resolution.
-
 ### `rig check`
 
-Two stages, one exit code:
+Three stages, one exit code:
 
-1. **Consistency** (workspace-wide, read-only) checks: `stale-lock` (a
-   requirement the pin does not satisfy). `conflict` (incompatible
-   requirements). `drift` (a module requirement differs from the workspace
-   requirement — a warning). `floating-version` (`RELEASE`/`LATEST` in a
-   manifest — an error; fix it with `rig update <coord>`). `no-lib`
-   (publish without `:rig/lib`). `unknown-repo` (the lock pins
+1. **Artifact verification** (workspace-wide): every lock artifact is
+   re-checked against the pinned hashes — verified from local sources on
+   a warm cache, fetched and hash-checked on a cold one. A hash mismatch
+   exits 4: a tampered entry is reported, never re-fetched and healed.
+   This is the intended first CI gate: it verifies the committed lock,
+   never a fresh re-resolution.
+
+   ```
+   check: verified 528 artifacts (510 cached, 18 fetched, 2 git deps pinned by commit sha)
+   ```
+2. **Consistency** (workspace-wide, read-only) checks: `stale-lock` (a
+   requirement the pin does not satisfy, or a manifest that changed since
+   the lock was written). `conflict` (incompatible requirements).
+   `drift` (a module requirement differs from the workspace requirement
+   — a warning). `floating-version` (`RELEASE`/`LATEST` in a manifest —
+   an error; fix it with `rig update <coord>`). `no-lib` (publish without
+   `:rig/lib`). `unknown-repo` (the lock pins
    via a repo that no manifest declares). `pool-unpinned` (a
    `:rig/deps` entry the lock does not pin — a warning).
-2. **Namespace load and AOT-compile**: Rig preloads the non-project
+3. **Namespace load and AOT-compile**: Rig preloads the non-project
    requires on the locked base classpath of each target module, then
    AOT-compiles its namespaces in dependency order. A failing load or
    compile produces a `load-fail` error. A source the AOT plan left
@@ -210,7 +209,7 @@ Two stages, one exit code:
    not match its path — is a `plan-skip` warning. Rig reports a module that pins
    `org.clojure/clojure` below the 1.8.0 floor as `clojure-floor`, before
    it launches any JVM (the runner entry point cannot load on Clojure
-   1.7.x). Stage 2 launches on the locked classpath as-is: on Clojure ≥
+   1.7.x). Stage 3 launches on the locked classpath as-is: on Clojure ≥
    1.9 the runtime itself requires `org.clojure/spec.alpha` to be present
    (it loads `clojure.core.server` at init). A module that declares no
    spec (directly or transitively) therefore fails with a `spec/alpha`
@@ -224,12 +223,15 @@ check: 1 error(s), 0 warning(s)
 or, clean:
 
 ```
+check: verified 528 artifacts (510 cached, 18 fetched)
 check: ok
 ```
 
-A missing lock is the exception: one message, exit 3.
+A missing lock is the exception: one message, exit 3. `--offline` makes
+the artifact stage a hermeticity proof: every artifact must already sit
+in the cache or a checksum-checked `~/.m2`, else exit 1.
 
-`-p` restricts stage 2 only. `check` never re-locks and never exits 3 for
+`-p` restricts stage 3 only. `check` never re-locks and never exits 3 for
 a stale lock — it reports staleness as a problem and exits 1.
 
 ### `rig outdated`
