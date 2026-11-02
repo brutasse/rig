@@ -35,7 +35,7 @@ Set in the `deps.edn` of each module. All keys are optional unless noted.
 | `:rig/version-file` | `"VERSION"` | Path to the version file (module dir, then workspace root) used when the module's version is recorded in the lock. Commonly `"../../VERSION"` in submodules of a shared-version project. |
 | `:rig/version-fn` | — | Dynamic version, keyword only (the kernel jar cannot load user code): `:git-count-revs` — the template's `GENERATED_VERSION` marker replaced with the commit count since the repo root; or `:epoch` — the current unix time in seconds. Used when neither `:rig/version` nor a version file is present. The version moves with the repo, so the lock records the snapshot taken at lock time. |
 | `:rig/version-template-file` | `"VERSION_TEMPLATE"` | The template file read by `:rig/version-fn :git-count-revs` (module dir, then workspace root). |
-| `:rig/main` | — | The namespace `rig run` (and `rig launch`, via the baked launch descriptor) launches (`-main`). Also the entry namespace of a native-image binary. |
+| `:rig/main` | — | The entry point `rig run` (and `rig launch`, via the baked launch descriptor) launches (`-main`), and the `Main-Class` of the jar and uberjar `rig build` writes. Also the entry namespace of a native-image binary. When it names a Clojure namespace outside the module's own sources, the build AOT-compiles it into the artifact without a declaration — see [Entry points](#entry-points-rigmain-and-rigns-compile). |
 | `:rig/uberjar?` | `false` (true if `:rig/uberjar-file` is set) | Build an uberjar (with `rig build --uber`). |
 | `:rig/native?` | `false` (true if `:rig/native-file` is set) | Build a GraalVM native-image binary (with `rig build --native`). |
 | `:rig/native-file` | `target/<lib name>` | Native binary output path, relative to the module (no extension). |
@@ -53,7 +53,32 @@ Set in the `deps.edn` of each module. All keys are optional unless noted.
 | `:deps/prep-lib` | — | The standard tools.deps prep-library key: a custom function that prepares the module (staleness-checked) before `rig build`, `rig test`, `rig run` or `rig nrepl` — e.g. compiling generated Java with an in-JVM Maven. Shape: `{:ensure "target/classes" :alias :prep :fn build/compile-java}`. See [prep functions](#prep-functions-depsprep-lib). |
 | `:jvm-opts` | `[]` | The standard tools.deps key: JVM flags for **dev execution** — `rig run`, `rig nrepl`, `rig exec`, `rig test` — and the module's prep function. It does not apply to `rig build`, `rig check` or `rig launch` (see [JVM flags](#jvm-flags)). |
 | `:rig/launch-opts` | `[]` | JVM flags for **`rig launch`** (the production entrypoint); baked into the artifact's launch descriptor at build time (see [JVM flags](#jvm-flags)). |
-| `:rig/ns-compile` | — | Extra namespaces to AOT-compile alongside the module's own sources, e.g. `[:entry.main]`. They compile even when a preload already loaded them. |
+| `:rig/ns-compile` | — | Extra entry points to AOT-compile into the artifact alongside the module's own sources, e.g. `[:worker.main]` — namespaces that are not the module's `:rig/main` but must ship as classes. They compile even when a preload already loaded them. `:rig/main` itself needs no declaration — see [Entry points](#entry-points-rigmain-and-rigns-compile). |
+
+## Entry points (`:rig/main` and `:rig/ns-compile`)
+
+Both keys name namespaces that must reach the built artifact as
+AOT-compiled classes. They differ in what they declare:
+
+- `:rig/main` is the module's own entry point. When it names a Clojure
+  namespace that is not one of the module's own sources — a dependency
+  namespace, or a namespace of another workspace module — `rig build`
+  AOT-compiles it into the jar or uberjar without any declaration: the
+  AOT plan adds it to the entry points when a `.clj`/`.cljc` source for
+  it exists on the locked classpath. A main with no source to compile —
+  a Java `Main-Class`, or a namespace the classpath carries as classes
+  alone — is not compiled: there is nothing for the build to compile,
+  and the artifact's `Main-Class` resolves from the classpath as usual.
+- `:rig/ns-compile` declares the extra entry points: namespaces that
+  are not the module's `:rig/main` but must still ship as classes — a
+  second entry point (a worker, a CLI variant), or a namespace that is
+  only reachable at run time. Every name compiles unconditionally, even
+  when the build's preload phase already loaded it.
+
+A namespace that is one of the module's own sources needs neither key:
+it compiles with the module. A `:rig/main` that is one of the module's
+own namespaces also stays out of the extra-entry-point list, so its top
+level never runs twice.
 
 ## Test alias convention
 

@@ -596,6 +596,107 @@
       (finally
         (delete-tree ws-dir)))))
 
+(deftest the-entry-namespace-outside-the-artifact-dirs-compiles-without-a-declaration
+  "A :rig/main that is not one of the module's namespaces joins the AOT
+  plan's entry points (aot/plan): its gen-class classes reach the jar
+  without a :rig/ns-compile declaration. The plan compiles it, so the
+  jar's Main-Class is runnable."
+  (let [ws-dir (temp-dir)
+        ws (str ws-dir)
+        src-root (io/file ws-dir "src")
+        dep-src (io/file ws-dir "dep-src")
+        res-root (io/file ws-dir "resources")
+        src-file (io/file src-root "example" "core.clj")
+        entry-file (io/file dep-src "entry" "main.clj")]
+    (io/make-parents src-file)
+    (spit src-file "(ns example.core)\n(def x 1)\n")
+    (io/make-parents entry-file)
+    (spit entry-file
+          "(ns entry.main\n  (:gen-class))\n(defn -main [& args]\n  (println (str \"hello \" (apply str args))))\n")
+    (try
+      (let [base (cfg ws src-root res-root false)
+            c (assoc base
+                     :classpath (conj (:classpath base)
+                                      {:id "paths:dep" :paths [(str dep-src)]})
+                     :main "entry.main")]
+        (build/build {:args {:builds {"." c}}})
+        (let [names (zip-names (str ws "/target/fixture.jar"))]
+          (is (contains? names "entry/main__init.class")
+              "the entry namespace's AOT class must reach the jar")
+          (is (contains? names "entry/main.class")
+              "the entry namespace's gen-class must reach the jar"))
+        (let [p (run-cmd (java)
+                         "-cp" (str ws "/target/fixture.jar:"
+                                    (System/getProperty "java.class.path"))
+                         "clojure.main" "-m" "entry.main" "world")]
+          (is (zero? (:exit p)) (str (:out p) (:err p)))
+          (is (re-find #"hello world" (:out p)))))
+      (finally
+        (delete-tree ws-dir)))))
+
+(deftest the-required-entry-namespace-outside-the-artifact-dirs-compiles-without-a-declaration
+  "A :rig/main the module requires is preloaded by construction, and the
+  preload never compiles into a plain jar: the entry point must still be
+  compiled unconditionally (its top level re-run) for its gen-class to
+  reach the jar — no :rig/ns-compile declaration."
+  (let [ws-dir (temp-dir)
+        ws (str ws-dir)
+        src-root (io/file ws-dir "src")
+        dep-src (io/file ws-dir "dep-src")
+        res-root (io/file ws-dir "resources")
+        src-file (io/file src-root "example" "core.clj")
+        entry-file (io/file dep-src "entry" "main.clj")]
+    (io/make-parents src-file)
+    (spit src-file
+          "(ns example.core\n  (:require [entry.main :as e]))\n(defn go [] (e/run))\n")
+    (io/make-parents entry-file)
+    (spit entry-file
+          "(ns entry.main\n  (:gen-class))\n(defn run [] :ran)\n(defn -main [& args]\n  (println (str \"hello \" (apply str args))))\n")
+    (try
+      (let [base (cfg ws src-root res-root false)
+            c (assoc base
+                     :classpath (conj (:classpath base)
+                                      {:id "paths:dep" :paths [(str dep-src)]})
+                     :main "entry.main")]
+        (build/build {:args {:builds {"." c}}})
+        (let [names (zip-names (str ws "/target/fixture.jar"))]
+          (is (contains? names "entry/main__init.class"))
+          (is (contains? names "entry/main.class")
+              "the preloaded entry point's gen-class must still reach the jar")))
+      (finally
+        (delete-tree ws-dir)))))
+
+(deftest the-entry-namespace-reaches-the-uber-without-a-declaration
+  "The same entry point reaches the uberjar as classes without a
+  :rig/ns-compile declaration."
+  (let [ws-dir (temp-dir)
+        ws (str ws-dir)
+        src-root (io/file ws-dir "src")
+        dep-src (io/file ws-dir "dep-src")
+        res-root (io/file ws-dir "resources")
+        src-file (io/file src-root "example" "core.clj")
+        entry-file (io/file dep-src "entry" "main.clj")]
+    (io/make-parents src-file)
+    (spit src-file "(ns example.core)\n(def x 1)\n")
+    (io/make-parents entry-file)
+    (spit entry-file
+          "(ns entry.main\n  (:gen-class))\n(defn -main [& args]\n  (println (str \"hello \" (apply str args))))\n")
+    (try
+      (let [base (cfg ws src-root res-root true)
+            c (assoc base
+                     :classpath (conj (:classpath base)
+                                      {:id "paths:dep" :paths [(str dep-src)]})
+                     :main "entry.main")]
+        (build/build {:args {:builds {"." c}}})
+        (let [names (zip-names (str ws "/target/fixture-uber.jar"))]
+          (is (contains? names "entry/main__init.class"))
+          (is (contains? names "entry/main.class")))
+        (let [p (run-cmd (java) "-jar" (str ws "/target/fixture-uber.jar") "there")]
+          (is (zero? (:exit p)) (str (:out p) (:err p)))
+          (is (re-find #"hello there" (:out p)))))
+      (finally
+        (delete-tree ws-dir)))))
+
 (deftest uber-preloads-compile-source-only-deps-without-a-declaration
   "No declaration needed: an uber build points the preload *compile-path*
   at the working class dir, so Clojure's RT.load compiles exactly those
