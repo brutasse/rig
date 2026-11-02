@@ -97,10 +97,9 @@ jobs:
         if: github.actor == 'renovate[bot]' && (startsWith(github.head_ref, 'renovate/') || startsWith(github.ref_name, 'renovate/'))
         run: |
           make lock-refresh
-          # locked_at moves on every re-lock: compare the resolution, not the
-          # file, so a run that changed nothing has nothing to push.
-          if diff -q <(jq 'del(.locked_at)' resolver/deps.lock) \
-                      <(git show HEAD:resolver/deps.lock | jq 'del(.locked_at)') >/dev/null; then
+          # The lock is deterministic given the resolution and the rig that
+          # wrote it: a run that changed nothing has nothing to push.
+          if git diff --quiet HEAD -- resolver/deps.lock; then
             echo "resolution unchanged"
             git checkout -- resolver/deps.lock
             exit 0

@@ -36,8 +36,7 @@ func newInfoCmd(o *opts) *cobra.Command {
 				if l.Resolver.SHA256 != "" {
 					jarSHA = ", " + shortSHA(l.Resolver.SHA256)
 				}
-				fmt.Printf("lock:\t%s by %s %s (%s%s), %d artifacts\n",
-					l.LockedAt.UTC().Format("2006-01-02T15:04:05Z"),
+				fmt.Printf("lock:\t%s %s (%s%s), %d artifacts\n",
 					l.Resolver.Lib, l.Resolver.Version, shortSHA(l.Resolver.GitSHA), jarSHA,
 					len(l.Artifacts))
 				if stale, err := l.Stale(root.Dir); err == nil && len(stale) > 0 {

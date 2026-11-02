@@ -24,7 +24,6 @@ A real lockfile from a multi-module workspace, trimmed:
     "git/sha": "546d868c4d1c…",
     "sha256": "9b0e1f2c…"
   },
-  "locked_at": "2026-09-18T10:00:00Z",
   "workspace": {
     "modules": [".", "modules/schemas", "modules/orchestrator"],
     "manifest_sha256": "86cbcbaf…"       // root deps.edn bytes at lock time

@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"strings"
-	"time"
 )
 
 const testSHA = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -18,7 +17,6 @@ func ForTest(modules ...string) *Document {
 		Version:  SupportedVersion,
 		Tool:     Tool{Name: "rig", Version: "0.0.0-test"},
 		Resolver: Resolver{Lib: "test/resolver", Version: "0", GitSHA: testSHA},
-		LockedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
 		Workspace: Workspace{
 			Modules:        modules,
 			ManifestSHA256: testSHA,

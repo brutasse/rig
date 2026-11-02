@@ -10,7 +10,6 @@
     "git/sha": "4fa9c46c6c8801d791fed0bae303fd97cdbcbc5e",
     "sha256": "ea03b818c284abc116e9ff9f63b3c39895546e475e366c392ff572ca640706ce"
   },
-  "locked_at": "2026-10-31T09:10:49Z",
   "workspace": {
     "modules": [
       ".",

@@ -274,9 +274,6 @@ func TestLockFromResponse(t *testing.T) {
 	if lock.Tool.Name != "rig" || lock.Tool.Version != Version {
 		t.Errorf("tool = %+v", lock.Tool)
 	}
-	if lock.LockedAt.IsZero() {
-		t.Error("locked_at not set")
-	}
 	if _, err := store.Get(shaOf(body), "jar"); err != nil {
 		t.Errorf("artifact not cached: %v", err)
 	}
@@ -448,7 +445,7 @@ func TestInfo(t *testing.T) {
 	if code != 0 {
 		t.Errorf("exit = %d; out: %s", code, out)
 	}
-	for _, want := range []string{"type:\tworkspace", "modules:\t., modules/app", "lock:\t2026-01-01T00:00:00Z"} {
+	for _, want := range []string{"type:\tworkspace", "modules:\t., modules/app", "lock:\ttest/resolver 0 (aaaaaaaaaaaa), 1 artifacts"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("info missing %q in:\n%s", want, out)
 		}
