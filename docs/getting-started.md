@@ -47,7 +47,6 @@ completion skip this check.
   hash-verified Temurin for that major into the Rig state directory.
   `rig jvm install <major>` does the same. If Rig finds no JVM at all, the
   error names the version you must install (the current LTS).
-- **`clj-kondo` on `PATH`**, only for `rig lint`.
 - **`~/.m2/settings.xml`** with credentials for your private Maven
   repositories, if you use them. This is the same file that Maven and
   tools.deps use today.

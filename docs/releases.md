@@ -61,6 +61,15 @@ diffing. Locks written by older rig versions still load: the field is
 ignored on read and absent from the next re-lock, so the schema stays at
 version 2. `rig info` no longer prints it.
 
+### Removed
+
+#### `rig lint`
+
+`rig lint` is gone: it ran clj-kondo from the user's PATH, the one verb
+that depended on a host tool Rig cannot pin or ship (cljfmt is pinned in
+the kernel jar; clj-kondo is not). Run clj-kondo directly, or
+`rig exec clj-kondo --lint <dir>`, if you want the lint.
+
 ## v0.3.2 — 2026-10-30
 
 ### Fixed
