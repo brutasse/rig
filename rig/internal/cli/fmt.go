@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"os/exec"
 
 	"github.com/spf13/cobra"
 
@@ -10,40 +9,6 @@ import (
 	"github.com/brutasse/rig/internal/kernel"
 	"github.com/brutasse/rig/internal/workspace"
 )
-
-func newLintCmd(o *opts) *cobra.Command {
-	return &cobra.Command{
-		Use:   "lint",
-		Short: "Lint the target module with clj-kondo",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runLint(o)
-		},
-	}
-}
-
-// runLint lints the module directory with clj-kondo from PATH. No lock
-// needed: clj-kondo works on source only and finds the project's own
-// .clj-kondo config.
-func runLint(o *opts) error {
-	root, err := workspace.Find(".")
-	if err != nil {
-		return err
-	}
-	m, err := resolveModule(root, o.path)
-	if err != nil {
-		return err
-	}
-	bin, err := exec.LookPath("clj-kondo")
-	if err != nil {
-		return exitf(2, "clj-kondo not found on PATH")
-	}
-	dir := moduleDir(root, m)
-	// --lint, not a positional: clj-kondo ≥ 2025.x lints paths only when
-	// named by --lint and otherwise prints its help and exits 0 — a bare
-	// positional made rig lint a green no-op.
-	return launch(jvm.Run{Java: bin, Args: []string{"--lint", dir}, Dir: dir})
-}
 
 func newFmtCmd(o *opts) *cobra.Command {
 	var check bool

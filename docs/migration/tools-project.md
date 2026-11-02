@@ -95,7 +95,7 @@ Full key reference: [configuration](../reference/config.md).
 | `install` | `rig install` |
 | `jar` | `rig build` |
 | `uberjar` | `rig build --uber` |
-| `lint` | `rig lint` |
+| `lint` | **gone** — no Rig equivalent |
 | `format-check` / `format-fix` | `rig fmt --check` / `rig fmt` |
 | `outdated` | `rig outdated` |
 | `merge-deps` / `merge-aliases` | **gone** — `rig lock` / `rig update` |
@@ -166,7 +166,6 @@ After: the Rig verbs, directly.
 ```sh
 rig check
 rig test :kaocha.filter/focus '[:unit]'
-rig lint
 rig build --uber
 rig publish
 git tag "v$(cat VERSION)"

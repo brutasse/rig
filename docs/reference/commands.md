@@ -24,7 +24,6 @@ This page lists every command, what it does, and its flags.
 | `outdated [--breaking]` | cold | Pinned vs available versions. |
 | `tree [--alias a]` | cold | Dependency tree for a module. |
 | `clean` | hot | Remove build-output directories. |
-| `lint` | hot | clj-kondo on the module (no lock needed). |
 | `fmt [--check]` | hot | cljfmt on the module, pinned version (no lock needed). |
 | `new <group/name>` | cold | Scaffold a new project. |
 | `new-module <name>` | cold | Scaffold a module in the workspace, add it, re-lock. |
@@ -432,11 +431,6 @@ negotiated token).
 Remove the target directories of the target modules (one `cleaned <dir>`
 line each).
 
-### `rig lint`
-
-Run clj-kondo (from PATH, with the config of the project itself) on the
-module. No lock needed.
-
 ### `rig fmt`
 
 Format the module with the cljfmt version pinned in the kernel jar —
@@ -666,8 +660,8 @@ rig --autocomplete | Invoke-Expression  # PowerShell
 | 4 | security failure — artifact hash mismatch / not in the lock |
 | 5 | cooldown refused — retry with `--force` |
 
-Commands that launch a child process (`run`, `nrepl`, `exec`, `lint`,
-`fmt`) propagate the exit code of the child verbatim, above these.
+Commands that launch a child process (`run`, `nrepl`, `exec`, `fmt`)
+propagate the exit code of the child verbatim, above these.
 `launch` is the purest form of it: it execs the JVM, so the exit code of
 the JVM is the exit code of the process. `test` and `check` interpret
 their runner instead: a failing runner makes Rig exit 1 with its own

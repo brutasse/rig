@@ -92,7 +92,7 @@ network when the cache is warm:
 | Command | What the kernel contributes |
 |---|---|
 | `run`, `nrepl`, `exec`, `verify` | nothing — pure Go |
-| `clean`, `lint` | nothing — no lock needed at all |
+| `clean` | nothing — no lock needed at all |
 | `test` | its jar, as the *last* classpath entry: it carries `rig.runner`, the exec-fn launcher that runs the module's test alias. The project's own Clojure comes first and wins on conflicts |
 | `check` (stage 2) | the kernel computes the AOT plan (`aot-plan` op), then its jar as the *last* classpath entry: the runner's aot mode preloads the plan's requires and AOT-compiles the module's namespaces into a fresh class dir that leads the locked base classpath. Stage 1 (lock vs manifests) is the cold kernel op |
 | `fmt` | its jar, run directly: a pinned `cljfmt` bundled inside it |

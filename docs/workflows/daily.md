@@ -75,18 +75,14 @@ The exit code of your command becomes Rig's exit code.
 ## Code hygiene
 
 ```sh
-rig lint                    # clj-kondo (from PATH), project config
-rig lint -p modules/app
 rig fmt                     # cljfmt (the version pinned in the kernel)
 rig fmt --check             # CI: report without fixing
 rig clean                   # remove target dirs of all target modules
 rig clean -p modules/app
 ```
 
-`lint` needs `clj-kondo` on your PATH. It works without a lockfile, because
-it lints source. `fmt` uses the cljfmt pinned inside the kernel jar of Rig,
-so everyone formats with the same version. It also works without a
-lockfile.
+`fmt` uses the cljfmt pinned inside the kernel jar of Rig, so everyone
+formats with the same version. It works without a lockfile.
 
 ## What every hot command does first
 
