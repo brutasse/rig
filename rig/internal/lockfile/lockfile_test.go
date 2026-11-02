@@ -62,9 +62,6 @@ func TestSaveRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if d2.LockedAt != d.LockedAt {
-		t.Errorf("locked_at round-trip: %v != %v", d2.LockedAt, d.LockedAt)
-	}
 	if len(d2.Artifacts) != len(d.Artifacts) {
 		t.Errorf("artifacts round-trip: %d != %d", len(d2.Artifacts), len(d.Artifacts))
 	}

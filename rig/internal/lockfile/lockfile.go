@@ -25,7 +25,6 @@ type Document struct {
 	Version   int       `json:"version"`
 	Tool      Tool      `json:"tool"`
 	Resolver  Resolver  `json:"resolver"`
-	LockedAt  time.Time `json:"locked_at"`
 	Workspace Workspace `json:"workspace"`
 	Cooldown  Cooldown  `json:"cooldown"`
 	JVM       *JVM      `json:"jvm,omitempty"`

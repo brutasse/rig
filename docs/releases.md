@@ -36,6 +36,15 @@ records the sha256 of the jar that actually ran. The `RIG_KERNEL_JAR` /
 jars remain published as release assets: pre-embedding rig binaries
 still fetch them at runtime.
 
+#### `deps.lock` no longer records `locked_at`
+
+The top-level `locked_at` timestamp is out of the lock schema: no other
+lockfile records when it was written, and the moving value made the file
+non-deterministic — the Renovate re-lock in CI had to strip it before
+diffing. Locks written by older rig versions still load: the field is
+ignored on read and absent from the next re-lock, so the schema stays at
+version 2. `rig info` no longer prints it.
+
 ## v0.3.2 — 2026-10-30
 
 ### Fixed

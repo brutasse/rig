@@ -9,7 +9,6 @@
     "version": "0.1.0",
     "git/sha": "abcdef0123456789abcdef0123456789abcdef01"
   },
-  "locked_at": "2026-09-15T12:34:56Z",
   "workspace": {
     "modules": [".", "modules/schemas", "modules/orchestrator"],
     "manifest_sha256": "9b2f000000000000000000000000000000000000000000000000000000000000"

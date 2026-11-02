@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"time"
 
 	"github.com/spf13/cobra"
 
@@ -131,12 +130,11 @@ func lockFromResponse(ctx context.Context, client *fetch.Client, store *cache.St
 	return lock, completeLock(ctx, client, store, m2root, kernelJar, lock)
 }
 
-// completeLock fills tool/locked_at, the resolver identity (the pin, plus
+// completeLock fills tool, the resolver identity (the pin, plus
 // the sha256 of the kernel jar that ran), and every mvn artifact's sha256
 // (fetching each), then validates.
 func completeLock(ctx context.Context, client *fetch.Client, store *cache.Store, m2root, kernelJar string, lock *lockfile.Document) error {
 	lock.Tool = lockfile.Tool{Name: "rig", Version: Version}
-	lock.LockedAt = time.Now().UTC().Truncate(time.Second)
 
 	sha, err := digest.File(kernelJar)
 	if err != nil {
