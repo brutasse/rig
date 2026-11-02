@@ -42,7 +42,7 @@ and tools.deps use the same file.
 ## `verify`: the CI security gate
 
 ```sh
-rig verify --frozen
+rig verify
 ```
 
 ```
@@ -51,9 +51,10 @@ verified 528 artifacts (510 cached, 18 fetched, 2 git deps pinned by commit sha)
 
 `verify` re-checks every artifact in the lockfile against the pinned
 hashes. On a warm cache it uses local sources and checks their hashes. If
-the cache is cold, it fetches each artifact and checks its hash. With `--frozen`,
-`verify` refuses to change the lockfile. A green `verify --frozen` means:
-"Rig pinned these exact bytes, and they are what will run." Add `--offline`
+the cache is cold, it fetches each artifact and checks its hash. `verify`
+never writes the lockfile. It fails (exit 3) when the lock is missing or
+stale, so a green `verify` means: "Rig pinned these exact bytes, and they
+are what will run." Add `--offline`
 to also prove that the build needs no network. That form needs a warm
 cache, and air-gapped CI uses it. Place it as the first gate in a CI
 pipeline (see [CI](../workflows/ci.md)).
@@ -64,7 +65,7 @@ The exit codes that matter here:
 |---|---|
 | 0 | everything matches |
 | 1 | `--offline`: an artifact is in neither the cache nor `~/.m2` |
-| 3 | lock missing or stale under `--frozen` |
+| 3 | lock missing or stale |
 | 4 | hash mismatch — artifact bytes differ from the lock |
 
 ## Cooldowns: the adoption window
@@ -111,10 +112,10 @@ requirements.)
 ## Reproducibility
 
 A build is a function of three things: your source tree, `deps.lock`, and
-the artifact cache. CI runs the frozen form of that function:
+the artifact cache. CI runs it against the committed lockfile:
 
 ```sh
-rig verify --frozen && rig check --frozen && rig test --frozen
+rig verify && rig check && rig test
 ```
 
 The gate can use the network to fill a cold cache. Either way, Rig
@@ -123,7 +124,7 @@ hermetic or air-gapped build — add `--offline` to the three commands. That
 needs a warm cache:
 
 ```sh
-rig verify --frozen --offline && rig check --frozen --offline && rig test --frozen --offline
+rig verify --offline && rig check --offline && rig test --offline
 ```
 
 If that passes on a machine with no network access, the bytes that ran are

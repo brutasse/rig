@@ -47,10 +47,12 @@ This page lists every command, what it does, and its flags.
 | `version` | hot | Print the project version. |
 | `info` | hot | Project and tool summary. |
 
-*Hot* commands run from the lock (lock → hash-check → launch). They re-lock
-only when the lock is stale and `--frozen` is not set. *Cold* commands do
-deeper kernel work (resolve, build, publish, edit). They can write the lock
-or the manifests. `launch` is hot because it never touches the kernel. It
+*Hot* commands run from the lock (lock → hash-check → launch). They never
+write the lock: a missing or stale lock fails them (exit 3) and points at
+`rig lock`. *Cold* commands do deeper kernel work (resolve, build,
+publish, edit). Only the locking family — `lock`, `add`, `remove`,
+`update`, `new`, `new-module` — writes the lock, and it needs no flag.
+`launch` is hot because it never touches the kernel. It
 treats the lock as inert data: it never checks staleness, never re-locks,
 and never uses the network. `clean`, `version` and `info` read the
 workspace and the lock — they never write the lock, stale or not.
@@ -71,10 +73,10 @@ selections (cooldowns, forces) and a summary:
 wrote /home/dev/app/deps.lock: 528 artifacts, 8 modules
 ```
 
-`rig lock` refuses `--frozen` (exit 2): writing the lock is its whole
-job. CI modes that must not modify the lock belong on the commands that
-consume it. `rig lock` used to silently ignore `--frozen` and rewrite
-the lock anyway.
+Writing the lock is the command's whole job, and it needs no flag. The
+commands that consume the lock — `verify`, `test`, and the rest of the hot
+family — never write it. A missing or stale lock fails them (exit 3) and
+points back here.
 
 When a cooldown refuses a requirement, the command aborts with exit 5:
 
@@ -186,9 +188,9 @@ Re-check every lock artifact against the cache.
 verified 528 artifacts (510 cached, 18 fetched, 2 git deps pinned by commit sha)
 ```
 
-The command exits 4 on any hash mismatch. Under `--frozen`, the command
-exits 3 when the lock is absent or stale. It is the intended first CI
-gate.
+The command exits 4 on any hash mismatch, and 3 when the lock is absent or
+stale. It is the intended first CI gate: it verifies the committed lock,
+never a fresh re-resolution.
 
 ### `rig check`
 
@@ -333,7 +335,7 @@ Without the descriptor, the lock is the plan.
 
 `rig launch` is offline by definition: it runs what is already in the
 cache, from a previous build. The lock is inert data for it: it ignores a
-stale lock, and `--frozen` has no effect. Classpath artifacts must already
+stale lock. Classpath artifacts must already
 be in the cache. The major version of the launch JVM must exactly match
 the major version of the build JVM; a different major fails with exit 2.
 A missing artifact fails too — it is not fetched — as a plain error
@@ -638,7 +640,6 @@ newest build. The command does not touch the manifest or the lock.
 |---|---|
 | `-p, --path <module>` | Target one module (default: all workspace modules, in `:rig/modules` order; `.` = root module). One module per command — a repeated `-p` is a usage error (exit 2). |
 | `--offline` | Never use the network. Artifacts come from the cache or a checksum-checked `~/.m2`; fail if in neither. |
-| `--frozen` | Never modify the lock; fail (exit 3) if it is missing or stale. The CI mode. `rig lock` refuses it — writing the lock is its whole job. |
 | `--force` | Bypass cooldowns (the decision is recorded in the lock). |
 | `--cache-dir <dir>` | State directory (artifact cache + kernel jars). Default `~/.local/share/rig`; honors `$XDG_DATA_HOME`. |
 | `-v, --verbose` | Debug logging. |
@@ -661,7 +662,7 @@ rig --autocomplete | Invoke-Expression  # PowerShell
 | 0 | success |
 | 1 | failure — build/test/publish/resolve error, or a `check` error |
 | 2 | usage error — bad flag, missing main, module not in the lock, … |
-| 3 | lock problem — missing lock, or stale under `--frozen` |
+| 3 | lock problem — missing or stale lock on a command that does not write it |
 | 4 | security failure — artifact hash mismatch / not in the lock |
 | 5 | cooldown refused — retry with `--force` |
 

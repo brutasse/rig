@@ -101,7 +101,7 @@ network when the cache is warm:
 
 | Command | Kernel op |
 |---|---|
-| `lock` (and the automatic re-lock) | `resolve` |
+| `lock` | `resolve` |
 | `add` / `remove` / `update` | `edit-dep`, then `resolve` |
 | `check` | `check` — read-only consistency report (stage 1); stage 2 also takes the `aot-plan` op |
 | `tree` | `tree` |

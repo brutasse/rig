@@ -13,8 +13,8 @@ Every command that builds a classpath (`test`, `run`, `nrepl`, `exec`,
    each module *as raw bytes* and compares it to the `manifest_sha256`
    of the lock. No EDN parsing: the Go binary has no EDN reader in the
    hot path at all (the one bounded literal reader is for CLI
-   arguments). A changed manifest is a changed plan — re-lock and
-   continue in development, exit 3 under `--frozen`.
+   arguments). A changed manifest is a changed plan: the command exits 3
+   and points at `rig lock`.
 2. **Classpath assembly** — `classpath.Build` reads
    `modules[].classpath` (or the classpath of the alias) from the lock
    and expands each entry. It expands an artifact id against the
@@ -95,12 +95,12 @@ sync happens at resolve time, serialized behind one JVM-wide lock.
 check-then-act cache is not thread-safe. So the kernel wraps its entry
 points (`rig.resolver.git-sync`).
 
-## Offline, frozen, and the exit codes
+## Offline and the exit codes
 
 | Flag / state | Effect | Exit |
 |---|---|---|
 | `--offline` | no network, ever: cache or m2 only | 1 when an artifact is in neither |
-| `--frozen` | the lock is read-only; a stale lock fails | 3 |
+| stale lock | a command that consumes the lock fails; run `rig lock` | 3 |
 | hash mismatch | abort, no self-heal | 4 |
 | cooldown refused everything | `rig lock` fails; retry with `--force` | 5 |
 

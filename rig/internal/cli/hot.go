@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"fmt"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -16,13 +15,13 @@ import (
 	"github.com/brutasse/rig/internal/workspace"
 )
 
-// hotLock returns the workspace root with a fresh, non-stale lock, applying
-// the stale-lock policy (design §"Lock staleness"):
+// hotLock returns the workspace root and its lock, enforcing the lock gate.
+// Commands that build a classpath from the lock never write it:
 //
-//   - no lock at all           -> exit 3 with a hint to run 'rig lock'
-//   - stale + --frozen          -> exit 3, lock untouched (CI)
-//   - stale (default, dev)      -> re-resolve and refresh the lock, print one
-//     "relocked" line, and continue with the fresh lock.
+//   - no lock at all  -> exit 3 with a hint to run 'rig lock'
+//   - stale lock      -> exit 3, lock untouched; refresh it with 'rig lock'
+//     (or 'rig add' / 'rig remove' / 'rig update')
+//   - current lock    -> proceed
 //
 // Staleness is detected by recomputing each manifest's sha256 and comparing
 // it to the value recorded in the lock (no EDN parsing).
@@ -39,20 +38,9 @@ func (o *opts) hotLock(ctx context.Context) (*workspace.Root, *lockfile.Document
 		return nil, nil, err
 	}
 	if len(stale) > 0 {
-		if o.frozen {
-			return nil, nil, exitf(3,
-				"lock is stale (manifest changed in: %s); run 'rig lock' to refresh",
-				strings.Join(stale, ", "))
-		}
-		lock, err := o.relock(ctx, root)
-		if err != nil {
-			return nil, nil, err
-		}
-		// Loud, because this rewrote deps.lock under the caller: CI wants
-		// --frozen, which fails (exit 3) instead of relocking.
-		fmt.Printf("relocked (stale: %s) — deps.lock rewritten; use --frozen to fail instead of relocking\n",
+		return nil, nil, exitf(3,
+			"lock is stale (manifest changed in: %s); run 'rig lock' to refresh",
 			strings.Join(stale, ", "))
-		return root, lock, nil
 	}
 	return root, root.Lock, nil
 }

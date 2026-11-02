@@ -345,16 +345,11 @@ func TestHotReadOnlyStore(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Chdir(dst)
-	// Bring the manifest in line with the lock: rig check never re-locks
-	// (it reports), so the stale fixture would be reported regardless of
-	// the store's writability. The warm-up run below does re-lock (hot
-	// policy) while the store is still writable.
-	cleanFixture(t)
 
 	store := t.TempDir()
 	// Warm-up run (writable store): materializes the embedded jars and
-	// relocks the stale fixture, fetching the locked artifacts into the
-	// store; the fixture's failing integration test gives exit 1.
+	// fetches the locked artifacts into the store; the fixture's failing
+	// integration test gives exit 1.
 	if code, out := runCLI(t, "test", "--cache-dir", store); code != 1 {
 		t.Fatalf("warm-up test exit = %d, want 1; out: %s", code, out)
 	}
@@ -380,31 +375,25 @@ func TestHotReadOnlyStore(t *testing.T) {
 	}
 }
 
-func TestHotRelockNoticesTheRewrite(t *testing.T) {
-	// A stale lock under the default policy is relocked and deps.lock is
-	// rewritten — a mutation CI must not get as a surprise. The line must
-	// say so and point at --frozen.
+func TestHotStaleFails(t *testing.T) {
+	// The lock gate: a manifest changed after the lock was written, and the
+	// hot commands never write the lock. The run fails (exit 3) with a hint
+	// to run 'rig lock', and the lock on disk is untouched.
 	hotSetup(t)
-	manifest, err := os.ReadFile("deps.edn")
+	lock, err := os.ReadFile("deps.lock")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile("deps.edn", append(append([]byte{}, manifest...), "\n; touched\n"...), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	// The warm-up run also warms the store for the fixture's pins.
+	mutateFile(t, "deps.edn", func(s string) string { return s + "\n; touched\n" })
 	code, out := runCLI(t, "test", "--cache-dir", t.TempDir())
-	if !strings.Contains(out, "relocked (stale:") || !strings.Contains(out, "deps.lock rewritten") ||
-		!strings.Contains(out, "--frozen") {
-		t.Fatalf("relock line not loud enough (exit %d): %s", code, out)
+	if code != 3 {
+		t.Fatalf("stale test exit = %d, want 3; out: %s", code, out)
 	}
-	// --frozen on a stale workspace fails instead of rewriting.
-	if err := os.WriteFile("deps.edn", append(append([]byte{}, manifest...), "\n; touched again\n"...), 0o644); err != nil {
-		t.Fatal(err)
+	if !strings.Contains(out, "stale") || !strings.Contains(out, "run 'rig lock'") {
+		t.Fatalf("stale test out missing the hint: %s", out)
 	}
-	code, out = runCLI(t, "test", "--frozen", "--cache-dir", t.TempDir())
-	if code != 3 || !strings.Contains(out, "stale") {
-		t.Fatalf("frozen test exit = %d, want 3; out: %s", code, out)
+	if after, _ := os.ReadFile("deps.lock"); string(after) != string(lock) {
+		t.Errorf("stale test rewrote deps.lock")
 	}
 }
 

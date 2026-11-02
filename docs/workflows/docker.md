@@ -27,7 +27,7 @@ repositories.
 FROM ghcr.io/brutasse/rig:latest
 WORKDIR /app
 COPY . .
-RUN rig verify --frozen && rig test --frozen
+RUN rig verify && rig test
 ```
 
 ## As an app entrypoint
@@ -51,14 +51,13 @@ FROM eclipse-temurin:21-jdk-jammy
 WORKDIR /app
 COPY --from=ghcr.io/brutasse/rig:latest /usr/local/bin/rig /usr/local/bin/
 COPY . .
-RUN rig verify --frozen && rig test --frozen
+RUN rig verify && rig test
 ```
 
 The binary carries its tool jars, so `rig` needs no GitHub access at
 runtime. It only talks to your artifact repositories. The build consumes
-the committed `deps.lock`:
-`rig verify --frozen` fails when the lockfile is missing or stale. Locking
-is workstation work.
+the committed `deps.lock`: `rig verify` fails when the lockfile is missing
+or stale. Locking is workstation work.
 
 ## Pinned JVMs
 

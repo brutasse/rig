@@ -76,7 +76,14 @@ func TestPublish(t *testing.T) {
  {:test {:extra-deps {lambdaisland/kaocha {:mvn/version "1.66.1034"}}
          :extra-paths ["test"]
          :exec-fn kaocha.runner/exec-fn}}}`)
-	code, out := runCLI(t, "publish", "--cache-dir", t.TempDir(), "-p", "modules/app")
+	cacheDir := t.TempDir()
+	// The manifest rewrite invalidated the lock; publish consumes the lock,
+	// so refresh it first.
+	code, out := runCLI(t, "lock", "--cache-dir", cacheDir)
+	if code != 0 {
+		t.Fatalf("lock exit = %d, want 0; out: %s", code, out)
+	}
+	code, out = runCLI(t, "publish", "--cache-dir", cacheDir, "-p", "modules/app")
 	if code != 0 {
 		t.Fatalf("publish exit = %d, want 0; out: %s", code, out)
 	}
@@ -110,7 +117,14 @@ func TestPublishUnsupportedRepoURL(t *testing.T) {
  {:test {:extra-deps {lambdaisland/kaocha {:mvn/version "1.66.1034"}}
          :extra-paths ["test"]
          :exec-fn kaocha.runner/exec-fn}}}`)
-	code, out := runCLI(t, "publish", "--cache-dir", t.TempDir(), "-p", "modules/app")
+	cacheDir := t.TempDir()
+	// The manifest rewrite invalidated the lock; publish consumes the lock,
+	// so refresh it first.
+	code, out := runCLI(t, "lock", "--cache-dir", cacheDir)
+	if code != 0 {
+		t.Fatalf("lock exit = %d, want 0; out: %s", code, out)
+	}
+	code, out = runCLI(t, "publish", "--cache-dir", cacheDir, "-p", "modules/app")
 	if code != 2 {
 		t.Fatalf("publish exit = %d, want 2; out: %s", code, out)
 	}
@@ -150,7 +164,14 @@ func TestPublishBearer(t *testing.T) {
  {:test {:extra-deps {lambdaisland/kaocha {:mvn/version "1.66.1034"}}
          :extra-paths ["test"]
          :exec-fn kaocha.runner/exec-fn}}}`)
-	code, out := runCLI(t, "publish", "--cache-dir", t.TempDir(), "-p", "modules/app")
+	cacheDir := t.TempDir()
+	// The manifest rewrite invalidated the lock; publish consumes the lock,
+	// so refresh it first.
+	code, out := runCLI(t, "lock", "--cache-dir", cacheDir)
+	if code != 0 {
+		t.Fatalf("lock exit = %d, want 0; out: %s", code, out)
+	}
+	code, out = runCLI(t, "publish", "--cache-dir", cacheDir, "-p", "modules/app")
 	if code != 0 {
 		t.Fatalf("publish exit = %d, want 0; out: %s", code, out)
 	}

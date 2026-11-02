@@ -147,17 +147,17 @@ func TestVerifyNoLock(t *testing.T) {
 	}
 }
 
-func TestVerifyFrozenStale(t *testing.T) {
+func TestVerifyStale(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
 	// Lock whose recorded manifest sha does NOT match the deps.edn on disk:
-	// the lock is stale. --frozen must refuse to relock and exit 3.
+	// the lock is stale. verify never re-locks and must exit 3.
 	doc := lockfile.ForTest(".")
 	writeFile(t, "deps.edn", "{:rig/lib x/y}\n")
 	if err := doc.Save("deps.lock"); err != nil {
 		t.Fatal(err)
 	}
-	code, out := runCLI(t, "verify", "--frozen", "--cache-dir", t.TempDir())
+	code, out := runCLI(t, "verify", "--cache-dir", t.TempDir())
 	if code != 3 {
 		t.Errorf("exit = %d, want 3; out: %s", code, out)
 	}

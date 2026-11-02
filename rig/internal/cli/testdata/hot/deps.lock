@@ -2,12 +2,13 @@
   "version": 2,
   "tool": {
     "name": "rig",
-    "version": "0.1.0"
+    "version": "dev"
   },
   "resolver": {
     "lib": "io.github.brutasse/rig-resolver",
-    "version": "0.1.0",
-    "git/sha": "0000000000000000000000000000000000000000"
+    "version": "dev",
+    "git/sha": "dev",
+    "sha256": "ca74e3ecd518559b0220a108d35b0d04f26f4d9e9a84c30f50bc52bd5d0eed13"
   },
   "workspace": {
     "modules": [
@@ -30,7 +31,7 @@
       "extension": "jar",
       "classifier": null,
       "repository": "central",
-      "url": "https://repo1.maven.org/maven2/org/tcrawley/dynapath/1.1.0/dynapath-1.1.0.jar",
+      "url": "https://repo.maven.apache.org/maven2/org/tcrawley/dynapath/1.1.0/dynapath-1.1.0.jar",
       "sha256": "9fc7aa3be6385da3ad22a06526f15a5d335d9e89d40f39bf2f9a00e0bbbd8ae8",
       "published_at": null,
       "git": null
@@ -58,22 +59,8 @@
       "extension": "jar",
       "classifier": null,
       "repository": "central",
-      "url": "https://repo1.maven.org/maven2/org/clojure/spec.alpha/0.3.218/spec.alpha-0.3.218.jar",
+      "url": "https://repo.maven.apache.org/maven2/org/clojure/spec.alpha/0.3.218/spec.alpha-0.3.218.jar",
       "sha256": "67ec898eb55c66a957a55279dd85d1376bb994bd87668b2b0de1eb3b97e8aae0",
-      "published_at": null,
-      "git": null
-    },
-    {
-      "id": "org.clojure/core.specs.alpha:0.4.74:jar",
-      "kind": "mvn",
-      "group": "org.clojure",
-      "name": "core.specs.alpha",
-      "version": "0.4.74",
-      "extension": "jar",
-      "classifier": null,
-      "repository": "central",
-      "url": "https://repo1.maven.org/maven2/org/clojure/core.specs.alpha/0.4.74/core.specs.alpha-0.4.74.jar",
-      "sha256": "eb73ac08cf49ba840c88ba67beef11336ca554333d9408808d78946e0feb9ddb",
       "published_at": null,
       "git": null
     },
@@ -100,7 +87,7 @@
       "extension": "jar",
       "classifier": null,
       "repository": "central",
-      "url": "https://repo1.maven.org/maven2/net/incongru/watchservice/barbary-watchservice/1.0/barbary-watchservice-1.0.jar",
+      "url": "https://repo.maven.apache.org/maven2/net/incongru/watchservice/barbary-watchservice/1.0/barbary-watchservice-1.0.jar",
       "sha256": "54c6cabd82093c8515f6e14e43d94bfe7e9fc795d15789f3943a1418d8263ab5",
       "published_at": null,
       "git": null
@@ -128,7 +115,7 @@
       "extension": "jar",
       "classifier": null,
       "repository": "central",
-      "url": "https://repo1.maven.org/maven2/org/clojure/clojure/1.11.0/clojure-1.11.0.jar",
+      "url": "https://repo.maven.apache.org/maven2/org/clojure/clojure/1.11.0/clojure-1.11.0.jar",
       "sha256": "3e21fa75a07ec9ddbbf1b2b50356cf180710d0398deaa4f44e91cd6304555947",
       "published_at": null,
       "git": null
@@ -226,7 +213,7 @@
       "extension": "jar",
       "classifier": null,
       "repository": "central",
-      "url": "https://repo1.maven.org/maven2/org/clojure/tools.cli/1.0.206/tools.cli-1.0.206.jar",
+      "url": "https://repo.maven.apache.org/maven2/org/clojure/tools.cli/1.0.206/tools.cli-1.0.206.jar",
       "sha256": "6b97d2691919b9ea944a898fec798a90ecb81a17732916edbc73a6f5afd1f616",
       "published_at": null,
       "git": null
@@ -254,7 +241,7 @@
       "extension": "jar",
       "classifier": null,
       "repository": "central",
-      "url": "https://repo1.maven.org/maven2/io/methvin/directory-watcher/0.15.0/directory-watcher-0.15.0.jar",
+      "url": "https://repo.maven.apache.org/maven2/io/methvin/directory-watcher/0.15.0/directory-watcher-0.15.0.jar",
       "sha256": "71decbe124a502518c097b628b56ff6cc3c05a53f3fbc78d4e7558ac3916b8fb",
       "published_at": null,
       "git": null
@@ -296,7 +283,7 @@
       "extension": "jar",
       "classifier": null,
       "repository": "central",
-      "url": "https://repo1.maven.org/maven2/net/java/dev/jna/jna/5.7.0/jna-5.7.0.jar",
+      "url": "https://repo.maven.apache.org/maven2/net/java/dev/jna/jna/5.7.0/jna-5.7.0.jar",
       "sha256": "c34e3e002cca6e197379c105b554255cc0638101ed7a09ef00334dade0013621",
       "published_at": null,
       "git": null
@@ -310,7 +297,7 @@
       "extension": "jar",
       "classifier": null,
       "repository": "central",
-      "url": "https://repo1.maven.org/maven2/org/clojure/tools.reader/1.3.6/tools.reader-1.3.6.jar",
+      "url": "https://repo.maven.apache.org/maven2/org/clojure/tools.reader/1.3.6/tools.reader-1.3.6.jar",
       "sha256": "11d1b31f2c65c3355b292bb9b44b8fcafda54b44da63e34ab97b79a8ab3bb8e0",
       "published_at": null,
       "git": null
@@ -338,7 +325,7 @@
       "extension": "jar",
       "classifier": null,
       "repository": "central",
-      "url": "https://repo1.maven.org/maven2/org/clojure/java.classpath/1.0.0/java.classpath-1.0.0.jar",
+      "url": "https://repo.maven.apache.org/maven2/org/clojure/java.classpath/1.0.0/java.classpath-1.0.0.jar",
       "sha256": "c14e0e10304a5e5cfd2cc742fbdefac1f5293eec6070c2ffe8903fb5c7fe7d6f",
       "published_at": null,
       "git": null
@@ -366,7 +353,7 @@
       "extension": "jar",
       "classifier": null,
       "repository": "central",
-      "url": "https://repo1.maven.org/maven2/org/slf4j/slf4j-api/1.7.30/slf4j-api-1.7.30.jar",
+      "url": "https://repo.maven.apache.org/maven2/org/slf4j/slf4j-api/1.7.30/slf4j-api-1.7.30.jar",
       "sha256": "cdba07964d1bb40a0761485c6b1e8c2f8fd9eb1d19c53928ac0d7f9510105c57",
       "published_at": null,
       "git": null
@@ -380,22 +367,8 @@
       "extension": "jar",
       "classifier": null,
       "repository": "central",
-      "url": "https://repo1.maven.org/maven2/org/clojure/core.rrb-vector/0.0.14/core.rrb-vector-0.0.14.jar",
+      "url": "https://repo.maven.apache.org/maven2/org/clojure/core.rrb-vector/0.0.14/core.rrb-vector-0.0.14.jar",
       "sha256": "9b9dbafe8dd60e4851bfd35ecfab3668edf69a6a108f5c916b282fb9c43d5e4d",
-      "published_at": null,
-      "git": null
-    },
-    {
-      "id": "org.clojure/clojure:1.12.5:jar",
-      "kind": "mvn",
-      "group": "org.clojure",
-      "name": "clojure",
-      "version": "1.12.5",
-      "extension": "jar",
-      "classifier": null,
-      "repository": "central",
-      "url": "https://repo1.maven.org/maven2/org/clojure/clojure/1.12.5/clojure-1.12.5.jar",
-      "sha256": "dfdee131460216a84fef22e537bb0d0579965f8f70338d748323dff26f8e5a8b",
       "published_at": null,
       "git": null
     },
@@ -408,22 +381,8 @@
       "extension": "jar",
       "classifier": null,
       "repository": "central",
-      "url": "https://repo1.maven.org/maven2/org/clojure/core.specs.alpha/0.2.62/core.specs.alpha-0.2.62.jar",
+      "url": "https://repo.maven.apache.org/maven2/org/clojure/core.specs.alpha/0.2.62/core.specs.alpha-0.2.62.jar",
       "sha256": "06eea8c070bbe45c158567e443439681bc8c46e9123414f81bfa32ba42d6cbc8",
-      "published_at": null,
-      "git": null
-    },
-    {
-      "id": "org.clojure/spec.alpha:0.5.238:jar",
-      "kind": "mvn",
-      "group": "org.clojure",
-      "name": "spec.alpha",
-      "version": "0.5.238",
-      "extension": "jar",
-      "classifier": null,
-      "repository": "central",
-      "url": "https://repo1.maven.org/maven2/org/clojure/spec.alpha/0.5.238/spec.alpha-0.5.238.jar",
-      "sha256": "94cd99b6ea639641f37af4860a643b6ed399ee5a8be5d717cff0b663c8d75077",
       "published_at": null,
       "git": null
     }
@@ -435,14 +394,11 @@
       "lib": "",
       "version": "",
       "jvm-opts": [],
+      "launch-opts": [],
       "paths": [
         "src"
       ],
-      "classpath": [
-        "org.clojure/clojure:1.12.5:jar",
-        "org.clojure/core.specs.alpha:0.4.74:jar",
-        "org.clojure/spec.alpha:0.5.238:jar"
-      ],
+      "classpath": [],
       "aliases": {},
       "build": {
         "artifact-dirs": [
@@ -464,19 +420,23 @@
       }
     },
     "modules/app": {
-      "manifest_sha256": "f47a3a6349bb22a3b75b674010040fdc8c60c603f0123bf9fdd941b4c25ff96d",
+      "manifest_sha256": "21ce6543c1e174185cd32d42c1363449d45f12a91406c33d4a24046b5512dcd8",
       "lib": "example/app",
       "version": "0.1.0",
       "main": "app.core",
       "jvm-opts": [
+        "-Drig.dev.opt=1"
+      ],
+      "launch-opts": [
         "-XX:+UseZGC",
-        "-XX:+PrintCommandLineFlags"
+        "-XX:+PrintCommandLineFlags",
+        "-Drig.launch.opt=1"
       ],
       "paths": [
         "src"
       ],
       "classpath": [
-        "org.clojure/clojure:1.12.5:jar",
+        "org.clojure/clojure:1.11.0:jar",
         "org.clojure/core.specs.alpha:0.2.62:jar",
         "org.clojure/spec.alpha:0.3.218:jar"
       ],
@@ -484,7 +444,7 @@
         "test": {
           "classpath": [
             "lambdaisland/kaocha:1.66.1034:jar",
-            "org.clojure/clojure:1.12.5:jar",
+            "org.clojure/clojure:1.11.0:jar",
             "aero/aero:1.1.6:jar",
             "com.nextjournal/beholder:1.0.0:jar",
             "expound/expound:0.9.0:jar",

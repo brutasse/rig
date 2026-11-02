@@ -78,11 +78,11 @@ uber:  rig build --uber
 clean: rig clean
 ```
 
-And in CI, the frozen gate instead of "cache m2 and run the CLI"
+And in CI, the gate instead of "cache m2 and run the CLI"
 ([details](../workflows/ci.md)):
 
 ```sh
-rig verify --frozen && rig check --frozen && rig test --frozen
+rig verify && rig check && rig test
 ```
 
 ## Multi module
