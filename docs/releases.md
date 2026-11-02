@@ -12,15 +12,29 @@ The `--frozen` flag is gone. The lock behavior is now fixed per command:
 
 - the locking family — `rig lock`, `rig add`, `rig remove`, `rig update`,
   `rig new`, `rig new-module` — writes `deps.lock`. It needs no flag;
-- every command that builds a classpath from the lock (`verify`, `test`,
-  `build`, `run`, `nrepl`, `exec`, `install`, `publish`) fails with exit 3
+- every command that builds a classpath from the lock (`test`, `build`,
+  `run`, `nrepl`, `exec`, `install`, `publish`) fails with exit 3
   when the lock is missing or stale. The dev-time re-lock (the
   `relocked (stale: …)` line) is gone: a hand-edited `deps.edn` now needs
   an explicit `rig lock` before the command runs;
 - `rig check` keeps its reporting contract: a stale requirement is a
   reported problem (exit 1), and a missing lock still fails with exit 3.
 
-CI invocations drop the flag: `rig verify && rig check && rig test`.
+CI invocations drop the flag: `rig check && rig test`.
+
+#### `rig verify` is folded into `rig check`
+
+`rig verify` is gone: its artifact hash verification is now the first
+stage of `rig check`, and the CI gate is `rig check && rig test`. The
+security-failure exit code is unchanged — a hash mismatch still exits 4,
+and a tampered entry is reported, never re-fetched and healed.
+
+`check` also gained byte-level staleness: a manifest that changed since
+the lock was written is reported as a `stale-lock` problem naming the
+module (exit 1), even when the change left every requirement untouched.
+A requirement the pin no longer satisfies is reported once — by the
+kernel's finer per-requirement line. A missing lock still exits 3, and
+`check` never re-locks.
 
 #### `rig nrepl` replaces `rig repl`
 

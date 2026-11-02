@@ -65,8 +65,8 @@ func envOr(key, def string) string {
 	return def
 }
 
-// pierSetup pins the kernel jar and chdirs into a fresh empty workspace —
-// the tests write their own manifests.
+// pierSetup pins the kernel and runner jars and chdirs into a fresh empty
+// workspace — the tests write their own manifests.
 func pierSetup(t *testing.T) {
 	t.Helper()
 	jar := kernelJarPath(t)
@@ -74,8 +74,10 @@ func pierSetup(t *testing.T) {
 		t.Skipf("no java available: %v", err)
 	}
 	os.Setenv("RIG_KERNEL_JAR", jar)
+	os.Setenv("RIG_RUNNER_JAR", runnerJarPath(t))
 	t.Cleanup(func() {
 		os.Unsetenv("RIG_KERNEL_JAR")
+		os.Unsetenv("RIG_RUNNER_JAR")
 	})
 	t.Chdir(t.TempDir())
 }
@@ -351,12 +353,12 @@ func TestPierPublishLockVerify(t *testing.T) {
 		}
 	}
 
-	code, out = runCLI(t, "verify", "--cache-dir", cacheDir)
+	code, out = runCLI(t, "check", "--cache-dir", cacheDir)
 	if code != 0 {
-		t.Fatalf("verify exit = %d, want 0; out: %s", code, out)
+		t.Fatalf("check exit = %d, want 0; out: %s", code, out)
 	}
 	if !strings.Contains(out, "verified") {
-		t.Errorf("verify out = %q", out)
+		t.Errorf("check out = %q", out)
 	}
 }
 
@@ -420,12 +422,12 @@ func TestPierFloatingVersion(t *testing.T) {
 		t.Error("the jar is not in the local m2")
 	}
 
-	code, out = runCLI(t, "verify", "--cache-dir", cacheDir)
+	code, out = runCLI(t, "check", "--cache-dir", cacheDir)
 	if code != 0 {
-		t.Fatalf("verify exit = %d, want 0; out: %s", code, out)
+		t.Fatalf("check exit = %d, want 0; out: %s", code, out)
 	}
 	if !strings.Contains(out, "verified") {
-		t.Errorf("verify out = %q", out)
+		t.Errorf("check out = %q", out)
 	}
 }
 
@@ -573,11 +575,11 @@ func TestPierSingleRepo(t *testing.T) {
 	if got := httpStatus(t, pier+"/org/fake/upstream-lib/1.0/upstream-lib-1.0.jar", ""); got != http.StatusUnauthorized {
 		t.Errorf("GET pulled jar without bearer = %d, want 401", got)
 	}
-	code, out := runCLI(t, "verify", "--cache-dir", cacheDir)
+	code, out := runCLI(t, "check", "--cache-dir", cacheDir)
 	if code != 0 {
-		t.Fatalf("verify exit = %d, want 0; out: %s", code, out)
+		t.Fatalf("check exit = %d, want 0; out: %s", code, out)
 	}
 	if !strings.Contains(out, "verified") {
-		t.Errorf("verify out = %q", out)
+		t.Errorf("check out = %q", out)
 	}
 }

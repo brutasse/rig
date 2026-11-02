@@ -290,7 +290,7 @@ the key that matches how Rig uses the JVM:
 
 | Key | Declared in | Applies to |
 |---|---|---|
-| `:rig/compile-jvm-opts` | workspace (root manifest) | The AOT build — kernel JVM and the compile fork it launches (`rig build`) — and the check namespace load/AOT-compile (`rig check`, stage 2). |
+| `:rig/compile-jvm-opts` | workspace (root manifest) | The AOT build — kernel JVM and the compile fork it launches (`rig build`) — and the check namespace load/AOT-compile (`rig check`, stage 3). |
 | `:jvm-opts` | module (standard tools.deps key) | Dev execution: `rig run`, `rig nrepl`, `rig exec`, `rig test`, plus the module's prep function. |
 | `:rig/launch-opts` | module | `rig launch` only. Baked into the artifact's launch descriptor at build time, so it travels with the jar. |
 

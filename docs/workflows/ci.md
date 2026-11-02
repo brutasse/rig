@@ -1,10 +1,10 @@
 # CI
 
-The CI workflow is three commands, plus the release (`rig publish` and a
+The CI workflow is two commands, plus the release (`rig publish` and a
 tag — [Build, publish, release](build-publish.md#releasing)):
 
 ```sh
-rig verify && rig check && rig test
+rig check && rig test
 rig build --uber
 rig publish
 ```
@@ -13,15 +13,16 @@ rig publish
 
 | Step | What it proves |
 |---|---|
-| `rig verify` | the locked artifacts are byte-identical to the pinned hashes — verified from local sources on a warm cache, fetched and hash-checked on a cold one. No lock modification. This is the supply-chain gate. |
-| `rig check` | the lock still satisfies every manifest (no stale pins, conflicts, drift, floating versions), and every module's namespaces load on the locked classpath. |
+| `rig check` | the locked artifacts are byte-identical to the pinned hashes — verified from local sources on a warm cache, fetched and hash-checked on a cold one (the supply-chain gate, exit 4 on a mismatch). The lock still satisfies every manifest (no stale pins, conflicts, drift, floating versions). Every module's namespaces load on the locked classpath. No lock modification. |
 | `rig test` | the tests pass on the locked classpath; a stale lock fails (exit 3) instead of re-locking. |
 
 A stale lock is a hard error on every gate command: the hot commands exit
-3, and `check` reports the stale requirement as a problem (exit 1). The
-lock is never refreshed under your feet: any deviation from the committed
-lockfile fails the pipeline. The gate can use the network to fill a cold
-cache. Either way, Rig hash-checks every byte against the lockfile.
+3, and `check` reports staleness as a problem (exit 1) — a requirement the
+pin no longer satisfies, or a manifest whose bytes changed since the lock
+was written. The lock is never refreshed under your feet: any deviation
+from the committed lockfile fails the pipeline. The gate can use the
+network to fill a cold cache. Either way, Rig hash-checks every byte
+against the lockfile.
 
 Run `rig build --uber` afterwards for artifacts (or whatever your
 pipeline builds).
@@ -48,9 +49,8 @@ jobs:
         with:
           version: v0.3.2
 
-      - name: Verify, check and test
+      - name: Check and test
         run: |
-          rig verify
           rig check
           rig test
 
@@ -91,7 +91,7 @@ To prove the build needs no network — or when CI itself has no network —
 add `--offline` to the gate:
 
 ```sh
-rig verify --offline && rig check --offline && rig test --offline
+rig check --offline && rig test --offline
 ```
 
 `--offline` refuses the network. Every artifact (and the kernel and runner
@@ -123,17 +123,16 @@ JDK serves only when no managed JDK exists. For CI, that means:
 
 ## Per-PR testing
 
-For branch-level CI that does not deploy, the same trio works on a
+For branch-level CI that does not deploy, the same gate works on a
 subset:
 
 ```sh
-rig verify
 rig check -p modules/example   # -p restricts the ns-load stage
 rig test -p modules/example :kaocha.filter/focus '[:unit]'
 ```
 
-Stage 1 of `check` (lockfile vs manifests) is always workspace-wide. `-p`
-only narrows the namespace-loading stage 2.
+Stages 1 (artifact hashes) and 2 (lockfile vs manifests) of `check` are
+always workspace-wide. `-p` only narrows the namespace-loading stage 3.
 
 ## What CI must NOT do
 
