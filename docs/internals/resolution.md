@@ -47,10 +47,10 @@ Per floating coordinate, in order of precedence:
 1. **Requirement override** — an explicit version passed to the command,
    for example `rig update org.clojure/core <v>`. It always wins, and
    Rig records it in the lock as `explicit`.
-2. **Existing lock pin** — by default (`respect-existing-pins`), a
-   coordinate already pinned in `deps.lock` keeps that version. This is
-   what makes re-locks stable: `rig lock` never bumps a version you
-   already use, and `rig update` of one coordinate keeps the rest.
+2. **Existing lock pin** — a coordinate already pinned in `deps.lock`
+   keeps that version. This is what makes re-locks stable: `rig lock`
+   never bumps a version you already use, and `rig update` of one
+   coordinate keeps the rest.
 3. **Native resolution** — when all cooldowns of the workspace are
    zero, Rig leaves the floating requirement to `tools.deps` itself. Rig
    adds nothing, and the result is the answer of the ecosystem,

@@ -71,7 +71,6 @@
                                       (true? (get args :force))
                                       pins
                                       {}
-                                      true
                                       (System/currentTimeMillis))
         refused (:refused sel)
         proj (let [base (or (when (:changed? sel) (versions/apply-versions data (:selected sel) {}))
