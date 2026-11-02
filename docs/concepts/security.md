@@ -105,9 +105,7 @@ prints it:
 
 Rig never re-applies a cooldown to an already-locked version: cooldowns
 apply at selection time only. A plain `rig lock` keeps the pins already
-in the lock; newly selected versions face the window. (`rig update` with
-no arguments does not keep the lock's pins — it re-selects floating
-requirements.)
+in the lock; newly selected versions face the window.
 
 ## Reproducibility
 

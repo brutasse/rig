@@ -108,7 +108,7 @@
         (let [repos [["f" {:url url}]]
               data {:deps {'com.rig.test/cooldown {:mvn/version "RELEASE"}}}
               res (versions/select-versions data repos {:default "48h"}
-                                            false {} {} true now)]
+                                            false {} {} now)]
           (is (= "1.0.0" (get-in res [:selected 'com.rig.test/cooldown]))
               "selects the version older than the cooldown")
           (is (some #(and (= "1.0.1" (:version %))
@@ -126,7 +126,7 @@
         (let [repos [["f" {:url url}]]
               data {:deps {'com.rig.test/cooldown {:mvn/version "RELEASE"}}}
               res (versions/select-versions data repos {:default "48h"}
-                                            true {} {} true now)]
+                                            true {} {} now)]
           (is (= "1.0.1" (get-in res [:selected 'com.rig.test/cooldown]))
               "force selects the recent version anyway")
           (is (some #(and (= "1.0.1" (:version %))
@@ -143,7 +143,7 @@
         (let [repos [["f" {:url url}]]
               data {:deps {'com.rig.test/cooldown {:mvn/version "RELEASE"}}}
               res (versions/select-versions data repos {:default "48h"}
-                                            false {} {} true now)]
+                                            false {} {} now)]
           (is (nil? (get-in res [:selected 'com.rig.test/cooldown])))
           (is (= 1 (count (:refused res))) "nothing selected -> refused")
           (is (= "cooldown" (get-in res [:refused 0 :reason]))))))))
@@ -154,7 +154,7 @@
   (let [data {:deps {'com.rig.test/cooldown {:mvn/version "RELEASE"}}}]
     (is (= {:selected {} :skipped [] :refused [] :changed? false}
            (versions/select-versions data [] {:default "0s" :repos {"f" "0s"}}
-                                     false {} {} true
+                                     false {} {}
                                      (System/currentTimeMillis)))
         "all-zero per-repo cooldowns defer to native resolution")))
 

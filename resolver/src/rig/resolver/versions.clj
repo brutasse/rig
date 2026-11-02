@@ -253,7 +253,7 @@
 
 (defn select-versions
   "Per floating coord: 1) requirement-overrides win (recorded \"explicit\"),
-  2) an existing lock pin is kept when respect-pins?, 3) with all cooldowns
+  2) an existing lock pin is kept, 3) with all cooldowns
   zero the version is left for native tools.deps resolution, 4) otherwise the
   newest candidate older than the per-repo cooldown wins; younger candidates
   are recorded \"cooldown\", a forced pick \"forced\", and a coord with no
@@ -261,7 +261,7 @@
 
   Returns {:selected {coord version} :skipped [{...}] :refused [{...}]
            :changed? bool}."
-  [project-data repos cooldown force pins overrides respect-pins? now-ms]
+  [project-data repos cooldown force pins overrides now-ms]
   (let [all-deps (concat (for [[c s] (get project-data :deps {})] [c s])
                          (for [al (keys (get project-data :aliases {}))
                                [c s] (get-in project-data [:aliases al :extra-deps] {})]
@@ -286,7 +286,7 @@
                      (update :skipped conj {:coord c :version override :reason "explicit"
                                             :published-at nil :cooldown nil}))
 
-                   (and pin respect-pins?)
+                   pin
                    (assoc st :selected (assoc selected c pin))
 
                    zero?

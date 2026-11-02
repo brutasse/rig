@@ -44,15 +44,10 @@ func newLockCmd(o *opts) *cobra.Command {
 	}
 }
 
-// relock resolves the workspace with the kernel (respecting the pins already
-// in deps.lock when present), fetches and hashes every artifact, and writes
-// the new lock. It returns the saved document.
+// relock resolves the workspace with the kernel (the pins already in
+// deps.lock are kept), fetches and hashes every artifact, and writes the
+// new lock. It returns the saved document.
 func (o *opts) relock(ctx context.Context, root *workspace.Root) (*lockfile.Document, error) {
-	return o.relockArgs(ctx, root, nil)
-}
-
-// relockArgs is relock with extra kernel args (e.g. respect-existing-pins).
-func (o *opts) relockArgs(ctx context.Context, root *workspace.Root, extra map[string]any) (*lockfile.Document, error) {
 	store, err := o.store()
 	if err != nil {
 		return nil, err
@@ -66,9 +61,6 @@ func (o *opts) relockArgs(ctx context.Context, root *workspace.Root, extra map[s
 		return nil, err
 	}
 	args := map[string]any{"offline": o.offline, "force": o.force}
-	for k, v := range extra {
-		args[k] = v
-	}
 	req := kernel.Request{
 		Op:        "resolve",
 		Workspace: root.Dir,

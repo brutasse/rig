@@ -357,9 +357,6 @@
         force (true? (get args :force))
         overrides (into {} (for [[k v] (or (get args :requirement-overrides) {})]
                              [(str k) v]))
-        respect-pins? (if (contains? args :respect-existing-pins)
-                        (true? (get args :respect-existing-pins))
-                        true)
         lock (lock-of request)
         pins (into {}
                    (for [a (get lock :artifacts)
@@ -402,7 +399,6 @@
                                                             force
                                                             pins
                                                             overrides
-                                                            respect-pins?
                                                             now-ms)
                                proj (-> (let [base (or (when (:changed? sel)
                                                          (versions/apply-versions data (:selected sel) overrides))

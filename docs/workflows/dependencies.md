@@ -57,19 +57,13 @@ wrote /home/dev/app/deps.lock: 32 artifacts, 2 modules
 
 ## Updating
 
-`rig update` has three forms:
+`rig update` has two forms:
 
 ```sh
-rig update                                  # re-resolve: refresh floating versions
 rig update org.clojure/clojure              # bump one coord to newest eligible
 rig update org.clojure/clojure 1.12.5       # pin one coord to an exact version
 ```
 
-- **No arguments** — a full re-resolve: every floating requirement
-  (`RELEASE` or `LATEST` — see the `floating-version` finding of
-  `check`) re-selects the newest eligible version. The lock's current
-  pins are not kept; versions declared exactly in the manifests of
-  course stay put.
 - **coord + version** — an explicit pin. This is your judgment, and it
   always wins. The lockfile records it as `pinned … (explicit)`.
 - **coord only** — the newest eligible version, gated by the cooldown. If

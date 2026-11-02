@@ -97,12 +97,11 @@ repositories](config.md#authenticated-repositories-auth-oidc).
 ### `rig update`
 
 ```
-rig update [coord [version]]
+rig update <coord> [version]
 ```
 
 | Form | Effect |
 |---|---|
-| `rig update` | Full re-resolve: floating requirements re-select the newest eligible version (cooldown-gated). Exact versions declared in the manifests stay put; the lock's current pins do not. |
 | `rig update <coord> <version>` | Pin the exact version (explicit, recorded in the lock). |
 | `rig update <coord>` | Newest eligible version (cooldown-gated, exit 5 if refused). |
 

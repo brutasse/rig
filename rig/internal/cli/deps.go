@@ -80,24 +80,14 @@ func newUpdateCmd(o *opts) *cobra.Command {
 	var alias string
 	var sharedOnly bool
 	cmd := &cobra.Command{
-		Use:   "update [coord [version]]",
-		Short: "Update a dependency, or re-resolve all floating versions",
-		Args:  cobra.RangeArgs(0, 2),
+		Use:   "update <coord> [version]",
+		Short: "Update a dependency (no version: newest eligible one)",
+		Args:  cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 			root, err := workspace.FindNoLock(".")
 			if err != nil {
 				return err
-			}
-			if len(args) == 0 {
-				lock, err := o.relockArgs(ctx, root, map[string]any{"respect-existing-pins": false})
-				if err != nil {
-					return err
-				}
-				printSkipped(lock)
-				fmt.Printf("wrote %s: %d artifacts, %d modules\n",
-					root.LockPath(), len(lock.Artifacts), len(lock.Modules))
-				return nil
 			}
 			version := "latest"
 			if len(args) == 2 {

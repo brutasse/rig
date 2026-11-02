@@ -210,26 +210,6 @@ func TestUpdateSharedOnly(t *testing.T) {
 	}
 }
 
-func TestUpdateNoArgs(t *testing.T) {
-	hotSetup(t)
-	cacheDir := t.TempDir()
-	// Full re-resolve: no floating coords in the fixture, so pins stay stable.
-	code, out := runCLI(t, "update", "--cache-dir", cacheDir)
-	if code != 0 {
-		t.Fatalf("update exit = %d, want 0; out: %s", code, out)
-	}
-	if !strings.Contains(out, "artifacts, 2 modules") {
-		t.Errorf("out = %q", out)
-	}
-	lock, err := lockfile.Load("deps.lock")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if v := classpathVersion(t, lock, "modules/app", "org.clojure/clojure"); v != "1.11.0" {
-		t.Errorf("module classpath clojure = %s, want 1.11.0 (stable)", v)
-	}
-}
-
 func TestAddLatestRefusedCooldown(t *testing.T) {
 	hotSetup(t)
 	cacheDir := t.TempDir()
@@ -279,7 +259,7 @@ func TestLockKeepsFloatingPin(t *testing.T) {
 	if err := os.WriteFile(p, []byte(strings.Replace(string(b), `"1.2.4"`, `"RELEASE"`, 1)), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	// rig lock keeps the existing pin (respect-existing-pins is true).
+	// rig lock keeps the existing pin.
 	code, out = runCLI(t, "lock", "--cache-dir", cacheDir)
 	if code != 0 {
 		t.Fatalf("lock exit = %d, want 0; out: %s", code, out)
@@ -290,18 +270,6 @@ func TestLockKeepsFloatingPin(t *testing.T) {
 	}
 	if v := classpathVersion(t, lock, "modules/app", "org.clojure/tools.logging"); v != "1.2.4" {
 		t.Errorf("lock re-resolved the floating version: %s, want 1.2.4 (kept)", v)
-	}
-	// rig update (no args) re-resolves dynamic versions.
-	code, out = runCLI(t, "update", "--cache-dir", cacheDir)
-	if code != 0 {
-		t.Fatalf("update exit = %d, want 0; out: %s", code, out)
-	}
-	lock, err = lockfile.Load("deps.lock")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if v := classpathVersion(t, lock, "modules/app", "org.clojure/tools.logging"); v == "1.2.4" {
-		t.Errorf("update kept the old pin %s, want the re-resolved version", v)
 	}
 }
 
