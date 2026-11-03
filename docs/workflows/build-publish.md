@@ -10,7 +10,7 @@ rig build                                # the root module
 ```
 
 The jar and uberjar come from the `:rig/*` build config of the module
-(`:rig/uberjar?`, `:rig/uberjar-file`, `:rig/uber-opts`, …). Rig applies
+(`:rig/uberjar?`, `:rig/uberjar-file`, …). Rig applies
 this config to the **locked** classpath. There is no re-resolution. The
 output is one line:
 

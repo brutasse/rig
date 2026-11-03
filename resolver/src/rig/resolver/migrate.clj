@@ -37,7 +37,6 @@
    :exoscale.project/target-dir :rig/target-dir
    :exoscale.project/uberjar-file :rig/uberjar-file
    :exoscale.project/uberjar? :rig/uberjar?
-   :exoscale.project/uber-opts :rig/uber-opts
    :exoscale.project/ns-compile :rig/ns-compile
    :exoscale.project/deploy? :rig/publish?
    :exoscale.project/version-file :rig/version-file

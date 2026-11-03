@@ -66,7 +66,7 @@ Limitations of this setup:
 | `:exoscale.project/main` | `:rig/main` |
 | `:exoscale.project/uberjar?` | `:rig/uberjar?` |
 | `:exoscale.project/uberjar-file` | `:rig/uberjar-file` |
-| `:exoscale.project/uber-opts` | `:rig/uber-opts` |
+| `:exoscale.project/uber-opts` | nothing — rig excludes no entries from the uber jar; the legacy `:exclude` patterns do not apply |
 | `:exoscale.project/bypass-test?` | `:rig/test?` (inverted) |
 | `:exoscale.project/deploy?` | `:rig/publish?` |
 | `:slipset.deps-deploy/exec-args` | `:rig/publish` |

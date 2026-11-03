@@ -101,8 +101,7 @@
      :jar? (not uber?)
      :jar-file jar-file
      :uber? uber?
-     :uber-file uber-file
-     :exclude []}))
+     :uber-file uber-file}))
 
 (deftest build-compiles-jars-and-ubers
   (let [ws-dir (temp-dir)
@@ -136,26 +135,6 @@
         (let [p (run-cmd (java) "-jar" uber-file "there")]
           (is (zero? (:exit p)) (str "uber run failed: " (:out p) (:err p)))
           (is (re-find #"hello there" (:out p)))))
-      (finally
-        (delete-tree ws-dir)))))
-
-(deftest uber-exclude-patterns-that-match-nothing-warn
-  ;; tools.build full-matches :exclude patterns (re-matches), so a prefix
-  ;; pattern excludes nothing — silently. The build must say so.
-  (let [ws-dir (temp-dir)
-        ws (str ws-dir)
-        src-root (io/file ws-dir "src")
-        src-file (io/file src-root "example" "core.clj")]
-    (io/make-parents src-file)
-    (spit src-file "(ns example.core\n  (:gen-class))\n(defn -main [& args] (println \"x\"))\n")
-    (try
-      (let [out (with-out-str
-                  (build/build {:args {:builds {"." (assoc (cfg ws src-root src-root true)
-                                                           :exclude ["^clojure/" "example/core.class"])}}}))]
-        (is (re-find #"uberjar :exclude pattern \"\^clojure/\" matched no entry" out)
-            (pr-str out))
-        (is (not (re-find #"example/core.class\" matched no entry" out))
-            (pr-str out)))
       (finally
         (delete-tree ws-dir)))))
 

@@ -69,7 +69,6 @@
   (if (contains? data :rig/uberjar?)
     (true? (get data :rig/uberjar?))
     (boolean (uberjar-file data))))
-(defn uber-opts [data] (get data :rig/uber-opts))
 (defn timestamp-string [data] (get data :rig/timestamp-string))
 (defn native-file [data] (get data :rig/native-file))
 (defn native?
