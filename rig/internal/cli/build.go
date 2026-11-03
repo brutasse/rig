@@ -576,7 +576,6 @@ func entrySHA256(zf *zip.ReadCloser, name string) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-
 // warnDuplicateEntries reports jar entries present in more than one classpath
 // jar with differing content, grouped by package: the uber keeps the first in
 // classpath order, which may be a stale vendored copy shadowing the dependency
