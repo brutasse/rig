@@ -4,6 +4,8 @@ Changelog for Rig.
 
 ## Unreleased
 
+## v0.4.0 — 2026-11-04
+
 ### New
 
 #### `:rig/main` compiles into the artifact without a declaration
@@ -28,6 +30,31 @@ output, so `rig build` compiles the namespace unconditionally, even
 when a preceding compile in the build already loaded it. No key
 declares it.
 [Configuration — Entry points](reference/config.md#entry-points-rigmain-and-genclass).
+
+#### `rig new` scaffolds the development module
+
+A scaffolded workspace now carries a development module alongside the
+app module: one per workspace, not one per module. Its `deps.edn`
+loads the app module by `:local/root` and pins
+[reloaded.repl](https://github.com/weavejester/reloaded.repl), the
+reloaded-workflow library; `dev/user.clj` is the scratch namespace the
+development REPL opens in. Start it with `rig nrepl -p dev`; the
+workflow is in [Day-to-day workflow](workflows/daily.md). `rig
+new-module` does not touch the dev module — a new module joins it as a
+`:local/root` dep when you want it in the development REPL.
+
+The scaffolded `:test` alias also carries the property-based and
+mocking tools (`test.check`, `spy`) and the two kaocha reporters (JUnit
+XML, cloverage) as `:extra-deps`, dormant until a run loads them with
+`:plugins`.
+
+Every tooling coordinate of the scaffold — the test runner, the
+reporters, `reloaded.repl` — resolves at scaffold time to the newest
+release past its [cooldown](workflows/dependencies.md), in one batched
+kernel call, so a new project starts on what the repositories serve
+rather than on versions compiled into the binary. `--offline` writes
+the versions bundled with the binary, and so does a lookup that has no
+answer for a coordinate — with a note naming it.
 
 ### Changed
 
@@ -119,6 +146,23 @@ diffing. Locks written by older rig versions still load: the field is
 ignored on read and absent from the next re-lock, so the schema stays at
 version 2. `rig info` no longer prints it.
 
+#### Manifest parse errors point at the failure
+
+The EDN reader rig carries in the binary for reading manifests (ednlit)
+reports a parse failure as `ednlit: <file>:<line>:<col>: message`,
+followed by the offending source line with a caret under the column —
+instead of a byte offset into the file. It also refuses, with an
+explicit error, the EDN forms it has no type for: big integers, big
+decimals, ratios, character literals and tagged literals. The Clojure
+reader accepts all of them; a manifest needs none of them.
+
+#### Shell completion stays quiet
+
+The "newer release available" notice is suppressed on completion
+invocations — `--autocomplete` and the hidden `__complete` request the
+shell issues on every tab press. Completion stays fast and quiet: no
+network, no stderr.
+
 ### Removed
 
 #### `:rig/ns-compile`
@@ -143,6 +187,25 @@ any other namespace compiles with the module.
 that depended on a host tool Rig cannot pin or ship (cljfmt is pinned in
 the kernel jar; clj-kondo is not). Run clj-kondo directly, or
 `rig exec clj-kondo --lint <dir>`, if you want the lint.
+
+#### `rig update` with no arguments
+
+The no-args form — a full re-resolve that re-selects the newest
+eligible version for every floating requirement — is gone: floating
+versions are not really a thing. `rig update <coord> [version]` is the
+only form, and a floating requirement is refreshed by naming its
+coordinate.
+
+### Fixed
+
+#### `:rig/timestamp-string` stamps in any zone
+
+A zip entry stores a wall-clock, and the writer renders the epoch in
+the JVM's default zone, so a UTC pin — `2020-01-01T00:00:02Z`, say —
+stamped `01:00:02` on a CET host: the jar was not byte-identical
+across hosts. The stamp now reads the pin's UTC wall-clock as local
+time in the default zone before writing the entry — the pin's clock, in
+any zone — and two builds of the same lock are byte-identical again.
 
 ## v0.3.2 — 2026-10-30
 
