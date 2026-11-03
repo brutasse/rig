@@ -69,6 +69,16 @@
     (file/read-file-ns-decl f parse/clj-read-opts)
     (catch Exception _ unreadable)))
 
+(defn- gen-class?
+  "True when the (ns ...) declaration d carries a :gen-class clause (bare,
+  or with options, e.g. (:gen-class :name Foo)): the namespace's generated
+  class reaches the artifact only as AOT output, so the namespace must be
+  an entry point."
+  [d]
+  (some #(or (= % :gen-class)
+             (and (sequential? %) (= (first %) :gen-class)))
+        (next d)))
+
 (defn- main-source?
   "True when a .clj or .cljc source for the namespace main exists on the
   classpath (directory roots by file test, jar roots by entry name). main
@@ -95,14 +105,15 @@
           classpath)))
 
 (defn plan
-  "The AOT plan for the sources under src-dirs, with the declared entry
-  points extra (the manifest's :rig/ns-compile, as strings) and the
-  build's declared entry namespace main (:rig/main): when main is not
-  one of the module's own namespaces and a source for it exists on the
-  classpath it joins extra — its classes must reach the artifact even
-  though nothing compiles it by construction. A main with no source to
-  compile (a Java main, or a namespace shipped as classes alone) stays
-  out: there is nothing here to compile.
+  "The AOT plan for the sources under src-dirs, with the build's declared
+  entry namespace main (:rig/main): when main is not one of the module's
+  own namespaces and a source for it exists on the classpath it joins the
+  entry points — its classes must reach the artifact even though nothing
+  compiles it by construction. A main with no source to compile (a Java
+  main, or a namespace shipped as classes alone) stays out: there is
+  nothing here to compile. The module's namespaces whose ns form carries
+  :gen-class join the entry points by construction: their generated class
+  reaches the artifact only as AOT output.
 
   Returns
     {:preload [ns-str ...] every non-project namespace the module's
@@ -113,15 +124,15 @@
                            is a plan error, as in tools.build), then
                            the entry points not found among the
                            sources.
-     :extra [ns-str ...] the effective entry points: the declared
-                         extra, plus main when it is not a project
-                         namespace and has a source on the classpath
-                         — what the compile phase runs
+     :extra [ns-str ...] the effective entry points: the module's
+                         :gen-class namespaces, plus main when it is not
+                         a project namespace and has a source on the
+                         classpath — what the compile phase runs
                          unconditionally.
      :skipped [{:file p :reason r} ...]
                            sources left out as data or because their
                            namespaces do not resolve from their paths}"
-  [src-dirs extra main classpath]
+  [src-dirs main classpath]
   (let [main (when main (str main))
         parsed (for [[root f] (ns-files src-dirs)]
                  [[root f] (read-decl f)])
@@ -150,18 +161,25 @@
                                (loadable? [root f]
                                           (parse/name-from-ns-decl d)))]
                 (let [ns (parse/name-from-ns-decl d)]
-                  [ns (parse/deps-from-ns-decl d)]))
-        ns->deps (into {} decls)
+                  [ns (parse/deps-from-ns-decl d) (gen-class? d)]))
+        ns->deps (into {} (for [[ns deps _] decls] [ns deps]))
         project (set (keys ns->deps))
-        ;; The build's entry namespace joins the declared entry points
-        ;; when it is not one of the module's own namespaces and a source
-        ;; for it exists on the classpath: its classes must reach the
-        ;; artifact even though nothing compiles it by construction. A
-        ;; project main is already in the compile list, so it stays out
-        ;; of extra (and its top level never runs twice). A main with no
-        ;; source (a Java main, a classes-only namespace) stays out:
-        ;; there is nothing here to compile.
-        extra (vec (distinct (concat extra
+        ;; The module's :gen-class namespaces join the entry points by
+        ;; construction: their generated class reaches the artifact only
+        ;; as AOT output, and the entry-point contract — compile
+        ;; unconditionally, even when a preload already loaded them — is
+        ;; what guarantees it.
+        gen-class (vec (map str (keep (fn [[ns _ gc?]] (when gc? ns))
+                                      decls)))
+        ;; The build's entry namespace joins the entry points when it is
+        ;; not one of the module's own namespaces and a source for it
+        ;; exists on the classpath: its classes must reach the artifact
+        ;; even though nothing compiles it by construction. A project
+        ;; main is already in the compile list, so it stays out of extra
+        ;; (and its top level never runs twice). A main with no source
+        ;; (a Java main, a classes-only namespace) stays out: there is
+        ;; nothing here to compile.
+        extra (vec (distinct (concat gen-class
                                      (when (and main
                                                 (not (some #(= (name %) main) project))
                                                 (main-source? main classpath))
@@ -195,9 +213,8 @@
 
 (defn aot-plan
   "Kernel op: the AOT plan of the request's sources (:args :src-dirs,
-  :ns-compile, :main, :classpath)."
+  :main, :classpath)."
   [request]
   (plan (get-in request [:args :src-dirs])
-        (get-in request [:args :ns-compile])
         (get-in request [:args :main])
         (get-in request [:args :classpath] [])))

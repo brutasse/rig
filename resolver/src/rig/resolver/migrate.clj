@@ -37,7 +37,6 @@
    :exoscale.project/target-dir :rig/target-dir
    :exoscale.project/uberjar-file :rig/uberjar-file
    :exoscale.project/uberjar? :rig/uberjar?
-   :exoscale.project/ns-compile :rig/ns-compile
    :exoscale.project/deploy? :rig/publish?
    :exoscale.project/version-file :rig/version-file
    :exoscale.project/version-template-file :rig/version-template-file})
@@ -288,6 +287,12 @@
                                       ":exoscale.deps/managed-aliases dropped (only the :project driver alias)")))
                          (= k :slipset.deps-deploy/exec-args)
                          st
+                         ;; :rig/ns-compile is gone: :rig/main and the
+                         ;; module's :gen-class namespaces compile
+                         ;; without a declaration.
+                         (#{:exoscale.project/ns-compile :rig/ns-compile} k)
+                         (warn st (str "dropped " (str k)
+                                        " (no rig equivalent: :rig/main and the module's :gen-class namespaces compile without a declaration)"))
                          (contains? key-rename k)
                          (update st :data assoc (get key-rename k) v)
                          (and (keyword? k) (contains? legacy-ns (namespace k)))
@@ -1326,6 +1331,12 @@
         zt (if (contains? data :exoscale.deps/managed-dependencies)
               (drop-key zt [] :exoscale.deps/managed-dependencies)
               zt)
+        ;; :rig/ns-compile is gone: an older rig may have migrated it in
+        ;; place, and read-manifest refuses it now. The legacy spelling
+        ;; drops via the generic legacy-key pass below.
+        zt (if (contains? data :rig/ns-compile)
+             (drop-key zt [] :rig/ns-compile)
+             zt)
         ;; drop the legacy top-level keys that are not renamed in place
         ;; (exec-args content is carried by :rig/publish; managed-aliases
         ;; has no rig equivalent and is dropped with a warning)

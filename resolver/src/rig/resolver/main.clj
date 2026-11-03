@@ -106,6 +106,10 @@
           (do (.println (System/err) (.getMessage e))
               3)
 
+          (true? (get (ex-data e) :rig/removed?))
+          (do (.println (System/err) (.getMessage e))
+              4)
+
           (true? (get (ex-data e) :rig/friendly?))
           (do (.println (System/err) (.getMessage e))
               1)
@@ -125,7 +129,7 @@
 
   Codes: 0 ok; 1 op failure (a :rig/friendly? error prints just its
   message, anything else its stack trace); 2 bad request; 3 manifest still
-  uses legacy keys."
+  uses legacy keys; 4 manifest uses a removed key."
   [request]
   (run-request request false))
 

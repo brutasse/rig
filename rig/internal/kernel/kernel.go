@@ -27,6 +27,7 @@ var (
 	ErrOpFailed   = errors.New("kernel: op failed")
 	ErrBadRequest = errors.New("kernel: bad request")
 	ErrLegacyKeys = errors.New("kernel: manifest still uses legacy keys - run rig migrate")
+	ErrRemovedKey = errors.New("kernel: manifest uses a removed key - drop it (see the message above)")
 )
 
 // The jars ship inside the rig binary and are not committed: 'make embed'
@@ -238,6 +239,8 @@ func exitErr(code int) error {
 		return ErrBadRequest
 	case 3:
 		return ErrLegacyKeys
+	case 4:
+		return ErrRemovedKey
 	}
 	return nil
 }

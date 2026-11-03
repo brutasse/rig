@@ -14,16 +14,22 @@
   "Manifest namespaces that only exist in the legacy (pre-migrate) model."
   #{"exoscale.project" "exoscale.deps" "slipset.deps-deploy" "antq.core"})
 
-(defn- legacy-keys-of
-  "All legacy keys anywhere in the manifest data (map keys at any depth)."
-  [x]
+(def removed-keys
+  "Keys the :rig/* model has removed: a manifest carrying one is refused
+  at read time, like a legacy one — the fix is dropping the key, not
+  migrating."
+  #{:rig/ns-compile})
+
+(defn- keys-of
+  "The keys anywhere in the manifest data (map keys at any depth) that
+  key? matches."
+  [key? x]
   (cond
     (map? x)
-    (concat (filter (fn [k] (and (keyword? k) (contains? legacy-ns (namespace k))))
-                    (keys x))
-            (mapcat legacy-keys-of (vals x)))
+    (concat (filter key? (keys x))
+            (mapcat (partial keys-of key?) (vals x)))
     (sequential? x)
-    (mapcat legacy-keys-of x)
+    (mapcat (partial keys-of key?) x)
     :else
     ()))
 
@@ -33,13 +39,22 @@
     (if (.exists file)
       (let [bytes (Files/readAllBytes (.toPath file))
             data (edn/read-string (String. bytes "UTF-8"))
-            legacy (set (legacy-keys-of data))]
+            legacy (set (keys-of #(and (keyword? %)
+                                       (contains? legacy-ns (namespace %)))
+                                 data))
+            removed (set (keys-of (partial contains? removed-keys) data))]
         (when (seq legacy)
           (throw (ex-info (str (.getPath file)
                                ": still uses legacy keys "
                                (str/join ", " (map str (sort legacy)))
                                " - run rig migrate")
                           {:rig/legacy? true})))
+        (when (seq removed)
+          (throw (ex-info (str (.getPath file)
+                               ": uses removed key "
+                               (str/join ", " (map str (sort removed)))
+                               " - drop it: :rig/main and the module's :gen-class namespaces compile without a declaration")
+                          {:rig/removed? true})))
         {:dir (str dir)
          :file (str file)
          :sha256 (sha256-hex bytes)
@@ -80,7 +95,6 @@
     (true? (get data :rig/native?))
     (boolean (native-file data))))
 (defn native-opts [data] (get data :rig/native-opts))
-(defn ns-compile [data] (get data :rig/ns-compile))
 (defn prep-ensure
   "The prep output paths the module declares via :deps/prep-lib :ensure —
   generated code rig does not produce itself."

@@ -336,13 +336,6 @@
     (is (= "target/app.jar"
            (get-in lock ["modules" "." :build :uberjar "file"])))))
 
-(deftest ns-compile-enters-the-build-plan
-  (let [ws (temp-ws "{:rig/lib x/y\n :rig/uberjar? true\n :rig/ns-compile [a.b c.d]}\n")
-        lock (-> (resolve/resolve-lock {:workspace ws})
-                 (get "lock"))]
-    (is (= ["a.b" "c.d"]
-           (get-in lock ["modules" "." :build :ns-compile])))))
-
 (deftest javac-opts-enter-the-build-plan
   (let [ws (temp-ws "{:rig/lib x/y\n :rig/java-src-dirs [\"java\"]\n :rig/javac-opts [\"-encoding\" \"UTF-8\"]}\n")
         lock (-> (resolve/resolve-lock {:workspace ws})
