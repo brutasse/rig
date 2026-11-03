@@ -2,6 +2,8 @@ package cli
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -28,6 +30,14 @@ func newInfoCmd(o *opts) *cobra.Command {
 			fmt.Printf("project:\t%s\n", root.Dir)
 			fmt.Printf("type:\t%s\n", kind)
 			fmt.Printf("modules:\t%s\n", strings.Join(root.Modules(), ", "))
+			version, err := o.moduleVersion(root)
+			if err != nil {
+				return err
+			}
+			if version == "" {
+				version = "-" // no VERSION file, and the lock records none
+			}
+			fmt.Printf("version:\t%s\n", version)
 			if root.Lock == nil {
 				fmt.Printf("lock:\tmissing (run 'rig lock')\n")
 			} else {
@@ -66,6 +76,38 @@ func shortSHA(sha string) string {
 		return sha[:12]
 	}
 	return sha
+}
+
+// moduleVersion is the project version of the target module (-p, or the
+// workspace root when no module is named): the VERSION file of the module
+// dir, then the workspace root when the module has no VERSION file of its
+// own, then the version the lock records for the module. "" when no source
+// records one.
+func (o *opts) moduleVersion(root *workspace.Root) (string, error) {
+	var m string
+	if o.path != "" {
+		var err error
+		if m, err = root.Resolve(o.path); err != nil {
+			return "", err
+		}
+	} else {
+		m = "."
+	}
+	candidates := []string{filepath.Join(root.Dir, m, "VERSION")}
+	if m != "." {
+		candidates = append(candidates, filepath.Join(root.Dir, "VERSION"))
+	}
+	for _, c := range candidates {
+		if b, err := os.ReadFile(c); err == nil {
+			return strings.TrimSpace(string(b)), nil
+		}
+	}
+	if root.Lock != nil {
+		if mod, err := root.Lock.Module(m); err == nil {
+			return mod.Version, nil
+		}
+	}
+	return "", nil
 }
 
 // graalvmInfo returns the `rig info` graalvm line for a lock that pins a

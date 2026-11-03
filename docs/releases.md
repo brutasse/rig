@@ -53,6 +53,14 @@ A requirement the pin no longer satisfies is reported once — by the
 kernel's finer per-requirement line. A missing lock still exits 3, and
 `check` never re-locks.
 
+#### `rig version` is folded into `rig info`
+
+`rig version` is gone: `rig info` prints the project version as a
+`version` line — the `VERSION` file of the target module (module dir,
+then workspace root), or the locked module version, and `-p` selects the
+module. Where `rig version` exited 1 when no source recorded a version,
+`rig info` prints `version:	-` and reports the rest of the state.
+
 #### `rig nrepl` replaces `rig repl`
 
 `rig repl` (a bare `clojure.main` REPL) is gone: `rig nrepl` starts an

@@ -42,8 +42,7 @@ This page lists every command, what it does, and its flags.
 | `crac clean` | — | Prune checkpoint chains that can no longer be restored. |
 | `self-update [--check]` | — | Update the Rig binary from the GitHub releases. |
 | `auth get [gate\|url]` | — | Print the bearer token of an OIDC gate (env, cache, or negotiated). |
-| `version` | hot | Print the project version. |
-| `info` | hot | Project and tool summary. |
+| `info` | hot | Project and tool summary, including the project version. |
 
 *Hot* commands run from the lock (lock → hash-check → launch). They never
 write the lock: a missing or stale lock fails them (exit 3) and points at
@@ -52,7 +51,7 @@ publish, edit). Only the locking family — `lock`, `add`, `remove`,
 `update`, `new`, `new-module` — writes the lock, and it needs no flag.
 `launch` is hot because it never touches the kernel. It
 treats the lock as inert data: it never checks staleness, never re-locks,
-and never uses the network. `clean`, `version` and `info` read the
+and never uses the network. `clean` and `info` read the
 workspace and the lock — they never write the lock, stale or not.
 
 ## Locking and dependency changes
@@ -250,12 +249,13 @@ occurrence with `├─`/`└─` connectors. Rig marks an occurrence that is no
 in the classpath (conflict, exclusion, duplicate) with its reason.
 `--alias <a>` includes the extra-deps of the alias.
 
-### `rig info` / `rig version`
+### `rig info`
 
 `info` prints the workspace summary: modules, lock state (and staleness),
-JVM, cache dir, Rig and kernel versions. `version` prints the project
-version from the `VERSION` file (module dir, then root) or the locked
-module version.
+JVM, cache dir, Rig and kernel versions. The `version` line prints the
+project version from the `VERSION` file (module dir, then workspace root)
+or the locked module version; `-p` selects the module. When no source
+records a version, the line reads `-`.
 
 ## Running
 

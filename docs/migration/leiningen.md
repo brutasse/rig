@@ -176,7 +176,7 @@ default `VERSION` file, like a wrapped form
 | `lein clean` | `rig clean` |
 | `lein deps` / `lein classpath` | `rig tree` / `rig exec` (exports the locked `CLASSPATH`) |
 | `lein update-deps` | `rig update` |
-| `lein version` / `lein info` | `rig version` / `rig info` |
+| `lein version` / `lein info` | `rig info` (the `version` line) |
 | `lein <task>` | `rig exec` |
 
 After the conversion, the workflow is:

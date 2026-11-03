@@ -405,18 +405,39 @@ func TestCleanWithLockTargetDir(t *testing.T) {
 	}
 }
 
-func TestVersion(t *testing.T) {
+func TestInfoVersion(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
 	writeFile(t, "deps.edn", "{}\n")
 	writeFile(t, "VERSION", "1.2.3\n")
-	code, out := runCLI(t, "version")
-	if code != 0 || strings.TrimSpace(out) != "1.2.3" {
-		t.Errorf("exit=%d out=%q", code, out)
+	code, out := runCLI(t, "info", "--cache-dir", t.TempDir())
+	if code != 0 {
+		t.Fatalf("exit=%d out=%q", code, out)
+	}
+	if !strings.Contains(out, "version:\t1.2.3\n") {
+		t.Fatalf("info missing the version line in:\n%s", out)
 	}
 }
 
-func TestVersionFromLockFallback(t *testing.T) {
+func TestInfoVersionPath(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	doc := lockfile.ForTest(".", "modules/app")
+	writeFile(t, "deps.edn", "{:rig/modules [\"modules/app\"]}\n")
+	writeFile(t, filepath.Join("modules", "app", "VERSION"), "2.0.0\n")
+	if err := doc.Save("deps.lock"); err != nil {
+		t.Fatal(err)
+	}
+	code, out := runCLI(t, "info", "-p", "modules/app", "--cache-dir", t.TempDir())
+	if code != 0 {
+		t.Fatalf("exit=%d out=%q", code, out)
+	}
+	if !strings.Contains(out, "version:\t2.0.0\n") {
+		t.Fatalf("info missing the module version line in:\n%s", out)
+	}
+}
+
+func TestInfoVersionFromLockFallback(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
 	doc := lockfile.ForTest(".")
@@ -424,16 +445,19 @@ func TestVersionFromLockFallback(t *testing.T) {
 	if err := doc.Save("deps.lock"); err != nil {
 		t.Fatal(err)
 	}
-	code, out := runCLI(t, "version")
-	if code != 0 || strings.TrimSpace(out) != "0.0.1" {
-		t.Errorf("exit=%d out=%q", code, out)
+	code, out := runCLI(t, "info", "--cache-dir", t.TempDir())
+	if code != 0 {
+		t.Fatalf("exit=%d out=%q", code, out)
+	}
+	if !strings.Contains(out, "version:\t0.0.1\n") {
+		t.Fatalf("info missing the lock version line in:\n%s", out)
 	}
 }
 
-func TestVersionEmptyLockVersion(t *testing.T) {
+func TestInfoVersionNone(t *testing.T) {
 	// A workspace with no VERSION file resolves to an empty module
-	// version in the lock: version must say so and fail, not print a
-	// blank line and exit 0.
+	// version in the lock: info reports it with a placeholder and keeps
+	// reporting the rest of the state.
 	dir := t.TempDir()
 	t.Chdir(dir)
 	doc := lockfile.ForTest(".")
@@ -444,9 +468,9 @@ func TestVersionEmptyLockVersion(t *testing.T) {
 	if err := doc.Save("deps.lock"); err != nil {
 		t.Fatal(err)
 	}
-	code, out := runCLI(t, "version")
-	if code != 1 || !strings.Contains(out, "no version") {
-		t.Fatalf("exit=%d out=%q, want 1 with the no-version message", code, out)
+	code, out := runCLI(t, "info", "--cache-dir", t.TempDir())
+	if code != 0 || !strings.Contains(out, "version:\t-\n") {
+		t.Fatalf("exit=%d out=%q, want 0 with the placeholder line", code, out)
 	}
 }
 
@@ -472,7 +496,7 @@ func TestInfo(t *testing.T) {
 func TestUnknownFlag(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
-	code, _ := runCLI(t, "version", "--bogus")
+	code, _ := runCLI(t, "info", "--bogus")
 	if code != 2 {
 		t.Errorf("exit = %d, want 2", code)
 	}

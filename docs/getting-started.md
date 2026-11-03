@@ -175,6 +175,7 @@ hello rig
 project:	/home/…/demo
 type:	workspace
 modules:	., modules/demo, dev
+version:	-
 lock:	2026-09-18T10:00:00Z by io.github.brutasse/rig-resolver v0.3.2 (546d868c4d1c, 823c7b174dfe), 41 artifacts
 java:	/usr/bin/java (21.0.12.1)
 cache:	/home/…/.local/share/rig
@@ -182,9 +183,12 @@ rig:	dev (dev)
 kernel:	io.github.brutasse/rig-resolver v0.3.2 (546d868c4d1c)
 ```
 
-`rig version` prints the project version. Rig reads the `VERSION` file of the
-target module, or of the workspace root when the module has no `VERSION`
-file. When no file exists, Rig prints the locked version of the module.
+The `version` line is the project version: Rig reads the `VERSION` file of
+the target module, or of the workspace root when the module has no
+`VERSION` file. When no file exists, Rig prints the locked version of the
+module; `-p` selects the module. When no source records a version, the
+line reads `-` — the scaffolded project has none, so add a `VERSION` file
+or a `:rig/version` key when you need one.
 
 ## Single module vs workspace
 

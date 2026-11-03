@@ -103,7 +103,7 @@ Full key reference: [configuration](../reference/config.md).
 | `release` | `rig publish` + `git tag` — [Releasing](../workflows/build-publish.md#releasing) |
 | `task` | `rig exec` |
 | `test` | `rig test` |
-| `version` / `info` | `rig version` / `rig info` |
+| `version` / `info` | `rig info` (the `version` line) |
 
 Modules that declared `:deps/prep-lib` keep working — Rig runs the prep
 function automatically, staleness-checked. If the function is just "javac
