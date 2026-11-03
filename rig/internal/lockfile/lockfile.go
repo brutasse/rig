@@ -196,9 +196,8 @@ type Build struct {
 }
 
 type Uberjar struct {
-	File string         `json:"file"`
-	Main string         `json:"main"`
-	Opts map[string]any `json:"opts"`
+	File string `json:"file"`
+	Main string `json:"main"`
 }
 
 // Native is the module's native-image build config, from the :rig/native*

@@ -39,6 +39,17 @@ The `--frozen` flag is gone. The lock behavior is now fixed per command:
 
 CI invocations drop the flag: `rig check && rig test`.
 
+#### `:rig/uber-opts` is gone
+
+The key and its `:exclude` patterns are gone: rig no longer excludes
+anything from the uber jar beyond tools.build's own defaults
+(signature files, `*.pom`, `module-info.class`, …). Duplicate entries
+from the dependency jars keep the first in classpath order, and `rig
+build` still reports the ones whose contents differ. A manifest that
+still carries `:rig/uber-opts` parses; the key is ignored. `rig
+migrate` drops the legacy `:exoscale.project/uber-opts` entry instead
+of renaming it.
+
 #### `rig verify` is folded into `rig check`
 
 `rig verify` is gone: its artifact hash verification is now the first
