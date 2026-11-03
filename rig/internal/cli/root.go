@@ -17,6 +17,14 @@ import (
 	"github.com/brutasse/rig/internal/workspace"
 )
 
+// Version and GitSHA are stamped at release build time via
+// -ldflags "-X github.com/brutasse/rig/internal/cli.Version=…".
+// Local/dev builds report "dev".
+var (
+	Version = "dev"
+	GitSHA  = "dev"
+)
+
 type opts struct {
 	path         string
 	pathVals     []string
@@ -132,7 +140,6 @@ func Execute() int {
 	root.AddCommand(
 		newAuthCmd(o),
 		newCleanCmd(o),
-		newVersionCmd(o),
 		newInfoCmd(o),
 		newLockCmd(o),
 		newMigrateCmd(o),
