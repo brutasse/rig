@@ -19,7 +19,7 @@ entry point's classes reach the artifact, so the jar's `Main-Class` is
 runnable. A main with no source to compile — a Java `Main-Class`, or a
 namespace the classpath carries as classes alone — is left alone: there
 is nothing for the build to compile.
-[Configuration — Entry points](reference/config.md#entry-points-rigmain-and-genclass).
+[Configuration — Entry points](reference/config.md#entry-points-rigmain-and-gen-class).
 
 #### In-module `:gen-class` namespaces compile into the artifact without a declaration
 
@@ -29,7 +29,7 @@ construction: its generated class reaches the artifact only as AOT
 output, so `rig build` compiles the namespace unconditionally, even
 when a preceding compile in the build already loaded it. No key
 declares it.
-[Configuration — Entry points](reference/config.md#entry-points-rigmain-and-genclass).
+[Configuration — Entry points](reference/config.md#entry-points-rigmain-and-gen-class).
 
 #### `rig new` scaffolds the development module
 
