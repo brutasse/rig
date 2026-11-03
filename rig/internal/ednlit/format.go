@@ -2,6 +2,7 @@ package ednlit
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 )
@@ -23,6 +24,17 @@ func write(b *strings.Builder, v any) {
 	case int64:
 		b.WriteString(strconv.FormatInt(t, 10))
 	case float64:
+		switch {
+		case math.IsInf(t, 1):
+			b.WriteString("Infinity")
+			return
+		case math.IsInf(t, -1):
+			b.WriteString("-Infinity")
+			return
+		case math.IsNaN(t):
+			b.WriteString("NaN")
+			return
+		}
 		s := strconv.FormatFloat(t, 'g', -1, 64)
 		if !strings.ContainsAny(s, ".eE") {
 			s += ".0"
