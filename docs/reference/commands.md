@@ -279,7 +279,10 @@ run does not wedge CI: `rig test` kills a runner that has not finished
 in 30 minutes and fails — `--timeout <dur>` configures the watchdog,
 `0` disables it. A module that pins `org.clojure/clojure` below the
 1.8.0 floor fails before anything runs (the same `clojure-floor` gate as
-check).
+check). The `:test` alias of a scaffolded module carries the kaocha
+JUnit XML and coverage reporters as extra-deps, dormant until a run
+loads them with `:plugins` — see [day-to-day
+workflow](../workflows/daily.md).
 
 ### `rig run`
 
@@ -359,7 +362,8 @@ own version: Rig appends its jar to the classpath last, so the project's
 copy wins. The shipped nREPL needs Clojure 1.10 or newer; on an older pin
 `rig nrepl` stops with a hint to raise the pin or run your own nREPL via
 `rig exec`. `--alias <a>` selects the classpath, as with the other
-dev commands.
+dev commands. A scaffolded project's development module is the usual
+target: `rig nrepl -p dev`.
 
 ### `rig exec`
 
@@ -445,16 +449,25 @@ rig new com.example/demo          # scaffold a project (workspace + module)
 rig new-module reporting          # add a module to the current workspace, re-lock
 ```
 
-`new` creates `<name>/deps.edn` (root, `:rig/modules`),
-`<name>/modules/<name>/deps.edn`, a runnable `src`, and a test. `new-module`
-scaffolds under `modules/`, adds the entry to `:rig/modules`, and
-re-locks.
+`new` creates `<name>/deps.edn` (root, `:rig/modules ["modules/<name>" "dev"]`),
+`<name>/modules/<name>/deps.edn`, a runnable `src`, a test, and the
+workspace's development module `<name>/dev` — a `deps.edn` that loads
+the app module by `:local/root` plus `reloaded.repl`, and a scratch
+`user.clj`. `new-module` scaffolds under `modules/`, adds the entry to
+`:rig/modules`, and re-locks; it does not touch `dev` — add a new
+module to `dev/deps.edn` as `{:local/root "../modules/<name>"}` when
+you want it in the development REPL.
 
-Both pin the test runner at the newest release past its
-[cooldown](../workflows/dependencies.md), so a new project starts on what
-the repositories serve rather than on a version compiled into the binary.
-`--offline` writes the version bundled with the binary, and so does a
-repository that answers nothing — with a note naming it.
+Both resolve the scaffold's tooling in one kernel call — the test
+runner, `test.check`, `spy`, and the two kaocha reporters for the
+module's `:test` alias, and `reloaded.repl` for the dev module — at the
+newest release past each coordinate's
+[cooldown](../workflows/dependencies.md), so a new project starts on
+what the repositories serve rather than on versions compiled into the
+binary. `--offline` writes the versions bundled with the binary, and so
+does a lookup that has no answer for a coordinate — with a note naming
+it (every release inside its cooldown, or no repository of the
+workspace serves it).
 
 ### `rig self-update`
 

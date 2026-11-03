@@ -85,3 +85,68 @@
     (fn [dir]
       (is (thrown-with-msg? Exception #"coord"
                             (latest/latest {:workspace dir :args {}}))))))
+
+(deftest snapshots-are-never-picked-without-force
+  (let [now (System/currentTimeMillis)
+        [old recent] (old-and-recent now)]
+    (vtest/with-file-repo ["com.rig.test" "snap" {"1.0.0" old
+                                                  "1.1.0-SNAPSHOT" recent}]
+      (fn [url]
+        (with-ws
+          (fn [dir]
+            (is (= {"version" "1.0.0"}
+                   (latest/latest {:workspace dir
+                                   :args {:coord "com.rig.test/snap"
+                                          :repos (file-repos url)}}))
+                "the newest version is a snapshot: the newest release wins")
+            (is (= {"version" "1.1.0-SNAPSHOT"}
+                   (latest/latest {:workspace dir
+                                   :args {:coord "com.rig.test/snap"
+                                          :repos (file-repos url)
+                                          :force true}}))
+                "force admits the snapshot")))))))
+
+(deftest a-snapshot-only-repo-is-not-found
+  (let [recent (- (System/currentTimeMillis) (* 1 3600 1000))]
+    (vtest/with-file-repo ["com.rig.test" "snaps" {"1.0.0-SNAPSHOT" recent}]
+      (fn [url]
+        (with-ws
+          (fn [dir]
+            (let [resp (latest/latest {:workspace dir
+                                       :args {:coord "com.rig.test/snaps"
+                                              :repos (file-repos url)}})]
+              (is (= "not-found" (get resp "reason"))
+                  "no release is served: not the snapshot, not anything"))))))))
+
+(deftest a-coords-batch-resolves-each-coord
+  (let [now (System/currentTimeMillis)
+        [old recent] (old-and-recent now)]
+    (vtest/with-file-repo ["com.rig.test" "runner" {"1.0.0" old
+                                                    "1.0.1" old
+                                                    "1.0.2" recent}]
+      (fn [url-f]
+        (vtest/with-file-repo ["com.rig.test" "other" {"2.0.0" old}]
+          (fn [url-g]
+            (with-ws
+              (fn [dir]
+                (is (= {"versions" {"com.rig.test/runner" "1.0.1"}
+                        "reasons" {"com.rig.test/other" "cooldown"
+                                   "com.rig.test/missing" "not-found"}}
+                       (latest/latest {:workspace dir
+                                       :args {:coords ["com.rig.test/runner"
+                                                       "com.rig.test/other"
+                                                       "com.rig.test/missing"]
+                                          :repos {"f" {:url url-f}
+                                                  "g" {:url url-g}}}}))
+                    "resolved coordinates in versions, the rest with their
+                    reasons: the repo id g serves no per-version timestamps,
+                    so its release reads as published now, inside the
+                    cooldown")))))))))
+
+(deftest coord-and-coords-are-mutually-exclusive
+  (with-ws
+    (fn [dir]
+      (is (thrown-with-msg? Exception #"mutually exclusive"
+                             (latest/latest {:workspace dir
+                                             :args {:coord "a/b"
+                                                    :coords ["c/d"]}}))))))

@@ -25,6 +25,23 @@ option your runner accepts works, exactly as it works with `clj -X:test`.
 The exit code of the child process becomes Rig's exit code: a failing test
 suite fails your shell.
 
+A module's `:test` alias can carry reporters as `:extra-deps` without
+activating them. A scaffolded module ships the kaocha JUnit XML and
+coverage reporters this way — dormant until a run loads them with
+`:plugins`:
+
+```sh
+# JUnit XML for CI: the plugin writes to :junit-xml-file
+rig test :plugins '[:kaocha.plugin/junit-xml]' \
+         :kaocha/cli-options '{:junit-xml-file "target/junit.xml"}'
+
+# coverage: prints a table and writes target/coverage/
+rig test :plugins '[:kaocha.plugin/cloverage]'
+```
+
+The paths are relative to the module directory (the runner's working
+directory).
+
 A module participates when its `:test` alias declares an `:exec-fn`. Rig
 skips modules without one.
 
@@ -52,6 +69,40 @@ rig run -p modules/orchestrator -- --env dev       # flags for the program
 rig nrepl                     # nREPL server on the module classpath
 rig nrepl --alias dev -p modules/orchestrator
 ```
+
+## The development REPL: the dev module
+
+Scaffolded projects carry a workspace-level `dev` module: one development
+module for the whole workspace, not one per module. Its `deps.edn` loads
+the app module by `:local/root` and pins `reloaded.repl`
+([the reloaded workflow](https://cognitect.com/blog/2013/06/04/clojure-workflow-reloaded));
+`dev/user.clj` is the scratch namespace the REPL opens in.
+
+```sh
+rig nrepl -p dev              # point your editor at the printed port
+```
+
+With the app open, work in `user.clj`. After a save, reload the changed
+namespaces — CIDER's `cider-ns-refresh` works over Rig's plain nREPL, or
+re-evaluate `user` — and `(reloaded/go)` restarts the system on the new
+code. When the app grows a component system, wire the reloaded workflow
+to it — `user.clj`'s docstring carries the incantation:
+
+```clj
+(require '[reloaded.repl :as reloaded])
+(reloaded/set-init! #'start-system)
+(reloaded/go)     ;; start, or reload changed namespaces and restart
+(reloaded/stop)
+(reloaded/reset)  ;; stop, unload every namespace, start again
+```
+
+A new module does not enter `dev` on its own: `rig new-module` leaves it
+out, so the development classpath stays what you asked for. Add a module
+to `dev/deps.edn` when you want it in the REPL —
+`example/other {:local/root "../modules/other"}` — then `rig lock`.
+
+The dev module is not built, published, or tested: it declares no
+`:rig/lib`, no test exec-fn, no build. It exists for the REPL.
 
 ## The escape hatch: `rig exec`
 
