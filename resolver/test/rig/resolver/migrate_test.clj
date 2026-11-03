@@ -58,6 +58,22 @@
         (is (nil? (get d :exoscale.project/version)))
         (is (nil? (get d :exoscale.project/javac-opts)))))))
 
+(deftest ns-compile-is-dropped-with-a-warning
+  "Both spellings of the removed key drop with a warning: the legacy one
+  is no longer renamed, and a :rig/ns-compile an older rig already
+  migrated cannot stay in the output (read-manifest refuses it)."
+  (doseq [key [:exoscale.project/ns-compile :rig/ns-compile]]
+    (let [ws (temp-ws {"deps.edn"
+                       (str "{:" (name (if (= key :exoscale.project/ns-compile)
+                                         :exoscale.project/lib :rig/lib))
+                          " x/y\n " (str key) " [a.b c.d]}\n")})]
+      (let [r (run ws)]
+        (is (empty? (problems r)))
+        (is (some #(re-find #"dropped :.*ns-compile" %) (warnings r)))
+        (let [d (file-edn ws "deps.edn")]
+          (is (nil? (get d :rig/ns-compile)))
+          (is (nil? (get d :exoscale.project/ns-compile))))))))
+
 (deftest bypass-test-is-inverted
   (doseq [[legacy expected] [[true false] [false true]]]
     (let [ws (temp-ws {"deps.edn"

@@ -139,9 +139,6 @@ func (e *hotEnv) buildOne(ctx context.Context, m string, uber, native bool) (str
 	if (buildJar || buildUber) && mod.Main != "" {
 		cfg["main"] = mod.Main
 	}
-	if len(mod.Build.NsCompile) > 0 {
-		cfg["ns-compile"] = mod.Build.NsCompile
-	}
 	// The module's declared entry timestamp: every entry of the jars the
 	// kernel builds is stamped with it and emitted in name-sorted order,
 	// so same sources, lock and build JVM yield a byte-identical jar.

@@ -233,6 +233,7 @@ func TestCallExitMapping(t *testing.T) {
 		{1, ErrOpFailed},
 		{2, ErrBadRequest},
 		{3, ErrLegacyKeys},
+		{4, ErrRemovedKey},
 	}
 	for _, c := range cases {
 		t.Run(fmt.Sprint(c.code), func(t *testing.T) {

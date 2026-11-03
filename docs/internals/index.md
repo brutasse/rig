@@ -191,8 +191,8 @@ keys track JVM builds, so channel drift would strand every image.
 
 | Namespace | Job |
 |---|---|
-| `rig.resolver.main` | entry point: op dispatch, exit codes, legacy guard |
-| `rig.resolver.manifest` | manifest read (byte sha256, legacy keys, `:rig/*` accessors, module version) |
+| `rig.resolver.main` | entry point: op dispatch, exit codes, legacy- and removed-key guard |
+| `rig.resolver.manifest` | manifest read (byte sha256, legacy- and removed-key refusal, `:rig/*` accessors, module version) |
 | `rig.resolver.resolve` | the `resolve` op: selection → `create-basis` → lock document |
 | `rig.resolver.versions` | version candidates, cooldown selection, repo attribution, auth proxy |
 | `rig.resolver.plan` | classpath roots → lock entries (mvn / git / local classification) |
@@ -200,7 +200,7 @@ keys track JVM builds, so channel drift would strand every image.
 | `rig.resolver.edit` | format-preserving manifest edits (`rewrite-clj` + cljfmt) |
 | `rig.resolver.tree` | dependency tree display |
 | `rig.resolver.outdated` | what's newer upstream |
-| `rig.resolver.aot` | the AOT plan: the non-project require closure (preloads), the module's namespaces in dependency order, and the effective entry points (declared `:rig/ns-compile`, plus `:rig/main` when it names a non-project namespace with a source on the classpath) — drives the two-phase AOT compile of `build` and `check` (stage 3) |
+| `rig.resolver.aot` | the AOT plan: the non-project require closure (preloads), the module's namespaces in dependency order, and the effective entry points (the module's `:gen-class` namespaces, plus `:rig/main` when it names a non-project namespace with a source on the classpath) — drives the two-phase AOT compile of `build` and `check` (stage 3) |
 | `rig.resolver.build` | jar/uberjar via `tools.build` from the locked classpath, with the two-phase AOT compile |
 | `rig.resolver.publish` | POM + deploy target (plan-only) |
 | `rig.resolver.migrate` | legacy workspace → `:rig/*`, in place |

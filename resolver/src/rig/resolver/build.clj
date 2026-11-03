@@ -266,12 +266,12 @@
    skipped when a preload already loaded it, so its top level never runs
    twice. A module's compile loads nothing the preloads did not already
    load, so only pathological dynamic requires can emit to the working
-   dir. The entry points are the exception: the declared :rig/ns-compile
-   ones plus the build's own :rig/main when it is not a module namespace
-   (the plan's :extra) compile unconditionally, even when the preload
-   loaded them — a required namespace is by construction preloaded, and
-   running its top level a second time is what an explicit compile
-   request means."
+   dir. The entry points are the exception: the module's :gen-class
+   namespaces plus the build's own :rig/main when it is not a module
+   namespace (the plan's :extra) compile unconditionally, even when the
+   preload loaded them — a required namespace is by construction
+   preloaded, and running its top level a second time is what an explicit
+   compile request means."
   [class-dir scratch-dir plan extras uber?]
   (str
    "(with-bindings\n"
@@ -322,8 +322,8 @@
   joins the plan's entry points when it is not a module namespace and a
   source for it is on the classpath (aot/plan), so its classes reach
   the artifact without a declaration."
-  [basis class-dir artifact-dirs extra main compile-jvm-opts uber?]
-  (let [plan (aot/plan artifact-dirs extra main (:classpath basis))]
+  [basis class-dir artifact-dirs main compile-jvm-opts uber?]
+  (let [plan (aot/plan artifact-dirs main (:classpath basis))]
     (when (seq (:compile plan))
       (let [working (.toFile (Files/createTempDirectory "rig-aot-"
                                                         (into-array FileAttribute [])))
@@ -356,7 +356,6 @@
         artifact-dirs (get cfg :artifact-dirs)
         java-src-dirs (get cfg :java-src-dirs)
         copy-dirs (filter #(and % (.isDirectory (io/file %))) artifact-dirs)
-        extra (get cfg :ns-compile)
         ensure (get cfg :prep-ensure)]
     ;; A stale-AOT dep jar would ship a source the jar-level strip drops,
     ;; running the stale class: refuse before the compile spends minutes.
@@ -384,12 +383,12 @@
       (b/javac {:basis basis :src-dirs java-src-dirs :class-dir class-dir
                 :javac-opts (get cfg :javac-opts)}))
     ;; Two-phase AOT compile: the module's non-project requires preload,
-    ;; then its namespaces (plus the entry points — the :ns-compile ones
+    ;; then its namespaces (plus the entry points — the :gen-class ones
     ;; and the module's own :rig/main when it is not a module namespace)
     ;; compile in dependency order. An uber build preloads into the working
     ;; class dir so source-only dependency namespaces arrive as classes
     ;; (script-text).
-    (aot-compile basis class-dir artifact-dirs extra (get cfg :main)
+    (aot-compile basis class-dir artifact-dirs (get cfg :main)
                  (get cfg :compile-jvm-opts) (get cfg :uber?))
     ;; The copy dragged the module's Clojure sources into the class-dir;
     ;; now that the compile paired them with classes, drop them again

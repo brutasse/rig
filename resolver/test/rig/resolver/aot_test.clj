@@ -27,7 +27,7 @@
     (spit (io/file src "migratus.clj") "{:store :in-memory\n :migration-dir \"migrations\"}\n")
     (io/make-parents (io/file src "template" "core.clj"))
     (spit (io/file src "template" "core.clj") "(ns {{final-name}}.core\n  (:require [clojure.string]))\n")
-    (let [plan (aot/plan [(.getPath src)] [] nil nil)]
+    (let [plan (aot/plan [(.getPath src)] nil nil)]
       (is (= ["a.core"] (:compile plan)))
       (is (= #{"migratus.clj" "template/core.clj"}
              (set (map #(.substring (:file %) (inc (.length (.getPath src))))
@@ -52,7 +52,7 @@
     (spit-clj src "a/core.clj" "(ns a.core\n  (:require [a.util :as u]))\n")
     (spit-clj src "a/util.clj" "(ns a.util)\n")
     (spit-clj res "clj-kondo.exports/acme/a_hooks.clj" "(ns a_hooks)\n")
-    (let [plan (aot/plan [(.getPath src) (.getPath res)] [] nil nil)]
+    (let [plan (aot/plan [(.getPath src) (.getPath res)] nil nil)]
       (is (= ["a.util" "a.core"] (:compile plan)))
       (is (empty? (:preload plan))))))
 
@@ -66,7 +66,7 @@
     (spit-clj src "a/util.clj" "(ns a.util)\n")
     (spit-clj src "a/core.clj"
               "(ns a.core\n  (:require [a.core :as self] [a.util :as u]))\n(defn f [x] (self/f x))\n")
-    (let [plan (aot/plan [(.getPath src)] [] nil nil)]
+    (let [plan (aot/plan [(.getPath src)] nil nil)]
       (is (= ["a.util" "a.core"] (:compile plan)))
       (is (empty? (:preload plan)))
       (is (empty? (:skipped plan))))))
@@ -80,7 +80,7 @@
         dep (temp-dir)]
     (spit-clj src "a/core.clj" "(ns a.core)\n")
     (spit-clj dep "entry/main.clj" "(ns entry.main)\n")
-    (let [plan (aot/plan [(.getPath src)] [] "entry.main" [(.getPath dep)])]
+    (let [plan (aot/plan [(.getPath src)] "entry.main" [(.getPath dep)])]
       (is (= ["a.core" "entry.main"] (:compile plan)))
       (is (= ["entry.main"] (:extra plan))))))
 
@@ -91,19 +91,39 @@
   (let [src (temp-dir)]
     (spit-clj src "a/core.clj" "(ns a.core)\n")
     (spit-clj src "entry/main.clj" "(ns entry.main)\n")
-    (let [plan (aot/plan [(.getPath src)] [] "entry.main" [(.getPath src)])]
+    (let [plan (aot/plan [(.getPath src)] "entry.main" [(.getPath src)])]
       (is (= #{"entry.main" "a.core"} (set (:compile plan))))
       (is (empty? (:extra plan))))))
 
-(deftest plan-deduplicates-a-main-that-is-already-declared
-  "A main already listed in :rig/ns-compile stays a single entry point."
-  (let [src (temp-dir)
-        dep (temp-dir)]
-    (spit-clj src "a/core.clj" "(ns a.core)\n")
-    (spit-clj dep "entry/main.clj" "(ns entry.main)\n")
-    (let [plan (aot/plan [(.getPath src)] ["entry.main"] "entry.main" [(.getPath dep)])]
-      (is (= ["entry.main"] (:extra plan)))
-      (is (= ["a.core" "entry.main"] (:compile plan))))))
+(deftest plan-adds-in-tree-gen-class-namespaces-to-the-entry-points
+  "An in-tree namespace whose ns form carries :gen-class joins the entry
+  points by construction: its generated class reaches the artifact only
+  as AOT output, so the plan compiles it unconditionally."
+  (let [src (temp-dir)]
+    (spit-clj src "a/util.clj" "(ns a.util\n  (:gen-class))\n")
+    (spit-clj src "a/core.clj" "(ns a.core\n  (:require [a.util :as u]))\n")
+    (let [plan (aot/plan [(.getPath src)] nil nil)]
+      (is (= ["a.util"] (:extra plan)))
+      (is (= ["a.util" "a.core"] (:compile plan))))))
+
+(deftest plan-detects-a-gen-class-with-options
+  "(:gen-class :name Foo) is the clause with options; the entry-point
+  detection must not require the bare form."
+  (let [src (temp-dir)]
+    (spit-clj src "a/util.clj" "(ns a.util\n  (:gen-class :name a.util.Helper))\n")
+    (let [plan (aot/plan [(.getPath src)] nil nil)]
+      (is (= ["a.util"] (:extra plan))))))
+
+(deftest plan-compiles-a-gen-class-main-exactly-once
+  "A :rig/main that IS one of the module's namespaces and carries
+  :gen-class joins the entry points like any other :gen-class namespace
+  (its generated class needs the unconditional compile), but the
+  compile list carries it once: its top level never runs twice."
+  (let [src (temp-dir)]
+    (spit-clj src "entry/main.clj" "(ns entry.main\n  (:gen-class))\n")
+    (let [plan (aot/plan [(.getPath src)] "entry.main" [(.getPath src)])]
+      (is (= ["entry.main"] (:compile plan)))
+      (is (= ["entry.main"] (:extra plan))))))
 
 (deftest plan-ignores-a-main-with-no-source-on-the-classpath
   "A :rig/main that is not a loadable Clojure source stays out of the
@@ -111,7 +131,7 @@
   resolver's own Main-Class), so the plan must not try to compile it."
   (let [src (temp-dir)]
     (spit-clj src "a/core.clj" "(ns a.core)\n")
-    (let [plan (aot/plan [(.getPath src)] [] "Main" [(.getPath src)])]
+    (let [plan (aot/plan [(.getPath src)] "Main" [(.getPath src)])]
       (is (= ["a.core"] (:compile plan)))
       (is (empty? (:extra plan))))))
 
@@ -126,7 +146,7 @@
     (spit-clj dep "entry/main.clj" "(ns entry.main)\n")
     (io/make-parents (io/file dep "dep" "only"))
     (spit (io/file dep "dep" "only.class") "")
-    (let [plan (aot/plan [(.getPath src)] [] "dep.only" [(.getPath dep)])]
+    (let [plan (aot/plan [(.getPath src)] "dep.only" [(.getPath dep)])]
       (is (= ["a.core"] (:compile plan)))
       (is (empty? (:extra plan))))))
 
@@ -141,11 +161,11 @@
         class-jar (write-jar (io/file dep "cls") ["dep/only.class" ""])]
     (spit-clj src "a/core.clj" "(ns a.core)\n")
     (is (= ["entry.main"]
-           (:extra (aot/plan [(.getPath src)] [] "entry.main" [src-jar]))))
+           (:extra (aot/plan [(.getPath src)] "entry.main" [src-jar]))))
     (is (= ["other.app"]
-           (:extra (aot/plan [(.getPath src)] [] "other.app" [cljc-jar]))))
+           (:extra (aot/plan [(.getPath src)] "other.app" [cljc-jar]))))
     (is (empty?
-         (:extra (aot/plan [(.getPath src)] [] "dep.only" [class-jar]))))))
+         (:extra (aot/plan [(.getPath src)] "dep.only" [class-jar]))))))
 
 (deftest plan-accepts-the-munged-file-name
   "load resolves my-ns.foo to my_ns/foo.clj: the underscored file IS
@@ -154,8 +174,8 @@
   (let [root (temp-dir)
         src (io/file root "src")]
     (spit-clj src "my_ns/foo.clj" "(ns my-ns.foo)\n")
-    (is (= ["my-ns.foo"] (:compile (aot/plan [(.getPath src)] [] nil nil))))
+    (is (= ["my-ns.foo"] (:compile (aot/plan [(.getPath src)] nil nil))))
     (let [root2 (temp-dir)
           src2 (io/file root2 "src")]
       (spit-clj src2 "my-ns/foo.clj" "(ns my-ns.foo)\n")
-      (is (empty? (:compile (aot/plan [(.getPath src2)] [] nil nil)))))))
+      (is (empty? (:compile (aot/plan [(.getPath src2)] nil nil)))))))

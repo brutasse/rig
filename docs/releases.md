@@ -6,20 +6,28 @@ Changelog for Rig.
 
 ### New
 
-#### `:rig/main` compiles into the artifact without `:rig/ns-compile`
+#### `:rig/main` compiles into the artifact without a declaration
 
 When a module's `:rig/main` names a Clojure namespace the module does
 not compile itself — a dependency namespace, or a namespace of another
 workspace module — `rig build` AOT-compiles it into the jar or uberjar
-without a `:rig/ns-compile` declaration: the AOT plan adds it to the
-entry points when a `.clj`/`.cljc` source for it exists on the locked
-classpath. The entry point's classes reach the artifact, so the
-jar's `Main-Class` is runnable. A main with no source to compile — a
-Java `Main-Class`, or a namespace the classpath carries as classes
-alone — is left alone: there is nothing for the build to compile.
-`:rig/ns-compile` keeps its role: the extra entry points that are not
-the module's own `:rig/main`.
-[Configuration — Entry points](reference/config.md#entry-points-rigmain-and-rigns-compile).
+without any declaration: the AOT plan adds it to the entry points when
+a `.clj`/`.cljc` source for it exists on the locked classpath. The
+entry point's classes reach the artifact, so the jar's `Main-Class` is
+runnable. A main with no source to compile — a Java `Main-Class`, or a
+namespace the classpath carries as classes alone — is left alone: there
+is nothing for the build to compile.
+[Configuration — Entry points](reference/config.md#entry-points-rigmain-and-genclass).
+
+#### In-module `:gen-class` namespaces compile into the artifact without a declaration
+
+A namespace that is one of the module's own sources and whose `ns`
+form carries a `:gen-class` clause joins the AOT plan's entry points by
+construction: its generated class reaches the artifact only as AOT
+output, so `rig build` compiles the namespace unconditionally, even
+when a preceding compile in the build already loaded it. No key
+declares it.
+[Configuration — Entry points](reference/config.md#entry-points-rigmain-and-genclass).
 
 ### Changed
 
@@ -112,6 +120,22 @@ ignored on read and absent from the next re-lock, so the schema stays at
 version 2. `rig info` no longer prints it.
 
 ### Removed
+
+#### `:rig/ns-compile`
+
+The key is gone. `:rig/main` and the module's `:gen-class` namespaces
+compile into the artifact without a declaration, and the module's
+other namespaces compile with it. A manifest still carrying the key is
+refused at read time — the resolver names the file and the fix, and
+the refusal exits 4 (the legacy-key refusal exits 3) — and `rig
+migrate` drops the key, the legacy `:exoscale.project/ns-compile`
+spelling included, with a warning.
+
+The behavior loss: an out-of-tree namespace — a source on the classpath
+outside the module's artifact dirs — can no longer be declared as an
+extra entry point. To ship its classes, move the source into the
+module: a `:gen-class` namespace then compiles unconditionally, and
+any other namespace compiles with the module.
 
 #### `rig lint`
 

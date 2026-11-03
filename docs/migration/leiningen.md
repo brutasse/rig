@@ -142,8 +142,10 @@ occurrence** — nothing disappears silently:
   `rig exec`.
 - `:aot` — the project's own `:main` needs nothing: `:rig/main`
   AOT-compiles it into the artifact when its source is on the classpath.
-  Other entry-point namespaces map to `:rig/ns-compile` (declared, not
-  auto-derived).
+  The other `:aot` namespaces are the project's own sources, and Rig
+  compiles them with the module; one whose `ns` form carries a
+  `:gen-class` clause compiles unconditionally, its generated class
+  included.
 - `:global-vars`, and `:native-image` (the `:graalvm` profile).
 - Every profile other than `:test`, `:dev`, `:uberjar`, and `:provided`
   (a `:docgen` profile that only adds dependencies becomes a `rig exec`

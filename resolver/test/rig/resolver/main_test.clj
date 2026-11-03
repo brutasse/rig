@@ -21,7 +21,11 @@
   (testing "op failures return nonzero, they never throw out"
     ;; :check/:tree tolerate odd workspaces (they legitimately succeed);
     ;; :migrate without a manifest always throws.
-    (is (pos? (main/dispatch {:op "migrate" :workspace "/nonexistent-rig-test"})))))
+    (is (pos? (main/dispatch {:op "migrate" :workspace "/nonexistent-rig-test"}))))
+  (testing "a manifest using a removed key is a 4"
+    (with-ws [["deps.edn" "{:rig/lib x/y :rig/ns-compile [a.b]}"]]
+      (fn [dir]
+        (is (= 4 (main/dispatch {:op "tree" :workspace dir})))))))
 
 (deftest run-request-file-codes
   (is (= 2 (main/run-request-file "/nonexistent/rig-request.json")))

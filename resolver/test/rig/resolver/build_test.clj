@@ -518,32 +518,11 @@
       (finally
         (delete-tree ws-dir)))))
 
-(deftest ns-compile-compiles-namespaces-outside-the-artifact-dirs
-  (let [ws-dir (temp-dir)
-        ws (str ws-dir)
-        src-root (io/file ws-dir "src")
-        dep-src (io/file ws-dir "dep-src")
-        res-root (io/file ws-dir "resources")
-        src-file (io/file src-root "example" "core.clj")
-        entry-file (io/file dep-src "entry" "main.clj")]
-    (io/make-parents src-file)
-    (spit src-file "(ns example.core)\n(def x 1)\n")
-    (io/make-parents entry-file)
-    (spit entry-file "(ns entry.main)\n(def y 2)\n")
-    (try
-      (let [base (cfg ws src-root res-root false)
-            cfg (assoc base :classpath
-                       (conj (:classpath base) {:id "paths:dep" :paths [(str dep-src)]})
-                       :ns-compile ["entry.main"])]
-        (build/build {:args {:builds {"." cfg}}})
-        (is (contains? (zip-names (str ws "/target/fixture.jar")) "entry/main__init.class")))
-      (finally
-        (delete-tree ws-dir)))))
-
-(deftest ns-compile-compiles-a-required-source-only-namespace
-  "A required namespace is preloaded by construction, and the preload never
-  compiles: a declared :rig/ns-compile entry that the module requires must
-  still be compiled (its top level re-run — what an explicit compile means)."
+(deftest required-source-only-namespace-reaches-the-uber-without-a-declaration
+  "A required namespace is preloaded by construction; for an uber the
+  preload compiles source-only dependencies into the working class dir
+  (RT.load emits the class exactly when none is on the classpath), so the
+  namespace's classes reach the uber without a declaration."
   (let [ws-dir (temp-dir)
         ws (str ws-dir)
         src-root (io/file ws-dir "src")
@@ -558,12 +537,11 @@
           "(ns dep-only.core)\n(defprotocol Ping (ping [_]))\n(extend-protocol Ping\n  Long (ping [x] (inc x)))\n")
     (try
       (let [c (-> (cfg ws src-root src-root true)
-                  (update :classpath #(cons {:id "paths:dep" :paths [(str dep-root)]} %))
-                  (assoc :ns-compile ["dep-only.core"]))
+                  (update :classpath #(cons {:id "paths:dep" :paths [(str dep-root)]} %)))
             uber-file (str ws "/target/fixture-uber.jar")]
         (build/build {:args {:builds {"." c}}})
         (is (contains? (zip-names uber-file) "dep_only/core__init.class")
-            "the required, declared entry point must reach the uber as classes")
+            "the required source-only namespace must reach the uber as classes")
         ;; Link proof: run with only the uber — the dep source root is not
         ;; on the classpath, so a source-only payload could not link the
         ;; protocol reference in example.core/call even if RT.load found
@@ -575,11 +553,69 @@
       (finally
         (delete-tree ws-dir)))))
 
+(deftest in-tree-gen-class-namespace-reaches-the-jar-without-a-declaration
+  "A module namespace that is not :rig/main and carries (:gen-class)
+  compiles with the module: its generated class reaches the jar without
+  a declaration, and the class is runnable."
+  (let [ws-dir (temp-dir)
+        ws (str ws-dir)
+        src-root (io/file ws-dir "src")
+        res-root (io/file ws-dir "resources")
+        src-file (io/file src-root "example" "core.clj")
+        worker-file (io/file src-root "example" "worker.clj")]
+    (io/make-parents src-file)
+    (spit src-file "(ns example.core)\n(defn -main [& _] (println \"main\"))\n")
+    (spit worker-file
+          "(ns example.worker\n  (:gen-class))\n(defn -main [& args]\n  (println (str \"hello \" (apply str args))))\n")
+    (try
+      (let [cfg (cfg ws src-root res-root false)]
+        (build/build {:args {:builds {"." cfg}}})
+        (let [names (zip-names (str ws "/target/fixture.jar"))]
+          (is (contains? names "example/worker__init.class"))
+          (is (contains? names "example/worker.class")
+              "the in-tree gen-class namespace's class must reach the jar"))
+        (let [p (run-cmd (java)
+                         "-cp" (str ws "/target/fixture.jar:"
+                                   (System/getProperty "java.class.path"))
+                         "example.worker" "world")]
+          (is (zero? (:exit p)) (str (:out p) (:err p)))
+          (is (re-find #"hello world" (:out p)))))
+      (finally
+        (delete-tree ws-dir)))))
+
+(deftest in-tree-gen-class-namespace-reaches-the-uber-without-a-declaration
+  "The same in-tree gen-class namespace reaches the uberjar without a
+  declaration."
+  (let [ws-dir (temp-dir)
+        ws (str ws-dir)
+        src-root (io/file ws-dir "src")
+        res-root (io/file ws-dir "resources")
+        src-file (io/file src-root "example" "core.clj")
+        worker-file (io/file src-root "example" "worker.clj")]
+    (io/make-parents src-file)
+    (spit src-file "(ns example.core)\n(defn -main [& _] (println \"main\"))\n")
+    (spit worker-file
+          "(ns example.worker\n  (:gen-class))\n(defn -main [& args]\n  (println (str \"hello \" (apply str args))))\n")
+    (try
+      (let [cfg (cfg ws src-root res-root true)]
+        (build/build {:args {:builds {"." cfg}}})
+        (let [names (zip-names (str ws "/target/fixture-uber.jar"))]
+          (is (contains? names "example/worker__init.class"))
+          (is (contains? names "example/worker.class")
+              "the in-tree gen-class namespace's class must reach the uber"))
+        (let [p (run-cmd (java)
+                         "-cp" (str ws "/target/fixture-uber.jar")
+                         "example.worker" "there")]
+          (is (zero? (:exit p)) (str (:out p) (:err p)))
+          (is (re-find #"hello there" (:out p)))))
+      (finally
+        (delete-tree ws-dir)))))
+
 (deftest the-entry-namespace-outside-the-artifact-dirs-compiles-without-a-declaration
   "A :rig/main that is not one of the module's namespaces joins the AOT
-  plan's entry points (aot/plan): its gen-class classes reach the jar
-  without a :rig/ns-compile declaration. The plan compiles it, so the
-  jar's Main-Class is runnable."
+  plan's entry points (aot/plan): its gen-class classes reach the jar,
+  without a declaration. The plan compiles it, so the jar's Main-Class
+  is runnable."
   (let [ws-dir (temp-dir)
         ws (str ws-dir)
         src-root (io/file ws-dir "src")
@@ -617,7 +653,7 @@
   "A :rig/main the module requires is preloaded by construction, and the
   preload never compiles into a plain jar: the entry point must still be
   compiled unconditionally (its top level re-run) for its gen-class to
-  reach the jar — no :rig/ns-compile declaration."
+  reach the jar — no declaration."
   (let [ws-dir (temp-dir)
         ws (str ws-dir)
         src-root (io/file ws-dir "src")
@@ -646,8 +682,8 @@
         (delete-tree ws-dir)))))
 
 (deftest the-entry-namespace-reaches-the-uber-without-a-declaration
-  "The same entry point reaches the uberjar as classes without a
-  :rig/ns-compile declaration."
+  "The same entry point reaches the uberjar as classes, without a
+  declaration."
   (let [ws-dir (temp-dir)
         ws (str ws-dir)
         src-root (io/file ws-dir "src")

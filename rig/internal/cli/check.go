@@ -297,10 +297,9 @@ func checkModuleLoads(ctx context.Context, e *hotEnv, m string) (*checkProblem, 
 		Workspace: e.root.Dir,
 		Modules:   []string{m},
 		Args: map[string]any{
-			"src-dirs":   srcDirs,
-			"ns-compile": mod.Build.NsCompile,
-			"main":       mod.Main,
-			"classpath":  filepath.SplitList(cp),
+			"src-dirs":  srcDirs,
+			"main":      mod.Main,
+			"classpath": filepath.SplitList(cp),
 		},
 	}, e.javaEnv...)
 	if err != nil {

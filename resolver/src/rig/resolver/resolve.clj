@@ -243,8 +243,7 @@
         ;; Default uberjar file: mirror the plain jar naming (last lib segment,
         ;; or "app" when no lib is declared; no version suffix when absent).
         artifact (or (some-> (manifest/lib data) str (str/split #"/") last) "app")
-        default (str target "/" artifact (when (seq version) (str "-" version)) ".jar")
-        ns-compile (when-let [nsc (manifest/ns-compile data)] (vec (map name nsc)))]
+        default (str target "/" artifact (when (seq version) (str "-" version)) ".jar")]
     (cond-> {:artifact-dirs (build-artifact-dirs data)
              :java-src-dirs (or (manifest/java-src-dirs data) [])
              :class-dir (str target "/classes")
@@ -252,7 +251,6 @@
              :uberjar (when (manifest/uberjar? data)
                         {"file" (or (manifest/uberjar-file data) default)
                          "main" (manifest/main-ns data)})}
-      (seq ns-compile) (assoc :ns-compile ns-compile)
       (seq (manifest/javac-opts data)) (assoc :javac-opts (manifest/javac-opts data))
       (manifest/timestamp-string data) (assoc :timestamp-string (manifest/timestamp-string data))
       (manifest/native? data)
