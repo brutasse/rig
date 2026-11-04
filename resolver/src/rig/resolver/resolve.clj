@@ -5,6 +5,7 @@
             [clojure.tools.deps :as td]
             [clojure.tools.deps.edn :as depsedn]
             [clojure.tools.deps.extensions :as ext]
+            [clojure.tools.gitlibs :as gitlibs]
             [rig.resolver.manifest :as manifest]
             [rig.resolver.plan :as plan]
             [rig.resolver.versions :as versions]))
@@ -26,7 +27,9 @@
 
 (defn- home-dir [] (System/getProperty "user.home"))
 (defn- m2dir [] (str (io/file (home-dir) ".m2" "repository")))
-(defn- gitlibs-dir [] (str (io/file (home-dir) ".gitlibs" "libs")))
+;; tools.gitlibs' cache root: ~/.gitlibs, or the GITLIBS override — the
+;; same root the clojure CLI's git deps use.
+(defn- gitlibs-dir [] (str (io/file (gitlibs/cache-dir) "libs")))
 
 (defn- clean-basis-error
   "tools.deps validates the manifest while reading it and throws an
@@ -205,20 +208,6 @@
         (if (.exists f) (json/parse-string (slurp f) true) {}))
       :else l)))
 
-(defn- git-deps-of
-  [data]
-  (let [all (concat (for [[c s] (get data :deps {})] [c s])
-                    (for [al (keys (get data :aliases {}))
-                          [c s] (get-in data [:aliases al :extra-deps] {})]
-                      [c s]))]
-    (into {}
-          (for [[c s] all
-                :when (and (map? s) (:git/sha s))
-                :let [cn (str c)
-                      [g n] (str/split cn #"/" 2)]]
-            [(str g "/" n "/" (:git/sha s))
-             {:url (:git/url s) :deps/root (get s :deps/root)}]))))
-
 (defn- build-artifact-dirs
   "The module's artifact dirs: :rig/artifact-dirs when declared; else the
   manifest's :paths limited to the module's own dirs — paths leaving the
@@ -378,7 +367,26 @@
                         (for [m (concat (remove #{"."} module-dirs)
                                         (keys local-mods))]
                           [(get modules-abs m) (manifest/read-manifest (get modules-abs m))]))
-        git-deps (apply merge (map (fn [man] (git-deps-of (or (:data man) {}))) (vals manifests)))
+        ;; A git dep is a commit pin: :git/sha, a full 40-hex sha.
+        ;; :git/tag/:git/branch and the legacy :tag/:sha keys are refused
+        ;; before tools.deps sees a manifest — its errors (no :path) would
+        ;; surface as stack traces. The throw lives in the binding, so it
+        ;; runs before the resolution (create-basis) that follows.
+        git-problems (let [ps (into []
+                                    (for [m (concat ["."] (remove #{"."} module-dirs) (keys local-mods))
+                                          :let [man (if (= m ".") root-man (get manifests (get modules-abs m)))
+                                                ps (manifest/git-ref-problems (or (:data man) {}))]
+                                          p ps]
+                                      (assoc p :file (if (= m ".") "deps.edn" (str m "/deps.edn")))))]
+                       (when (seq ps)
+                         (throw (ex-info (str "invalid git dep:\n"
+                                              (str/join "\n"
+                                                        (map (fn [p]
+                                                               (str "  " (get p :file) ": " (manifest/git-ref-problem-line p)))
+                                                             (sort-by (juxt :file :coord :message) ps))))
+                                         {:rig/friendly? true})))
+                       ps)
+        git-deps (apply merge (map (fn [man] (manifest/git-deps-map (or (:data man) {}))) (vals manifests)))
         all-repos (let [extra (distinct (mapcat (fn [man]
                                                   (for [[id sp] (get-in (or (:data man) {}) [:mvn/repos] {})]
                                                     [id sp]))

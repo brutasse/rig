@@ -111,7 +111,7 @@ also compile generated Java with an in-JVM Maven:
 ;; a/proto/deps.edn
 {:deps/prep-lib {:ensure "target/classes" :alias :prep :fn build/compile-java}
  :aliases       {:prep {:deps {io.github.clojure/tools.build
-                               {:git/tag "v0.8.2" :git/sha "ba1a2bf"}}
+                               {:git/sha "ba1a2bf421838802e7bdefc541b41f57582e53b6"}}
                         :extra-paths ["build"]
                         :ns-default build}}}
 ```

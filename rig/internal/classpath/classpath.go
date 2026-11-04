@@ -31,14 +31,24 @@ func M2Path(m2root string, a lockfile.Artifact) string {
 	return filepath.Join(m2root, strings.ReplaceAll(a.Group, ".", "/"), a.Name, a.Version, name+"."+a.Extension)
 }
 
-// GitlibsRoot returns the git dependencies root (~/.gitlibs/libs).
+// GitlibsRoot returns the git dependencies root: $GITLIBS/libs when GITLIBS
+// is set, else ~/.gitlibs/libs — the same root tools.gitlibs (the kernel,
+// the clojure CLI) checks out under.
 func GitlibsRoot() (string, error) {
+	if g := strings.TrimSpace(os.Getenv("GITLIBS")); g != "" {
+		return filepath.Join(g, "libs"), nil
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
 	return filepath.Join(home, ".gitlibs", "libs"), nil
 }
+
+// GitProcure provisions one missing git dep checkout under the gitlibs
+// root (the kernel op git-procure: the same tools.gitlibs procure the lock
+// runs). It returns nil once the checkout is in place.
+type GitProcure func(ctx context.Context, a lockfile.Artifact) error
 
 // Entry is one resolved classpath component, in lock order.
 type Entry struct {
@@ -74,12 +84,13 @@ func appendClassDir(paths []string, mod lockfile.Module) []string {
 }
 
 // Build resolves the ordered classpath of module m (alias a, "" = base) of
-// lock. mvn artifacts are secured in the store (cache, m2, repository); git
-// deps must be present under the gitlibs root; local refs expand to the
+// lock. mvn artifacts are secured in the store (cache, m2, repository); a
+// missing git dep is provisioned by procure (nil or offline: the checkout
+// must already be under the gitlibs root); local refs expand to the
 // referenced module's paths. All returned paths are absolute, and the order
 // is exactly the one recorded in the lock (alias extra-paths, module paths,
 // then classpath entries).
-func Build(ctx context.Context, client *fetch.Client, store *cache.Store, m2root, gitlibs, ws string, lock *lockfile.Document, m, alias string) ([]Entry, error) {
+func Build(ctx context.Context, client *fetch.Client, store *cache.Store, m2root, gitlibs, ws string, lock *lockfile.Document, m, alias string, procure GitProcure) ([]Entry, error) {
 	mod, err := lock.Module(m)
 	if err != nil {
 		return nil, err
@@ -139,7 +150,7 @@ func Build(ctx context.Context, client *fetch.Client, store *cache.Store, m2root
 				}
 				out = append(out, Entry{ID: a.ID, Paths: []string{p}})
 			case "git":
-				p, err := gitPaths(gitlibs, a)
+				p, err := gitPaths(ctx, client, gitlibs, a, procure)
 				if err != nil {
 					return nil, err
 				}
@@ -172,10 +183,21 @@ func secureMvn(ctx context.Context, client *fetch.Client, store *cache.Store, m2
 	return p, err
 }
 
-func gitPaths(gitlibs string, a lockfile.Artifact) ([]string, error) {
+func gitPaths(ctx context.Context, client *fetch.Client, gitlibs string, a lockfile.Artifact, procure GitProcure) ([]string, error) {
 	base := filepath.Join(gitlibs, a.Group, a.Name, a.Git.SHA)
 	if st, err := os.Stat(base); err != nil || !st.IsDir() {
-		return nil, fmt.Errorf("%w: %s not found at %s (run 'rig lock')", ErrGitMissing, a.ID, base)
+		if a.Git.URL == "" {
+			return nil, fmt.Errorf("%w: %s has no git url in the lock (run 'rig lock' online)", ErrGitMissing, a.ID)
+		}
+		if client.Offline || procure == nil {
+			return nil, fmt.Errorf("%w: %s not found at %s (restore the gitlibs cache or run online)", ErrGitMissing, a.ID, base)
+		}
+		if err := procure(ctx, a); err != nil {
+			return nil, err
+		}
+		if st, err := os.Stat(base); err != nil || !st.IsDir() {
+			return nil, fmt.Errorf("%w: %s not found at %s after provisioning", ErrGitMissing, a.ID, base)
+		}
 	}
 	p := make([]string, len(a.Paths))
 	for i, d := range a.Paths {

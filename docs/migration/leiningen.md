@@ -85,7 +85,7 @@ path.
 | `:main` | `:rig/main` |
 | version literal (`"1.2.3"`) | `:rig/version` |
 | version var whose body is `(slurp "…")` | `:rig/version-file` — omitted for the `VERSION` default |
-| `:dependencies` | `:deps` (symbol coordinates; `:exclusions`, `:local/root`, `:git/url` + `:git/sha` pass through; `~var` versions resolve from a top-level literal / `(slurp "…")` def) |
+| `:dependencies` | `:deps` (symbol coordinates; `:exclusions`, `:local/root`, `:git/url` + `:git/sha` pass through — the `:git/sha` must be the full 40-hex commit sha; `~var` versions resolve from a top-level literal / `(slurp "…")` def) |
 | `:managed-dependencies` | versionless deps' versions materialized to `:mvn/version` — a literal pin → the pin, the `:version` token → the project's own version; the dep's own `:exclusions` win over the pool entry's; unreferenced pins drop with a warning |
 | `:parent-project` | `:managed-dependencies` inherited via `:inherit [:managed-dependencies]` materialized from the parent manifest (parent pool as base, own entries win); other inherited keys drop with a warning; a missing parent path is a blocking problem |
 | `:sub` | root `:rig/modules`, one `deps.edn` per module (`project.clj` files untouched); sibling-module deps → `:local/root` (module-relative, winning over any declared version); the root's `:managed-dependencies` pins move to the root's `:rig/deps`; nested `:sub` is a blocking problem (flatten the module hierarchy) |

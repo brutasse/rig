@@ -5,6 +5,7 @@
     conflict         (error) two modules require mutually unsatisfiable versions
     drift            (warn)  module requirement differs from the workspace one
     floating-version (error) manifest declares RELEASE/LATEST
+    git-ref          (error) git coord not pinned by a full commit sha
     no-lib           (error) publish enabled without a :rig/lib coordinate
     unknown-repo     (error) lock pins an artifact via a repo no manifest declares"
   (:require [cheshire.core :as json]
@@ -223,6 +224,14 @@
                   :module m
                   :coord ""
                   :message "publish is enabled but the module has no :rig/lib coordinate"})
+        git-ref (for [m (cons "." module-dirs)
+                      :let [d (or (:data (get manifests m)) {})]
+                      p (manifest/git-ref-problems d)]
+                  {:severity "error"
+                   :kind "git-ref"
+                   :module m
+                   :coord (str (:coord p))
+                   :message (manifest/git-ref-problem-detail p)})
         declared (into #{"central" "clojars"}
                        (for [m (keys manifests)
                              :let [d (or (:data (get manifests m)) {})]
@@ -237,6 +246,6 @@
                    :message (str "lock pins artifacts via repo \"" r
                                  "\" which no manifest declares under :mvn/repos")})]
     (let [problems (distinct (sort-by (juxt :module :coord :kind)
-                                      (concat floating stale unpinned drift conflicts no-lib unknown)))]
+                                      (concat floating stale unpinned drift conflicts no-lib git-ref unknown)))]
       {:ok (every? #(= "warn" (:severity %)) problems)
        :problems (vec problems)})))

@@ -5,7 +5,8 @@
   namespaces."
   (:require [clojure.java.io :as io]
             [clojure.string :as str])
-  (:import [com.sun.net.httpserver HttpServer]))
+  (:import [com.sun.net.httpserver HttpServer]
+           [java.lang ProcessBuilder]))
 
 (defn sha1-hex
   "The SHA-1 hex digest of a file (checksums in repo-metadata fixtures)."
@@ -36,6 +37,16 @@
                        "rig-test"
                        (into-array java.nio.file.attribute.FileAttribute []))))
     (.deleteOnExit)))
+
+(defn git
+  "Run git in dir; returns the trimmed output, throws on non-zero exit."
+  [dir & args]
+  (let [proc (.start (doto (ProcessBuilder. (into ["git" "-c" "user.name=t" "-c" "user.email=t@t" "-c" "commit.gpgsign=false" "-C" dir] args))
+                       (.redirectErrorStream true)))
+        out (str (str/trim (slurp (.getInputStream proc))))]
+    (when (not (zero? (.waitFor proc)))
+      (throw (Exception. (str "git " (str/join " " args) " failed: " out))))
+    out))
 
 (defn with-ws
   "Call f with the path (string) of a temp workspace holding the given

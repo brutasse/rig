@@ -187,3 +187,118 @@
        (remove #{:project})
        (map keyword)
        (sort)))
+
+;; --- Git deps ----------------------------------------------------------------
+
+(def git-coord-keys
+  "Keys that mark a dep spec as a git coord: tools.deps' git coord keys
+  (:git/url, :git/sha, :git/tag, the legacy :sha) plus :git/branch —
+  which tools.deps never supported (its spec rejects it) but Rig names
+  in its own error — and the legacy :tag."
+  #{:git/url :git/sha :git/tag :git/branch :sha :tag})
+
+(defn git-coord?
+  [s]
+  (and (map? s) (some git-coord-keys (keys s))))
+
+(defn git-deps-of
+  "The manifest's git coords as [{:loc loc :coord c :spec s}]: the :deps
+  plus every alias's :extra-deps and :replace-deps (the specs that enter
+  a basis). loc is \"deps\" or \"alias <a> <kind>\"."
+  [data]
+  (into []
+        (for [[loc deps] (concat [["deps" (get data :deps {})]]
+                                 (for [al (keys (get data :aliases {}))
+                                       k [:extra-deps :replace-deps]]
+                                   [(str "alias " (name al) " " (name k))
+                                    (get-in data [:aliases al k])]))
+              :when (map? deps)
+              [c s] deps
+              :when (git-coord? s)]
+          {:loc loc :coord c :spec s})))
+
+(def full-sha-re #"^[0-9a-f]{40}$")
+
+(def ^:private git-hosts
+  "The git hosts tools.deps derives a :git/url from: [group-re url-template]
+  pairs, the url template taking the group's owner and the coord's name."
+  [[#"^(?:com|io).github.([^.]+)$" "https://github.com/%s/%s.git"]
+   [#"^(?:com|io).gitlab.([^.]+)$" "https://gitlab.com/%s/%s.git"]
+   [#"^(?:org|page).codeberg.([^.]+)$" "https://codeberg.org/%s/%s.git"]
+   [#"^(?:org|io).bitbucket.([^.]+)$" "https://bitbucket.org/%s/%s.git"]
+   [#"^(?:com|io).beanstalkapp.([^.]+)$" "https://%s.git.beanstalkapp.com/%s.git"]
+   [#"^ht.sr.([^.]+)$" "https://git.sr.ht/~%s/%s"]])
+
+(defn auto-git-url
+  "The :git/url tools.deps derives for coord when its group maps to a
+  known git host (tools.deps' auto-git-url table), nil otherwise — the
+  coord must then declare :git/url."
+  [coord]
+  (let [c (symbol (str coord))
+        group (namespace c)
+        name (name c)]
+    (when group
+      (some (fn [[re url]]
+              (when-let [m (re-matches re group)]
+                (format url (second m) name)))
+            git-hosts))))
+
+(defn git-ref-problems
+  "The manifest's git coords Rig refuses, as [{:loc loc :coord c :message
+  m}]. A git coord is a commit pin: :git/sha, a full 40-hex sha. :git/tag
+  and :git/branch are not supported — a movable ref is not a pin — and
+  neither are the legacy :tag/:sha keys. A coord that declares no
+  :git/url must derive one from a known git host."
+  [data]
+  (into []
+        (for [{:keys [loc coord spec]} (git-deps-of data)
+              :let [c (str coord)
+                    sha (get spec :git/sha)
+                    problems (concat
+                              (when (contains? spec :git/tag)
+                                [":git/tag is not supported — a tag moves; pin the commit it names with :git/sha"])
+                              (when (contains? spec :tag)
+                                [":tag is the legacy form — use :git/sha, the full commit sha"])
+                              (when (contains? spec :git/branch)
+                                [":git/branch is not supported — a branch moves; pin the commit it names with :git/sha"])
+                              (when (contains? spec :sha)
+                                [":sha is the legacy form — use :git/sha, the full commit sha"])
+                              (when (and (contains? spec :git/sha)
+                                         (not (and (string? sha) (re-matches full-sha-re sha))))
+                                [(str ":git/sha must be a full 40-hex commit sha (got " (pr-str sha) ")")])
+                              (when (and (not (contains? spec :git/sha))
+                                         (not (contains? spec :sha)))
+                                ["no commit pin — declare :git/sha, the full 40-hex commit sha"])
+                              (when (and (not (contains? spec :git/url))
+                                         (nil? (auto-git-url c)))
+                                ["declare :git/url (the group does not map to a known git host)"]))]
+              :when (seq problems)
+              message problems]
+          {:loc loc :coord c :message message})))
+
+(defn git-ref-problem-detail
+  "One problem as \"<loc>: <message>\" (the loc prefix absent for :deps)."
+  [{:keys [loc message]}]
+  (str (when-not (= loc "deps") (str loc ": ")) message))
+
+(defn git-ref-problem-line
+  "One problem as \"<coord>: <loc>: <message>\" (the loc prefix absent for
+  :deps) — the manifest-relative line lock and tree print."
+  [{:keys [coord] :as p}]
+  (str (str coord) ": " (git-ref-problem-detail p)))
+
+(defn git-deps-map
+  "The manifest's git deps as {\"group/name/sha\" {:url url :deps/root
+  root}} — the lock's merge entries keyed on the commit pin, url the
+  manifest's :git/url or the one derived from the group (auto-git-url).
+  A spec Rig refuses contributes nothing: git-ref-problems names it
+  before resolution runs."
+  [data]
+  (into {}
+        (for [{:keys [coord spec]} (git-deps-of data)
+              :when (re-matches full-sha-re (or (get spec :git/sha) ""))
+              :let [c (str coord)
+                    [g n] (str/split c #"/" 2)
+                    url (or (get spec :git/url) (auto-git-url c))]]
+          [(str g "/" n "/" (get spec :git/sha))
+           {:url url :deps/root (get spec :deps/root)}])))

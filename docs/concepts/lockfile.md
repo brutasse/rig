@@ -21,7 +21,7 @@ A real lockfile from a multi-module workspace, trimmed:
                                          // the kernel
     "lib": "io.github.brutasse/rig-resolver",
     "version": "v0.1.0",
-    "git/sha": "546d868c4d1c…",
+    "git/sha": "546d868c4d1c1f0a2b3c4d5e6f708192a3b4c5d6",
     "sha256": "9b0e1f2c…"
   },
   "workspace": {

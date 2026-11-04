@@ -115,6 +115,7 @@ const (
 var restoreOps = map[string]bool{
 	"resolve": true, "check": true, "tree": true, "outdated": true,
 	"latest": true, "aot-plan": true, "edit-dep": true, "migrate": true,
+	"git-procure": true,
 }
 
 // cracBanner matches the CRaC engine's stdout/stderr banner lines

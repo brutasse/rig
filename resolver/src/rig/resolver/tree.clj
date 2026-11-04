@@ -83,10 +83,18 @@
                  (str lib (when-let [v (manifest/read-version data mdir ws)]
                             (str ":" v)))
                  module))
-        t (td-tree/trace->tree
-           (td-tree/calc-trace {:dir (io/file mdir)
-                                :project (or proj "deps.edn")
-                                :aliases (when (seq alias) [(keyword alias)])}))]
+        t (do
+            ;; A git dep is a commit pin; refuse the wrong forms before
+            ;; tools.deps' trace sees the manifest (its errors have no
+            ;; :path and would surface as stack traces).
+            (when-let [gs (seq (manifest/git-ref-problems data))]
+              (throw (ex-info (str "invalid git dep: "
+                                   (str/join "; " (map manifest/git-ref-problem-line gs)))
+                              {:rig/friendly? true})))
+            (td-tree/trace->tree
+             (td-tree/calc-trace {:dir (io/file mdir)
+                                  :project (or proj "deps.edn")
+                                  :aliases (when (seq alias) [(keyword alias)])})))]
     (if (seq refused)
       (throw (ex-info (str "tree: cannot resolve floating version(s): "
                            (str/join ", " (map (comp str :coord) refused))

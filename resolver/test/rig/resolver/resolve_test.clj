@@ -5,7 +5,7 @@
             [clojure.tools.deps.extensions :as ext]
             [rig.resolver.manifest :as manifest]
             [rig.resolver.resolve :as resolve]
-            [rig.resolver.test-util :refer [delete-tree sha1-hex start-serving repo-metadata! repo-artifacts! m2-dir-of]]
+            [rig.resolver.test-util :refer [delete-tree git sha1-hex start-serving repo-metadata! repo-artifacts! m2-dir-of]]
             [rig.resolver.versions :as versions])
   (:import [java.lang ProcessBuilder]))
 
@@ -404,15 +404,6 @@
                           (resolve/resolve-lock {:workspace ws})))))
 
 ;; version-fn
-
-(defn- git
-  "Run git in dir; throws when the command exits non-zero."
-  [dir & args]
-  (let [proc (.start (doto (ProcessBuilder. (into ["git" "-c" "user.name=t" "-c" "user.email=t@t" "-c" "commit.gpgsign=false" "-C" dir] args))
-                       (.redirectErrorStream true)))
-        out (str (clojure.string/trim (slurp (.getInputStream proc))))]
-    (when (not (zero? (.waitFor proc)))
-      (throw (Exception. (str "git " (str/join " " args) " failed: " out))))))
 
 (defn- with-git-ws
   "A temp workspace that is a git repo with one commit and the given files."
@@ -885,3 +876,115 @@
         (.stop srv 0)
         (delete-tree m2-dep)
         (delete-tree (str root))))))
+
+;; --- Git deps ----------------------------------------------------------------
+
+(defn- git-repo
+  "A git repo holding a deps.edn and one source file, one commit. Returns
+  [repo-dir full-sha] as strings."
+  []
+  (let [repo (doto (java.io.File.
+                    (str (java.nio.file.Files/createTempDirectory "rig-git-repo"
+                                                                  (into-array java.nio.file.attribute.FileAttribute []))))
+               (.deleteOnExit))
+        _ (git (str repo) "init")
+        _ (io/make-parents (io/file repo "src" "x.clj"))
+        _ (spit (io/file repo "deps.edn") "{:paths [\"src\"]}\n")
+        _ (spit (io/file repo "src" "x.clj") "(ns gitlib.x)\n")
+        _ (git (str repo) "add" "-A")
+        _ (git (str repo) "commit" "-m" "x")
+        sha (git (str repo) "rev-parse" "HEAD")]
+    [(str repo) sha]))
+
+(defn- assert-git-refused
+  "resolve-lock must refuse ws with a friendly error whose message contains
+  every of substrs (the manifest name and the refusal reason)."
+  [ws label & substrs]
+  (let [e (is (thrown? clojure.lang.ExceptionInfo
+                       (resolve/resolve-lock {:workspace ws}))
+              label)]
+    (doseq [s substrs]
+      (is (str/includes? (.getMessage e) s)
+          (str label ": " (.getMessage e))))))
+
+(deftest git-dep-full-sha-locks-and-relock-is-stable
+  "A :git/sha coord (full 40-hex) locks as a git artifact: the id carries
+  the sha7, the artifact records the manifest's url and the full sha, and
+  a re-lock leaves the git artifact untouched."
+  (let [uuid (str (java.util.UUID/randomUUID))
+        coord (str "com.rig.test/gitlib-" uuid)
+        [rdir sha] (git-repo)
+        ws (temp-ws (str "{:deps {" coord
+                         " {:git/url \"file://" rdir "\"\n"
+                         "      :git/sha \"" sha "\"}}}\n"))]
+    (try
+      (let [git-artifact (fn [lock]
+                           (first (filter #(= "git" (get % :kind))
+                                          (get lock "artifacts"))))
+            lock (get (resolve/resolve-lock {:workspace ws}) "lock")
+            a (git-artifact lock)]
+        (is (= (str coord ":" (subs sha 0 7) ":jar") (:id a))
+            "the git artifact id is group/name:<sha7>:jar")
+        (is (= (str "file://" rdir) (get-in a [:git :url]))
+            "the lock records the declared git url")
+        (is (= sha (get-in a [:git :sha]))
+            "the lock records the full sha")
+        (is (some #(= (str coord ":" (subs sha 0 7) ":jar") %)
+                  (get-in lock ["modules" "." :classpath]))
+            "the git dep is on the module classpath")
+        (let [lock2 (get (resolve/resolve-lock {:workspace ws :lock lock}) "lock")]
+          (is (= a (git-artifact lock2)) "re-lock: the git artifact is unchanged")))
+      (finally
+        (delete-tree (str (System/getenv "HOME")
+                          "/.gitlibs/libs/com.rig.test/gitlib-" uuid))
+        (delete-tree rdir)))))
+
+(deftest git-refusals-fail-with-a-friendly-message
+  "Every git coord Rig refuses fails the lock before tools.deps runs, with
+  a friendly one-line error naming the manifest and the problem."
+  (let [[rdir sha] (git-repo)
+        tag (str "{:deps {com.rig.test/lib {:git/url \"file://" rdir "\"\n"
+                 "                          :git/tag \"v1\"}}}\n")
+        tag+sha (str "{:deps {com.rig.test/lib {:git/url \"file://" rdir "\"\n"
+                     "        :git/tag \"v1\"\n"
+                     "        :git/sha \"" sha "\"}}}\n")
+        branch (str "{:deps {com.rig.test/lib {:git/url \"file://" rdir "\"\n"
+                    "                          :git/branch \"main\"}}}\n")
+        short-sha (str "{:deps {com.rig.test/lib {:git/url \"file://" rdir "\"\n"
+                       "           :git/sha \"" (subs sha 0 7) "\"}}}\n")
+        legacy-sha (str "{:deps {com.rig.test/lib {:git/url \"file://" rdir "\"\n"
+                        "                 :sha \"" sha "\"}}}\n")
+        no-url (str "{:deps {com.rig.test/lib {:git/sha \"" sha "\"}}}\n")
+        alias (str "{:deps {}\n"
+                   " :aliases {:t {:extra-deps {com.rig.test/lib {:git/url \"file://"
+                   rdir "\" :git/tag \"v1\"}}}}}\n")]
+    (try
+      (doseq [[label spec substr]
+              [["tag-only" tag ":git/tag is not supported"]
+               ["tag-with-full-sha" tag+sha ":git/tag is not supported"]
+               ["branch" branch ":git/branch is not supported"]
+               ["short-sha" short-sha "must be a full 40-hex commit sha"]
+               ["legacy-sha" legacy-sha ":sha is the legacy form"]
+               ["no-url" no-url "declare :git/url"]
+               ["alias-extra-deps" alias "alias t extra-deps"]]]
+        (let [ws (temp-ws spec)]
+          (try
+            (assert-git-refused ws label "deps.edn" substr)
+            (finally (delete-tree ws)))))
+      (finally (delete-tree rdir)))))
+
+(deftest git-refusal-names-the-module-manifest
+  "A refused git coord in a module manifest names that module's deps.edn."
+  (let [ws (doto (java.io.File.
+                  (str (java.nio.file.Files/createTempDirectory "rig-resolve-test"
+                                                                (into-array java.nio.file.attribute.FileAttribute []))))
+             (.deleteOnExit))
+        _ (.mkdirs (io/file ws "modules" "app"))
+        _ (spit (io/file ws "deps.edn")
+                "{:rig/modules [\"modules/app\"]\n :deps {}}\n")
+        _ (spit (io/file ws "modules" "app" "deps.edn")
+                "{:deps {com.rig.test/lib {:git/tag \"v1\" :git/sha \"ba1a2bf\"}}}\n")]
+    (try
+      (assert-git-refused (str ws) "module" "modules/app/deps.edn"
+                          ":git/tag is not supported")
+      (finally (delete-tree (str ws))))))

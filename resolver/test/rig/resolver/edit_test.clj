@@ -5,7 +5,7 @@
             [clojure.test :refer :all]
             [cljfmt.core :as cljfmt]
             [rig.resolver.edit :as edit]
-            [rig.resolver.test-util :refer [delete-tree]]
+            [rig.resolver.test-util :refer [delete-tree git]]
             [rig.resolver.versions-test :as vtest])
   (:import [java.io File]))
 
@@ -32,16 +32,6 @@
    :aliases {:test {:extra-deps {lambdaisland/kaocha {:mvn/version \"1.66.1034\"}}
                     :exec-fn kaocha.runner/exec-fn}}}
   ")
-
-(defn- git
-  "Run git in dir; returns the trimmed output, throws on non-zero exit."
-  [dir & args]
-  (let [proc (.start (doto (ProcessBuilder. (into ["git" "-c" "user.name=t" "-c" "user.email=t@t" "-c" "commit.gpgsign=false" "-C" dir] args))
-                       (.redirectErrorStream true)))
-        out (str (str/trim (slurp (.getInputStream proc))))]
-    (when (not (zero? (.waitFor proc)))
-      (throw (Exception. (str "git " (str/join " " args) " failed: " out))))
-    out))
 
 (defn- write-fixture
   [dir root lib app]
