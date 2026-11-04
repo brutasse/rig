@@ -155,7 +155,7 @@
     (let [fix (fn [deps] (into {}
                     (for [[c s] deps]
                       [c (if (and (map? s) (:local/root s))
-                          (assoc s :exclusions exclusions)
+                          (assoc s :exclusions (into exclusions (distinct (or (:exclusions s) []))))
                           s)])))
           fix-alias (fn [al] (-> al
                          (cond-> (contains? al :extra-deps)
