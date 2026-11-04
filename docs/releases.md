@@ -4,6 +4,81 @@ Changelog for Rig.
 
 ## Unreleased
 
+## v0.4.1 — 2026-11-04
+
+### Changed
+
+#### A git dependency pins a full commit sha
+
+A git dependency is a commit pin: `:git/sha`, the full 40-hex sha. Rig
+refuses every other form, one line per problem naming the fix, before
+tools.deps reads the manifest — a tools.deps error here carries no
+`:path` and surfaces as a stack trace:
+
+```
+invalid git dep:
+  deps.edn: com.example/widgets: :git/tag is not supported — a tag moves; pin the commit it names with :git/sha
+```
+
+The refused forms:
+
+- `:git/tag` and `:git/branch` — a movable ref is not a pin. Before,
+  the lock recorded wherever the ref pointed.
+- a short `:git/sha`
+- the legacy `:tag` and `:sha` keys
+- a coord with no commit pin
+- a coord that declares no `:git/url` and does not name a known host
+
+`rig lock` and `rig tree` refuse the manifest at start (exit 1);
+`rig check` reports the same problems as `git-ref` errors. `rig add`
+and `rig update` do not edit git coordinates: edit the manifest and
+run `rig lock`. On a known host — github.com, gitlab.com,
+codeberg.org, bitbucket.org, beanstalkapp.com, sourcehut.org, the
+table tools.deps uses — Rig derives the `:git/url`.
+[Git dependencies](workflows/dependencies.md#git-dependencies).
+
+#### `GITLIBS` selects the gitlibs root
+
+The binary and the kernel take the gitlibs root from `$GITLIBS`
+(`$GITLIBS/libs`), defaulting to `~/.gitlibs/libs` — the root
+tools.gitlibs, and so the clojure CLI, checks out under. Before, the
+binary hardcoded `~/.gitlibs/libs`: a machine that set `GITLIBS` kept
+two roots — the clojure CLI's checkouts under the override, Rig
+reading `~/.gitlibs`.
+
+### Fixed
+
+#### Hot commands provision missing git checkouts
+
+A machine without the gitlibs checkouts — a bare CI runner — could not
+run the hot commands on a committed lock that pins a git dep. The
+checkout was absent, and the command pointed at `rig lock`. The
+command now provisions the checkout itself when online. The kernel op
+`git-procure` runs the same tools.gitlibs procure the lock runs — the
+mirror clone plus a worktree at the pinned sha. Provisioning is
+idempotent: it adopts an existing checkout and never re-clones one. It
+fetches the url and sha the lock records, not the repository's state.
+`--offline` still refuses the fetch: a missing checkout fails the
+command and points at the gitlibs cache.
+
+#### A `:local/root` dep keeps its `:exclusions`
+
+Rig adds `:exclusions` to every `:local/root` dep: the libs tools.deps
+merges into the local manifest from its bundled root deps. The
+addition replaced the `:exclusions` a manifest declared on the dep. It
+now merges the injected libs with the declared exclusions, duplicates
+dropped.
+
+### Docs
+
+- [Dependencies](workflows/dependencies.md#git-dependencies) gains a
+  Git dependencies section: the full-sha pin, the refused forms, url
+  derivation, and the gitlibs root with its `GITLIBS` override. The
+  [closed
+  build](internals/closed-build.md#git-dependencies-commit-pinned-provisioned-on-demand)
+  and [CI](workflows/ci.md) pages describe the on-demand provisioning
+  and the `--offline` refusal.
+
 ## v0.4.0 — 2026-11-04
 
 ### New
