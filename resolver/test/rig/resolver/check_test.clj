@@ -305,3 +305,32 @@
                     (= "error" (:severity %))
                     (= "org.clojure/test.check" (:coord %)))
               (get res :problems)))))
+
+(deftest git-ref-flagged-in-root-and-module-manifests
+  "A git coord without a full commit pin is an error, with the manifest's
+  location named; a full-sha coord is clean."
+  (let [ws (temp-ws
+            (str "{:rig/modules [\"modules/a\"]"
+                 " :deps {com.rig.test/lib"
+                 " {:git/url \"file:///repo\" :git/tag \"v1\"}}}")
+            {"modules/a" "{:deps {com.rig.test/mod-lib {:git/sha \"ba1a2bf\"}}}"})]
+    (let [res (check/check {:workspace ws})]
+      (is (false? (get res :ok)))
+      (doseq [want [{:module "." :coord "com.rig.test/lib"
+                     :message ":git/tag is not supported — a tag moves; pin the commit it names with :git/sha"}
+                    {:module "modules/a" :coord "com.rig.test/mod-lib"
+                     :message ":git/sha must be a full 40-hex commit sha (got \"ba1a2bf\")"}]]
+        (is (some #(and (= "git-ref" (:kind %))
+                        (= "error" (:severity %))
+                        (= (:module want) (:module %))
+                        (= (:coord want) (:coord %))
+                        (= (:message want) (:message %)))
+                  (get res :problems))
+            (str "missing " (pr-str want) " in " (pr-str (get res :problems)))))))
+  (let [ws (temp-ws
+            (str "{:deps {com.rig.test/lib"
+                 " {:git/url \"file:///repo\""
+                 " :git/sha \"ba1a2bf421838802e7bdefc541b41f57582e53b6\"}}}")
+            {})]
+    (is (true? (get (check/check {:workspace ws}) :ok))
+        "a full-sha git coord is not a git-ref problem")))

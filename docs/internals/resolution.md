@@ -108,9 +108,12 @@ mechanics and the escape hatches are on the
   never writes the manifest on disk; the only writers are the explicit
   `add`/`remove`/`update` commands (`edit-dep` op, format-preserving via
   `rewrite-clj` + cljfmt) and `migrate`.
-- **Git dependencies** use the `tools.deps`/`tools.gitlibs` convention
-  (`~/.gitlibs/libs`, `group/name:<short-sha>:jar` coordinates), so Rig
-  shares checkouts with the `clojure` CLI and never duplicates them.
+- **Git dependencies** use the `tools.deps`/`tools.gitlibs` convention:
+  checkouts under `~/.gitlibs/libs` (or `$GITLIBS`), artifact ids of the
+  form `group/name:<sha7>:jar`. Rig shares checkouts with the `clojure`
+  CLI and never duplicates them. The pin is the full 40-hex sha. A hot
+  command with the checkout missing provisions it: the kernel op
+  `git-procure` runs the same tools.gitlibs procure the lock runs.
 - Rig reuses **`~/.m2/repository`** as an artifact source. It imports an
   artifact into the Rig cache only when the hash of its bytes matches.
 - **`rig outdated`** compares the pins of the lock against the same

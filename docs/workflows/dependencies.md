@@ -84,6 +84,39 @@ layout stay untouched, one visible diff per file. `--shared-only` updates
 just the shared requirement. `--alias <a>` targets the `:extra-deps` of an
 alias.
 
+## Git dependencies
+
+A git dependency pins a commit. The pin is the full 40-character sha:
+
+```edn
+{:deps {com.example/widgets {:git/url "https://github.com/example/widgets.git"
+                            :git/sha "ba1a2bf421838802e7bdefc541b41f57582e53b6"}}}
+```
+
+Rig refuses every other form, with a one-line error per problem that
+names the fix:
+
+```
+invalid git dep:
+  deps.edn: com.example/widgets: :git/tag is not supported — a tag moves; pin the commit it names with :git/sha
+```
+
+The refused forms are `:git/tag`, `:git/branch`, a short `:git/sha`, and
+the legacy `:tag` and `:sha` keys. Rig refuses a coord that declares no
+`:git/url` and does not name a known host. `rig check` reports the
+same problems as `git-ref` errors.
+
+Omit `:git/url` on a known host and Rig derives it: github.com,
+gitlab.com, codeberg.org, bitbucket.org, beanstalkapp.com, sourcehut.org
+(the same table tools.deps uses).
+
+`rig add` and `rig update` do not edit git coordinates. You edit the
+manifest and run `rig lock`. The lock records the url and the sha. The
+checkout lives under the gitlibs root (`~/.gitlibs`, or `$GITLIBS` when
+set). When it is missing, `rig lock` and the hot commands provision it
+online; `--offline` refuses the fetch and fails with a pointer to the
+gitlibs cache.
+
 ## What to look at after a change
 
 1. `git diff` — the manifest edits should be exactly the version strings

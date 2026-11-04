@@ -1,8 +1,10 @@
 (ns rig.resolver.main-test
   (:require [cheshire.core :as json]
+            [clojure.java.io :as io]
+            [clojure.string :as str]
             [clojure.test :refer :all]
             [rig.resolver.main :as main]
-            [rig.resolver.test-util :refer [with-ws]]
+            [rig.resolver.test-util :refer [delete-tree git with-ws]]
             [rig.resolver.versions :as versions]))
 
 (deftest dispatch-success-path
@@ -26,6 +28,51 @@
     (with-ws [["deps.edn" "{:rig/lib x/y :rig/ns-compile [a.b]}"]]
       (fn [dir]
         (is (= 4 (main/dispatch {:op "tree" :workspace dir})))))))
+
+(deftest git-procure-dispatch-codes
+  "git-procure over dispatch: a malformed request is 2, a provisionable
+  commit is 0 with the ok document, an unknown commit is 1 with the
+  friendly message on stderr."
+  (let [repo (doto (java.io.File.
+                    (str (java.nio.file.Files/createTempDirectory "rig-main-git"
+                                                                  (into-array java.nio.file.attribute.FileAttribute []))))
+               (.deleteOnExit))
+        _ (git (str repo) "init")
+        _ (spit (io/file repo "file.txt") "x\n")
+        _ (git (str repo) "add" "-A")
+        _ (git (str repo) "commit" "-m" "x")
+        sha (git (str repo) "rev-parse" "HEAD")
+        lib (str "rig.maintest/" (java.util.UUID/randomUUID))
+        checkout (str (System/getenv "HOME") "/.gitlibs/libs/rig.maintest/" (last (str/split lib #"/")))]
+    (try
+      (is (= 2 (main/dispatch {:op "git-procure"
+                               :workspace "/tmp"
+                               :args {:lib lib :sha sha}}))
+          "no url is a bad request")
+      (let [old-err (System/err)
+            err-ba (java.io.ByteArrayOutputStream.)]
+        (System/setErr (java.io.PrintStream. err-ba))
+        (try
+          (is (= 1 (main/dispatch {:op "git-procure"
+                                   :workspace "/tmp"
+                                   :args {:url (str "file://" repo)
+                                          :lib lib
+                                          :sha "b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1"}}))
+              "an unknown commit is a friendly op failure")
+          (is (str/includes? (.toString err-ba) "not found in")
+              (.toString err-ba))
+          (finally (System/setErr old-err))))
+      (let [out (with-out-str
+                  (is (= 0 (main/dispatch {:op "git-procure"
+                                           :workspace "/tmp"
+                                           :args {:url (str "file://" repo)
+                                                  :lib lib
+                                                  :sha sha}}))))]
+        (is (= {"ok" true} (json/parse-string out false))
+            (str "stdout: " out)))
+      (finally
+        (delete-tree checkout)
+        (delete-tree (str repo))))))
 
 (deftest run-request-file-codes
   (is (= 2 (main/run-request-file "/nonexistent/rig-request.json")))

@@ -85,25 +85,32 @@ missing entries from m2 or the repository, and checks them the same way.
 That is the difference between "the build works" and "the build proves
 what it ran."
 
-## Git dependencies: commit-pinned, never fetched on the hot path
+## Git dependencies: commit-pinned, provisioned on demand
 
-A git dep is an artifact pinned by **commit sha**, expanded from
-`~/.gitlibs/libs/<group>/<name>/<sha>`. The hot path only checks that
-the checkout exists and points at the `paths` of the lock. When the
-checkout does not exist, the command exits with `run 'rig lock'`. Git
-sync happens at resolve time, serialized behind one JVM-wide lock.
-`tools.deps` expands subtrees in parallel, and the `tools.gitlibs`
-check-then-act cache is not thread-safe. So the kernel wraps its entry
-points (`rig.resolver.git-sync`).
+A git dep is an artifact pinned by **commit sha** — the full 40-hex
+sha — expanded from `~/.gitlibs/libs/<group>/<name>/<sha>` (or
+`$GITLIBS/libs/...`). The hot path checks for the checkout. When it is
+missing and the command is online, the command provisions it. The
+kernel op `git-procure` runs the same tools.gitlibs procure the lock
+runs (the mirror clone, plus a worktree at the sha). Provisioning is
+idempotent: it adopts an existing checkout, and never re-clones one. Under
+`--offline`, a missing checkout fails and points at the gitlibs cache.
+
+Git sync stays serialized behind one JVM-wide lock
+(`rig.resolver.git-sync`): `tools.deps` expands subtrees in parallel,
+and the `tools.gitlibs` check-then-act cache is not thread-safe. So the
+kernel wraps its entry points.
 
 ## Offline and the exit codes
 
 | Flag / state | Effect | Exit |
 |---|---|---|
-| `--offline` | no network, ever: cache or m2 only | 1 when an artifact is in neither |
+| `--offline` | no network, ever: cache, m2, and existing gitlibs checkouts only | 1 when an artifact is in neither |
 | stale lock | the hot commands fail and point at `rig lock`; `check` reports the stale module instead | 3 (`check`: 1) |
 | hash mismatch | abort, no self-heal | 4 |
 | cooldown refused everything | `rig lock` fails; retry with `--force` | 5 |
+| git checkout missing, command online | the hot command provisions it (the kernel op `git-procure`) | 0 |
+| git checkout missing, `--offline` | the command fails and points at the gitlibs cache | 1 |
 
 `--offline` applies to the kernel too. `rig lock --offline` refuses
 rather than probe repositories. `rig outdated --offline` is a straight
@@ -120,6 +127,7 @@ compares the manifests against the lock:
 | `conflict` — two modules require mutually unsatisfiable versions | error |
 | `drift` — a module's requirement differs from the workspace's shared one | warn |
 | `floating-version` — a manifest still says `RELEASE`/`LATEST` | error |
+| `git-ref` — a git coordinate without a full 40-hex `:git/sha` | error |
 | `no-lib` — publish enabled without a `:rig/lib` coordinate | error |
 | `unknown-repo` — the lock pins an artifact via a repo no manifest declares | error |
 

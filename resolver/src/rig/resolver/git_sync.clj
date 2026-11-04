@@ -22,3 +22,32 @@
 (doseq [v [#'gitlibs/tags #'gitlibs/resolve #'gitlibs/procure]]
   (let [orig @v]
     (alter-var-root v (constantly (fn [& args] (locking lock (apply orig args)))))))
+
+(defn procure
+  "Provision one locked git dep's checkout under the gitlibs root — the
+  same tools.gitlibs procure the lock uses: mirror clone plus a worktree
+  at the sha, adopting an existing checkout. Idempotent; safe to run on
+  every hot command. A commit the mirror does not hold, or a failed
+  fetch, throws a friendly error (the caller re-locks online or restores
+  the cache)."
+  [url lib sha]
+  (if (or (not (string? url)) (empty? url)
+          (not (string? lib)) (empty? lib)
+          (not (string? sha)) (empty? sha))
+    (throw (ex-info "git-procure: url, lib and sha must be non-empty strings"
+                    {:rig/bad-request? true}))
+    (if (not (re-matches #"^[0-9a-f]{40}$" sha))
+      (throw (ex-info (str "git-procure: sha must be a full 40-hex commit sha (got \""
+                           sha "\")")
+                      {:rig/bad-request? true}))
+      (try
+        (if (gitlibs/procure url (symbol lib) sha)
+          {"ok" true}
+          (throw (ex-info (str "commit \"" (subs sha 0 7)
+                               "\" not found in " url)
+                          {:rig/friendly? true})))
+        (catch Throwable e
+          (throw (ex-info (str "git dep fetch failed: " url
+                               (when-let [m (.getMessage e)]
+                                 (str " — " m)))
+                          {:rig/friendly? true})))))))

@@ -76,7 +76,7 @@ builds" was a tools.deps prep library:
  :deps            {…}
  :deps/prep-lib   {:ensure "target/classes" :alias :prep :fn compile-java}
  :aliases         {:prep {:deps {io.github.clojure/tools.build
-                                  {:git/tag "v0.8.2" :git/sha "ba1a2bf"}}
+                                  {:git/sha "ba1a2bf421838802e7bdefc541b41f57582e53b6"}}
                           :extra-paths ["build"]
                           :ns-default build}}}
 

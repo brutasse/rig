@@ -75,7 +75,9 @@ Notes:
   action ref to a git sha, and pin `version` to a release.
 - **Git dependencies** use the same git/ssh setup your repository already
   uses. Their commit shas are in the lockfile, so a green run means "this
-  exact commit".
+  exact commit". A bare runner provisions the checkouts itself: when a
+  checkout is missing, the command fetches the locked commit into the
+  gitlibs root (`~/.gitlibs`, or `$GITLIBS` when set).
 - The cache key is `deps.lock` (same lockfile → warm hit, changed
   lockfile → miss and re-fetch). The default gate can fetch on a cold
   cache, so the cache only adds speed there. The offline gate below needs
@@ -98,7 +100,9 @@ rig check --offline && rig test --offline
 jars) must already sit in the Rig cache (`~/.local/share/rig`) or in a
 checksum-checked Maven repository (`~/.m2/repository`). On a cold cache,
 Rig fails with exit 1. That is the point: a green offline run is the
-hermeticity proof. Cache the Rig cache alongside `~/.m2/repository` and
+hermeticity proof. `--offline` refuses the git fetch too: a missing
+checkout fails the gate and points at the gitlibs root. Cache the Rig
+cache alongside `~/.m2/repository` and
 `~/.gitlibs`, or run on a machine that has them filled. Those are exactly
 the stores setup-rig caches. When its `cache-hit` output is `true`, an
 offline gate has everything it needs. Check that output if the job should

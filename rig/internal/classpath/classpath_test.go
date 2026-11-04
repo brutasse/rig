@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/brutasse/rig/internal/cache"
@@ -51,7 +52,7 @@ func TestBuildBase(t *testing.T) {
 	setPaths(t, doc, ".", "src", "resources")
 	store := storeWithArtifact(t, doc)
 
-	es, err := Build(context.Background(), fetch.New(false), store, "", "", ws, doc, ".", "")
+	es, err := Build(context.Background(), fetch.New(false), store, "", "", ws, doc, ".", "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,7 +88,7 @@ func TestBuildAlias(t *testing.T) {
 	doc.Modules["."] = mod
 	store := storeWithArtifact(t, doc)
 
-	es, err := Build(context.Background(), fetch.New(false), store, "", "", ws, doc, ".", "test")
+	es, err := Build(context.Background(), fetch.New(false), store, "", "", ws, doc, ".", "test", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,7 +121,7 @@ func TestBuildLocalModule(t *testing.T) {
 	root.Classpath = append(root.Classpath, lockfile.ClasspathEntry{Local: &app})
 	doc.Modules["."] = root
 
-	es, err := Build(context.Background(), fetch.New(false), store, "", "", ws, doc, ".", "")
+	es, err := Build(context.Background(), fetch.New(false), store, "", "", ws, doc, ".", "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,7 +161,7 @@ func TestBuildJavaModuleClassDir(t *testing.T) {
 	doc.Modules[app] = mapp
 	store := storeWithArtifact(t, doc)
 
-	es, err := Build(context.Background(), fetch.New(false), store, "", "", ws, doc, ".", "")
+	es, err := Build(context.Background(), fetch.New(false), store, "", "", ws, doc, ".", "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -192,7 +193,7 @@ func TestBuildJavaModuleClassDirDeclared(t *testing.T) {
 	doc.Modules["."] = mod
 	store := storeWithArtifact(t, doc)
 
-	es, err := Build(context.Background(), fetch.New(false), store, "", "", ws, doc, ".", "")
+	es, err := Build(context.Background(), fetch.New(false), store, "", "", ws, doc, ".", "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -226,7 +227,7 @@ func TestBuildJavaModuleClassDirAlias(t *testing.T) {
 	doc.Modules["."] = mod
 	store := storeWithArtifact(t, doc)
 
-	es, err := Build(context.Background(), fetch.New(false), store, "", "", ws, doc, ".", "test")
+	es, err := Build(context.Background(), fetch.New(false), store, "", "", ws, doc, ".", "test", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -273,7 +274,7 @@ func TestBuildGitDep(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	es, err := Build(context.Background(), fetch.New(false), store, "", gitlibs, ws, doc, ".", "")
+	es, err := Build(context.Background(), fetch.New(false), store, "", gitlibs, ws, doc, ".", "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -313,9 +314,179 @@ func TestBuildGitDepMissing(t *testing.T) {
 	m.Classpath = append(m.Classpath, lockfile.ClasspathEntry{Ref: &ref})
 	doc.Modules["."] = m
 
-	_, err := Build(context.Background(), fetch.New(false), store, "", t.TempDir(), ws, doc, ".", "")
+	_, err := Build(context.Background(), fetch.New(false), store, "", t.TempDir(), ws, doc, ".", "", nil)
 	if err == nil || !errors.Is(err, ErrGitMissing) {
 		t.Fatalf("err = %v, want git-missing", err)
+	}
+}
+
+func TestBuildGitDepProvisions(t *testing.T) {
+	// A missing checkout is provisioned by the procure hook (the kernel
+	// op git-procure) before the classpath is assembled.
+	ws := t.TempDir()
+	gitlibs := t.TempDir()
+	doc := lockfile.ForTest(".")
+	setPaths(t, doc, ".", "src")
+	gsha := "b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1"
+	gitID := "com.example/git-dep:0.1.0:jar"
+	doc.Artifacts = append(doc.Artifacts, lockfile.Artifact{
+		ID:        gitID,
+		Kind:      "git",
+		Group:     "com.example",
+		Name:      "git-dep",
+		Version:   "0.1.0",
+		Extension: "jar",
+		Git:       &lockfile.GitRef{URL: "https://example.invalid/git-dep.git", SHA: gsha},
+		Paths:     []string{"src"},
+	})
+	store := storeWithArtifact(t, doc)
+	ref := gitID
+	m := doc.Modules["."]
+	m.Classpath = append(m.Classpath, lockfile.ClasspathEntry{Ref: &ref})
+	doc.Modules["."] = m
+
+	var called bool
+	procure := func(_ context.Context, a lockfile.Artifact) error {
+		called = true
+		if a.ID != gitID {
+			t.Errorf("procure called for %s, want %s", a.ID, gitID)
+		}
+		return os.MkdirAll(filepath.Join(gitlibs, a.Group, a.Name, a.Git.SHA, "src"), 0o755)
+	}
+
+	es, err := Build(context.Background(), fetch.New(false), store, "", gitlibs, ws, doc, ".", "", procure)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !called {
+		t.Fatal("procure hook was not called")
+	}
+	if got := Flatten(es)[2]; got != filepath.Join(gitlibs, "com.example", "git-dep", gsha, "src") {
+		t.Errorf("git entry = %s", got)
+	}
+}
+
+func TestBuildGitDepProvisionFails(t *testing.T) {
+	// A failed procure (unknown commit, unreachable repo) surfaces the
+	// hook's error, not git-missing.
+	ws := t.TempDir()
+	doc := lockfile.ForTest(".")
+	setPaths(t, doc, ".", "src")
+	gsha := "b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1"
+	gitID := "com.example/git-dep:0.1.0:jar"
+	doc.Artifacts = append(doc.Artifacts, lockfile.Artifact{
+		ID:        gitID,
+		Kind:      "git",
+		Group:     "com.example",
+		Name:      "git-dep",
+		Version:   "0.1.0",
+		Extension: "jar",
+		Git:       &lockfile.GitRef{URL: "https://example.invalid/git-dep.git", SHA: gsha},
+		Paths:     []string{"src"},
+	})
+	store := storeWithArtifact(t, doc)
+	ref := gitID
+	m := doc.Modules["."]
+	m.Classpath = append(m.Classpath, lockfile.ClasspathEntry{Ref: &ref})
+	doc.Modules["."] = m
+
+	wantErr := errors.New("commit not found")
+	procure := func(_ context.Context, _ lockfile.Artifact) error { return wantErr }
+
+	_, err := Build(context.Background(), fetch.New(false), store, "", t.TempDir(), ws, doc, ".", "", procure)
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("err = %v, want the procure error", err)
+	}
+}
+
+func TestBuildGitDepOfflineMissing(t *testing.T) {
+	// Offline, a missing checkout cannot be provisioned: ErrGitMissing,
+	// pointing at the gitlibs cache.
+	ws := t.TempDir()
+	doc := lockfile.ForTest(".")
+	setPaths(t, doc, ".", "src")
+	gsha := "b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1"
+	gitID := "com.example/git-dep:0.1.0:jar"
+	doc.Artifacts = append(doc.Artifacts, lockfile.Artifact{
+		ID:        gitID,
+		Kind:      "git",
+		Group:     "com.example",
+		Name:      "git-dep",
+		Version:   "0.1.0",
+		Extension: "jar",
+		Git:       &lockfile.GitRef{URL: "https://example.invalid/git-dep.git", SHA: gsha},
+		Paths:     []string{"src"},
+	})
+	store := storeWithArtifact(t, doc)
+	ref := gitID
+	m := doc.Modules["."]
+	m.Classpath = append(m.Classpath, lockfile.ClasspathEntry{Ref: &ref})
+	doc.Modules["."] = m
+
+	procure := func(_ context.Context, _ lockfile.Artifact) error { return nil }
+
+	_, err := Build(context.Background(), fetch.New(true), store, "", t.TempDir(), ws, doc, ".", "", procure)
+	if err == nil || !errors.Is(err, ErrGitMissing) {
+		t.Fatalf("err = %v, want git-missing", err)
+	}
+	if !strings.Contains(err.Error(), "restore the gitlibs cache") {
+		t.Errorf("err = %v, want the cache hint", err)
+	}
+}
+
+func TestBuildGitDepNoURL(t *testing.T) {
+	// A git artifact with no locked url cannot be provisioned: the lock
+	// must be re-locked.
+	ws := t.TempDir()
+	doc := lockfile.ForTest(".")
+	setPaths(t, doc, ".", "src")
+	gsha := "b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1"
+	gitID := "com.example/git-dep:0.1.0:jar"
+	doc.Artifacts = append(doc.Artifacts, lockfile.Artifact{
+		ID:        gitID,
+		Kind:      "git",
+		Group:     "com.example",
+		Name:      "git-dep",
+		Version:   "0.1.0",
+		Extension: "jar",
+		Git:       &lockfile.GitRef{URL: "", SHA: gsha},
+		Paths:     []string{"src"},
+	})
+	store := storeWithArtifact(t, doc)
+	ref := gitID
+	m := doc.Modules["."]
+	m.Classpath = append(m.Classpath, lockfile.ClasspathEntry{Ref: &ref})
+	doc.Modules["."] = m
+
+	procure := func(_ context.Context, _ lockfile.Artifact) error {
+		t.Fatal("procure must not be called without a url")
+		return nil
+	}
+
+	_, err := Build(context.Background(), fetch.New(false), store, "", t.TempDir(), ws, doc, ".", "", procure)
+	if err == nil || !errors.Is(err, ErrGitMissing) {
+		t.Fatalf("err = %v, want git-missing", err)
+	}
+	if !strings.Contains(err.Error(), "no git url") {
+		t.Errorf("err = %v, want the re-lock hint", err)
+	}
+}
+
+func TestGitlibsRoot(t *testing.T) {
+	root, err := GitlibsRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(root, filepath.Join(".gitlibs", "libs")) {
+		t.Errorf("default root = %s, want ~/.gitlibs/libs", root)
+	}
+	t.Setenv("GITLIBS", "/tmp/gitlibs-override")
+	root, err = GitlibsRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join("/tmp/gitlibs-override", "libs"); root != want {
+		t.Errorf("GITLIBS override root = %s, want %s", root, want)
 	}
 }
 
@@ -324,7 +495,7 @@ func TestBuildMvnOfflineMissing(t *testing.T) {
 	doc := lockfile.ForTest(".")
 	store := cache.NewAt(t.TempDir()) // empty cache
 
-	_, err := Build(context.Background(), fetch.New(true), store, "", "", ws, doc, ".", "")
+	_, err := Build(context.Background(), fetch.New(true), store, "", "", ws, doc, ".", "", nil)
 	if !errors.Is(err, fetch.ErrOffline) {
 		t.Fatalf("err = %v, want fetch.ErrOffline", err)
 	}
@@ -334,7 +505,7 @@ func TestBuildUnknownAlias(t *testing.T) {
 	ws := t.TempDir()
 	doc := lockfile.ForTest(".")
 	store := storeWithArtifact(t, doc)
-	_, err := Build(context.Background(), fetch.New(false), store, "", "", ws, doc, ".", "nope")
+	_, err := Build(context.Background(), fetch.New(false), store, "", "", ws, doc, ".", "nope", nil)
 	if err == nil {
 		t.Fatal("want error for unknown alias")
 	}

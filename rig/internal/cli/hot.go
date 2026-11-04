@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -184,7 +185,46 @@ func (e *hotEnv) cpOf(ctx context.Context, m, a string) (string, error) {
 }
 
 func (e *hotEnv) entriesOf(ctx context.Context, m, a string) ([]classpath.Entry, error) {
-	return classpath.Build(ctx, e.client, e.store, e.m2root, e.gitlibs, e.root.Dir, e.lock, m, a)
+	return classpath.Build(ctx, e.client, e.store, e.m2root, e.gitlibs, e.root.Dir, e.lock, m, a, e.gitProcure())
+}
+
+// gitProcure is the hot-path provisioning hook for missing git checkouts:
+// the kernel op git-procure, the same tools.gitlibs procure the lock runs
+// (idempotent, adopts an existing checkout). The kernel jar is materialized
+// on demand; when it cannot be, the hook is nil and a missing checkout
+// fails with ErrGitMissing as before.
+func (e *hotEnv) gitProcure() classpath.GitProcure {
+	return func(ctx context.Context, a lockfile.Artifact) error {
+		jar, err := e.kernelJar()
+		if err != nil {
+			return err
+		}
+		_, err = kernel.Call(ctx, jar, e.java, kernel.Request{
+			Op:        "git-procure",
+			Workspace: e.root.Dir,
+			Args: map[string]any{
+				"url": a.Git.URL,
+				"lib": a.Group + "/" + a.Name,
+				"sha": a.Git.SHA,
+			},
+		}, e.javaEnv...)
+		if err != nil {
+			var oe *kernel.OpError
+			if errors.As(err, &oe) {
+				return exitf(1, "%v", oe)
+			}
+		}
+		return err
+	}
+}
+
+// kernelJar returns the kernel jar path, fetching it into the store when
+// absent (the hot(ctx, false) callers leave e.kernel empty).
+func (e *hotEnv) kernelJar() (string, error) {
+	if e.kernel != "" {
+		return e.kernel, nil
+	}
+	return kernel.Kernel(e.store)
 }
 
 // module returns module m of the lock, with a friendly error.

@@ -63,7 +63,9 @@ rig lock
 ```
 
 Resolve every module of the workspace, fetch and sha256-hash every
-artifact, and write `deps.lock`. The command prints skipped version
+artifact, and write `deps.lock`. A git dep resolves to its pinned commit
+and checks out under the gitlibs root (`~/.gitlibs`, or `$GITLIBS`) as
+part of the resolve. The command prints skipped version
 selections (cooldowns, forces) and a summary:
 
 ```
@@ -196,7 +198,10 @@ Three stages, one exit code:
    the lock was written). `conflict` (incompatible requirements).
    `drift` (a module requirement differs from the workspace requirement
    — a warning). `floating-version` (`RELEASE`/`LATEST` in a manifest —
-   an error; fix it with `rig update <coord>`). `no-lib` (publish without
+   an error; fix it with `rig update <coord>`). `git-ref` (a git
+   coordinate without a full 40-character `:git/sha` — an error; the
+   refused forms are `:git/tag`, `:git/branch`, a short sha, and the
+   legacy `:tag`/`:sha` keys). `no-lib` (publish without
    `:rig/lib`). `unknown-repo` (the lock pins
    via a repo that no manifest declares). `pool-unpinned` (a
    `:rig/deps` entry the lock does not pin — a warning).
