@@ -79,14 +79,17 @@ the app module by `:local/root` and pins `reloaded.repl`
 `dev/user.clj` is the scratch namespace the REPL opens in.
 
 ```sh
-rig nrepl -p dev              # point your editor at the printed port
+rig nrepl -p dev
 ```
 
+The server runs in that terminal; quitting the console stops it.
+
 With the app open, work in `user.clj`. After a save, reload the changed
-namespaces — CIDER's `cider-ns-refresh` works over Rig's plain nREPL, or
-re-evaluate `user` — and `(reloaded/go)` restarts the system on the new
-code. When the app grows a component system, wire the reloaded workflow
-to it — `user.clj`'s docstring carries the incantation:
+namespaces — CIDER's `cider-ns-refresh` needs the cider-nrepl middleware
+(see Connecting the editor below); without it, re-evaluate `user` — and
+`(reloaded/go)` restarts the system on the new code. When the app grows
+a component system, wire the reloaded workflow to it — `user.clj`'s
+docstring carries the incantation:
 
 ```clj
 (require '[reloaded.repl :as reloaded])
@@ -103,6 +106,33 @@ to `dev/deps.edn` when you want it in the REPL —
 
 The dev module is not built, published, or tested: it declares no
 `:rig/lib`, no test exec-fn, no build. It exists for the REPL.
+
+## Connecting the editor
+
+nREPL writes the port of a running server to `.nrepl-port` in the module
+directory and removes the file when the JVM exits. A hard kill leaves the
+file behind, so add `.nrepl-port` to your `.gitignore`.
+
+Recent CIDER suggests the running server at the connect prompt.
+`cider-connect` (C-c C-x c s) offers the port from the file when your
+buffer is inside the module. A machine-wide process scan finds a running
+`nrepl.cmdline` from any buffer. The port file works on any platform; the
+scan needs Linux or macOS. Without the scan, type the port from the
+startup banner.
+
+Rig starts the server without nREPL middleware, so CIDER's completion,
+debugger, and refresh stay off. To turn them on, put `cider/cider-nrepl`
+on the classpath and list the middleware in a `dev/.nrepl.edn`;
+`nrepl.cmdline` reads that file from the module directory:
+
+```edn
+{:middleware [^:optional cider.nrepl/cider-middleware]}
+```
+
+Declare `cider/cider-nrepl` as an `:extra-dep` of a `:dev` alias in
+`dev/deps.edn` and start the server with `rig nrepl -p dev --alias dev`.
+The `^:optional` marker skips the middleware when it is missing from the
+classpath.
 
 ## The escape hatch: `rig exec`
 
