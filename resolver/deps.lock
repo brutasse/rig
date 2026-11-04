@@ -2,15 +2,14 @@
   "version": 2,
   "tool": {
     "name": "rig",
-    "version": "v0.3.2"
+    "version": "v0.4.0"
   },
   "resolver": {
     "lib": "io.github.brutasse/rig-resolver",
-    "version": "v0.3.2",
-    "git/sha": "fd3ebc37e0a819f2e208f89d5e2dab341151f7f6",
-    "sha256": "05725c1a55152d1b2eacbd5510ffcee944bc42327de7f498163b21661b4ab71f"
+    "version": "v0.4.0",
+    "git/sha": "9a171fc",
+    "sha256": "fd1cccf18519ffadb396f30a76e3cdfcd7f8027feeee3e50cbc380d188f24e85"
   },
-  "locked_at": "2026-11-03T23:59:25Z",
   "workspace": {
     "modules": [
       ".",
@@ -1209,7 +1208,7 @@
     ".": {
       "manifest_sha256": "d505cbbc7944ca2a00af65827464cf98ef02ea8ebb9d76eef345c3fa5f683ae7",
       "lib": "io.github.brutasse/rig-resolver",
-      "version": "v0.4.0",
+      "version": "v0.4.1",
       "main": "Main",
       "jvm-opts": [],
       "launch-opts": [],
@@ -1396,9 +1395,8 @@
         "timestamp-string": "2020-01-01T00:00:02Z",
         "jar": true,
         "uberjar": {
-          "file": "target/rig-resolver-v0.4.0.jar",
-          "main": "Main",
-          "opts": {}
+          "file": "target/rig-resolver-v0.4.1.jar",
+          "main": "Main"
         }
       },
       "publish": {
@@ -1413,7 +1411,7 @@
     "runner": {
       "manifest_sha256": "9d91738baf0dd8c26a4eb2fe97e87b3e8eae07d40d9f8e1816a0d8a8ba747fad",
       "lib": "io.github.brutasse/rig-runner",
-      "version": "v0.4.0",
+      "version": "v0.4.1",
       "jvm-opts": [],
       "launch-opts": [],
       "paths": [
@@ -1434,9 +1432,8 @@
         "timestamp-string": "2020-01-01T00:00:02Z",
         "jar": true,
         "uberjar": {
-          "file": "target/rig-runner-v0.4.0.jar",
-          "main": "",
-          "opts": {}
+          "file": "target/rig-runner-v0.4.1.jar",
+          "main": ""
         }
       },
       "publish": {
