@@ -60,7 +60,7 @@
           (spit (io/file dir "deps.lock")
                 "{\"version\":1,\"artifacts\":[{\"kind\":\"mvn\",\"group\":\"g\",\"name\":\"n\",\"version\":\"1.0.0\"}]}")
           (is (thrown-with-msg? Exception #".*network.*"
-              (outdated/outdated {:workspace (str dir)
-                                  :lock "deps.lock"
-                                  :args {:offline true}}))))
+                                (outdated/outdated {:workspace (str dir)
+                                                    :lock "deps.lock"
+                                                    :args {:offline true}}))))
       (finally (delete-tree (str dir))))))

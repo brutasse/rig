@@ -30,10 +30,10 @@
                     (update pins key conj version))
                   pins))
               pins))
-           {}
-           (concat (get plan :classpath [])
-                   (mapcat (fn [a] (get a :classpath))
-                           (vals (get plan :aliases {}))))))
+          {}
+          (concat (get plan :classpath [])
+                  (mapcat (fn [a] (get a :classpath))
+                          (vals (get plan :aliases {}))))))
 
 (defn- module-key
   "Module dir from a lock :modules key (a keyword after JSON keyify, or a
@@ -77,7 +77,7 @@
                              (for [al (keys (get data :aliases {}))
                                    [c s] (get-in data [:aliases al :extra-deps] {})]
                                [c s]))
-              :when (and (map? s) (get s :mvn/version))]
+               :when (and (map? s) (get s :mvn/version))]
            [(qualify-coord c) (str (get s :mvn/version))]))))
 
 (defn- managed-of
@@ -114,7 +114,7 @@
         module-dirs (remove #{"."} (manifest/modules-of root-data))
         mod-dir (fn [m] (str (io/file ws m)))
         manifests (into {"." root-man}
-                         (for [m module-dirs] [m (manifest/read-manifest (mod-dir m))]))
+                        (for [m module-dirs] [m (manifest/read-manifest (mod-dir m))]))
         managed (managed-of root-data)
         module-reqs (into {}
                           (for [[m man] (dissoc manifests ".")
@@ -140,37 +140,37 @@
         stale (for [[m c v scope] sites
                     :when (not (versions/floating? v))
                     :let [p (get (if (= scope :workspace) all-pins
-                                   (get per-pins m {})) c)]
+                                     (get per-pins m {})) c)]
                     :when (not (and (seq p) (some #(satisfied? v %) p)))
                     ;; A shared requirement no module resolves is vacuous,
                     ;; not stale: no lock run can ever pin a lib nothing
                     ;; consumes (rig update included), so demanding it is
                     ;; a permanent red — see unpinned below.
                     :when (not (and (= scope :workspace) (empty? p)))]
-                  {:severity "error"
-                   :kind "stale-lock"
-                   :module m
-                   :coord c
-                   :message (if (seq p)
-                              (str (if (= scope :workspace) "workspace requires"
+                {:severity "error"
+                 :kind "stale-lock"
+                 :module m
+                 :coord c
+                 :message (if (seq p)
+                            (str (if (= scope :workspace) "workspace requires"
                                      "manifest requires")
-                                   " \"" v "\"; lock pins \"" (first p)
-                                   "\" — run rig update")
-                              (if (= scope :workspace)
-                                (str "workspace requires \"" v
-                                     "\"; no module pins it — run rig update")
-                                (str "manifest requires \"" v
-                                     "\"; lock has no pin — run rig lock")))})
+                                 " \"" v "\"; lock pins \"" (first p)
+                                 "\" — run rig update")
+                            (if (= scope :workspace)
+                              (str "workspace requires \"" v
+                                   "\"; no module pins it — run rig update")
+                              (str "manifest requires \"" v
+                                   "\"; lock has no pin — run rig lock")))})
         unpinned (for [[m c v scope] sites
                        :when (and (= scope :workspace) (not (versions/floating? v)))
                        :when (empty? (get all-pins c))]
-                     {:severity "warn"
-                      :kind "pool-unpinned"
-                      :module m
-                      :coord c
-                      :message (str "workspace requires \"" v
-                                    "\"; no module resolves " c
-                                    " — the shared requirement is consumed by nothing")})
+                   {:severity "warn"
+                    :kind "pool-unpinned"
+                    :module m
+                    :coord c
+                    :message (str "workspace requires \"" v
+                                  "\"; no module resolves " c
+                                  " — the shared requirement is consumed by nothing")})
         drift (for [m module-dirs
                     [c v] (get module-reqs m [])
                     :let [w (get managed c)]

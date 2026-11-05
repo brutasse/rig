@@ -66,7 +66,7 @@
     (let [ws (temp-ws {"deps.edn"
                        (str "{:" (name (if (= key :exoscale.project/ns-compile)
                                          :exoscale.project/lib :rig/lib))
-                          " x/y\n " (str key) " [a.b c.d]}\n")})]
+                            " x/y\n " (str key) " [a.b c.d]}\n")})]
       (let [r (run ws)]
         (is (empty? (problems r)))
         (is (some #(re-find #"dropped :.*ns-compile" %) (warnings r)))

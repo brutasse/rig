@@ -136,8 +136,8 @@
                                        :args {:coords ["com.rig.test/runner"
                                                        "com.rig.test/other"
                                                        "com.rig.test/missing"]
-                                          :repos {"f" {:url url-f}
-                                                  "g" {:url url-g}}}}))
+                                              :repos {"f" {:url url-f}
+                                                      "g" {:url url-g}}}}))
                     "resolved coordinates in versions, the rest with their
                     reasons: the repo id g serves no per-version timestamps,
                     so its release reads as published now, inside the
@@ -147,6 +147,6 @@
   (with-ws
     (fn [dir]
       (is (thrown-with-msg? Exception #"mutually exclusive"
-                             (latest/latest {:workspace dir
-                                             :args {:coord "a/b"
-                                                    :coords ["c/d"]}}))))))
+                            (latest/latest {:workspace dir
+                                            :args {:coord "a/b"
+                                                   :coords ["c/d"]}}))))))

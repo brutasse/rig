@@ -576,7 +576,7 @@
               "the in-tree gen-class namespace's class must reach the jar"))
         (let [p (run-cmd (java)
                          "-cp" (str ws "/target/fixture.jar:"
-                                   (System/getProperty "java.class.path"))
+                                    (System/getProperty "java.class.path"))
                          "example.worker" "world")]
           (is (zero? (:exit p)) (str (:out p) (:err p)))
           (is (re-find #"hello world" (:out p)))))

@@ -30,7 +30,7 @@
   [owner key entry]
   (-> owner
       (cond-> (multi-line? owner)
-              (z/append-child* (n/newline-node "\n")))
+        (z/append-child* (n/newline-node "\n")))
       (s/assoc key entry)
       (s/get key)))
 
@@ -50,7 +50,7 @@
       (and (nil? existing) req)
       (-> deps-map
           (cond-> (multi-line? deps-map)
-                  (z/append-child* (n/newline-node "\n")))
+            (z/append-child* (n/newline-node "\n")))
           (z/append-child* (n/token-node coord))
           (z/append-child* (n/whitespace-node " "))
           (z/append-child* (n/map-node [(n/keyword-node :mvn/version)
@@ -81,7 +81,7 @@
           (and (nil? existing) req)
           (-> rdm
               (cond-> (multi-line? rdm)
-                      (z/append-child* (n/newline-node "\n")))
+                (z/append-child* (n/newline-node "\n")))
               (z/append-child* (n/token-node coord))
               (z/append-child* (n/whitespace-node " "))
               (z/append-child* (n/map-node [(n/keyword-node :mvn/version)
@@ -174,7 +174,7 @@
                  (update "skipped" (fn [prev]
                                      (distinct (sort-by (juxt :coord :version :reason)
                                                         (concat prev
-                                                                 (map resolve/skip-entry extra-skipped)))))))]
+                                                                (map resolve/skip-entry extra-skipped)))))))]
       (merge res {"edits" edits
                   "lock" lock}))))
 
@@ -189,9 +189,9 @@
       (let [ws (str (:workspace request))
             root-data (or (:data (manifest/read-manifest ws)) {})
             sel (versions/select-latest coord-str (resolve/all-repos ws)
-                               (resolve/cooldown-of args root-data)
-                               (true? (get args :force))
-                               (System/currentTimeMillis))]
+                                        (resolve/cooldown-of args root-data)
+                                        (true? (get args :force))
+                                        (System/currentTimeMillis))]
         (cond
           (= "not-found" (:reason sel))
           (throw (ex-info (str "coordinate not found in any repository: " coord-str) {}))

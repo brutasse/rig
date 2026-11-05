@@ -44,8 +44,8 @@
                                  (update-entry [coord cur]
                                                (versions/repo-metadata coord repos)))
                                (sort pins))
-                          (remove nil?)
-                          (sort-by (fn [e] (get e "coord"))))]
+                         (remove nil?)
+                         (sort-by (fn [e] (get e "coord"))))]
         {"updates" (vec (if breaking-only
                           (filter #(true? (get % "breaking")) updates)
                           updates))}))))

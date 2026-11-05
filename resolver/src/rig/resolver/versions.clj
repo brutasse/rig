@@ -77,22 +77,22 @@
   [url repo-id spec]
   (when (supported-url? url)
     (let [u (io/as-url url)]
-    (if (= "file" (.getProtocol u))
-      (let [f (io/file (.getPath u))]
-        (when (.exists f)
-          (with-open [r (io/reader f :encoding "UTF-8")]
-            (slurp r))))
-      (let [conn (.openConnection u)]
-        (try
-          (do (.setConnectTimeout conn 15000)
-              (.setReadTimeout conn 30000)
-              (with-auth conn repo-id spec)
-              (let [code (.getResponseCode conn)]
-                (when (<= 200 code 299)
-                  (with-open [r (io/reader (.getInputStream conn) :encoding "UTF-8")]
-                    (slurp r)))))
-          (catch java.io.IOException _ nil)
-          (finally (.disconnect conn))))))))
+      (if (= "file" (.getProtocol u))
+        (let [f (io/file (.getPath u))]
+          (when (.exists f)
+            (with-open [r (io/reader f :encoding "UTF-8")]
+              (slurp r))))
+        (let [conn (.openConnection u)]
+          (try
+            (do (.setConnectTimeout conn 15000)
+                (.setReadTimeout conn 30000)
+                (with-auth conn repo-id spec)
+                (let [code (.getResponseCode conn)]
+                  (when (<= 200 code 299)
+                    (with-open [r (io/reader (.getInputStream conn) :encoding "UTF-8")]
+                      (slurp r)))))
+            (catch java.io.IOException _ nil)
+            (finally (.disconnect conn))))))))
 
 (defn- artifact-file
   [name version ext classifier]
@@ -173,11 +173,11 @@
        (.clear)
        (.setTimeZone (java.util.TimeZone/getTimeZone "UTC"))
        (.set (Integer/parseInt (get m 1))
-              (dec (Integer/parseInt (get m 2)))
-              (Integer/parseInt (get m 3))
-              (Integer/parseInt (get m 4))
-              (Integer/parseInt (get m 5))
-              (Integer/parseInt (get m 6)))))))
+             (dec (Integer/parseInt (get m 2)))
+             (Integer/parseInt (get m 3))
+             (Integer/parseInt (get m 4))
+             (Integer/parseInt (get m 5))
+             (Integer/parseInt (get m 6)))))))
 
 (defn- plain-metadata
   [url repo-id spec]
@@ -214,7 +214,7 @@
   "Returns {:by-version {v {:published-at ms|nil :repo id}} :latest #{v ...}}."
   [coord repos]
   (let [[group name] (str/split coord #"/" 2)
-         base-path (str (str/replace group "." "/") "/" name "/")]
+        base-path (str (str/replace group "." "/") "/" name "/")]
     (reduce (fn [{:keys [by-version latest] :as acc} [id spec]]
               (let [base (str (str/replace (get spec :url) #"/+$" "") "/" base-path)]
                 (if-let [md (plain-metadata (str base "maven-metadata.xml") id spec)]
@@ -226,15 +226,15 @@
                                             (if (contains? mm v)
                                               mm
                                               (assoc mm v {:published-at (or (get ts v)
-                                                                              (:last-updated md))
+                                                                             (:last-updated md))
                                                            :repo id})))
                                           m
                                           (:versions md))))
                         (update :latest
                                 (fn [s] (if (:latest md) (conj s (:latest md)) s)))))
-                   acc)))
-               {:by-version {} :latest #{}}
-               repos)))
+                  acc)))
+            {:by-version {} :latest #{}}
+            repos)))
 
 (defn vcmp
   [a b]
@@ -282,11 +282,11 @@
                            [c s]))
         req-of (fn [c]
                  (first (for [[cc s] all-deps :when (= cc c)] (get s :mvn/version))))
-         coords (distinct (for [[c s] all-deps
-                                :when (or (floating? (get s :mvn/version))
-                                          (contains? overrides (str c)))]
-                              c))
-         cooldown-str (fn [repo] (cooldown-for repo cooldown))
+        coords (distinct (for [[c s] all-deps
+                               :when (or (floating? (get s :mvn/version))
+                                         (contains? overrides (str c)))]
+                           c))
+        cooldown-str (fn [repo] (cooldown-for repo cooldown))
         all-zero? (all-cooldowns-zero? cooldown)
         memo (atom {}) ;; memo across coords: repo-metadata hits the network
         step (fn [{:keys [selected skipped refused] :as st} c]
@@ -368,19 +368,19 @@
         chosen (when (some (fn [v] (or (true? force) (elig v))) cands)
                  (newest (filter (fn [v] (or (true? force) (elig v))) cands)))
         skipped (concat
-                  (when (and (true? force) chosen (not (elig chosen)))
-                    [{:coord (symbol coord-str)
-                      :version chosen
-                      :reason "forced"
-                      :published-at (iso (get-in byv [chosen :published-at]))
-                      :cooldown (cooldown-for (get-in byv [chosen :repo]) cooldown)}])
-                  (for [v (sort cands)
-                        :when (not (elig v))]
-                    {:coord (symbol coord-str)
-                     :version v
-                     :reason "cooldown"
-                     :published-at (iso (get-in byv [v :published-at]))
-                     :cooldown (cooldown-for (get-in byv [v :repo]) cooldown)}))]
+                 (when (and (true? force) chosen (not (elig chosen)))
+                   [{:coord (symbol coord-str)
+                     :version chosen
+                     :reason "forced"
+                     :published-at (iso (get-in byv [chosen :published-at]))
+                     :cooldown (cooldown-for (get-in byv [chosen :repo]) cooldown)}])
+                 (for [v (sort cands)
+                       :when (not (elig v))]
+                   {:coord (symbol coord-str)
+                    :version v
+                    :reason "cooldown"
+                    :published-at (iso (get-in byv [v :published-at]))
+                    :cooldown (cooldown-for (get-in byv [v :repo]) cooldown)}))]
     (if (empty? cands)
       {:reason "not-found"}
       {:version chosen :skipped skipped})))

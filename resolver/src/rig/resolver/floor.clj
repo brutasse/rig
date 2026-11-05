@@ -55,14 +55,14 @@
                           (and v (> v floor)))
                     acc
                     (let [major (with-open [is (.getInputStream zf e)]
-                                (class-file-major (entry-bytes is)))]
+                                  (class-file-major (entry-bytes is)))]
                       (-> acc (update :classes inc)
                           (update :violations
                                   (fn [vs] (if (> major major-floor)
                                              (conj vs [name major])
                                              vs))))))))
-                {:classes 0 :violations []}
-                (iterator-seq (.entries zf)))
+              {:classes 0 :violations []}
+              (iterator-seq (.entries zf)))
       (finally (.close zf)))))
 
 (defn assert-floor

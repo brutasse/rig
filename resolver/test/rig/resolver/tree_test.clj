@@ -63,7 +63,7 @@
 (deftest tree-floats-via-proxy
   (let [group "rig.ktest.proxy" name "treefloat" v "2.0.0"
         orig-root (doto (File. (str (System/getProperty "java.io.tmpdir") "/"
-                                   (str "rig-tree-orig-" (java.util.UUID/randomUUID))))
+                                    (str "rig-tree-orig-" (java.util.UUID/randomUUID))))
                     (.mkdirs) (.deleteOnExit))
         proxy-root (doto (File. (str (System/getProperty "java.io.tmpdir") "/"
                                      (str "rig-tree-py-" (java.util.UUID/randomUUID))))

@@ -61,4 +61,4 @@
                      "repo" repo
                      "url" (repo-url repo data root-data)
                      "pom" (pom/pom (first parts) (second parts) version
-                                     (pom/pom-deps data pins))}]})))
+                                    (pom/pom-deps data pins))}]})))

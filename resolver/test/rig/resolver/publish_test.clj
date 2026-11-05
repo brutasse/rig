@@ -15,7 +15,6 @@
        (is (re-find ~re (.getMessage e#))
            (str "threw with the wrong message: " (.getMessage e#))))))
 
-
 (deftest publish-basic
   (with-ws [["deps.edn" "{:rig/modules [\"modules/app\"]}"]
             ["modules/app/deps.edn"

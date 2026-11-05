@@ -157,15 +157,15 @@
   [data exclusions]
   (when (and data (seq exclusions))
     (let [fix (fn [deps] (into {}
-                    (for [[c s] deps]
-                      [c (if (and (map? s) (:local/root s))
-                          (assoc s :exclusions (into exclusions (distinct (or (:exclusions s) []))))
-                          s)])))
+                               (for [[c s] deps]
+                                 [c (if (and (map? s) (:local/root s))
+                                      (assoc s :exclusions (into exclusions (distinct (or (:exclusions s) []))))
+                                      s)])))
           fix-alias (fn [al] (-> al
-                         (cond-> (contains? al :extra-deps)
-                           (update :extra-deps fix))
-                         (cond-> (contains? al :replace-deps)
-                           (update :replace-deps fix))))]
+                                 (cond-> (contains? al :extra-deps)
+                                   (update :extra-deps fix))
+                                 (cond-> (contains? al :replace-deps)
+                                   (update :replace-deps fix))))]
       (-> data
           (update :deps fix)
           (update :aliases (fn [als] (update-vals als fix-alias)))))))
@@ -402,13 +402,13 @@
                                                             pins
                                                             overrides
                                                             now-ms)
-                               proj (-> (let [base (or (when (:changed? sel)
-                                                         (versions/apply-versions data (:selected sel) overrides))
-                                                       data)]
-                                          (if (seq (versions/proxy-map))
-                                            (versions/with-proxy-repos base)
-                                            base))
-                                        (with-local-exclusions local-excl))
+                              proj (-> (let [base (or (when (:changed? sel)
+                                                        (versions/apply-versions data (:selected sel) overrides))
+                                                      data)]
+                                         (if (seq (versions/proxy-map))
+                                           (versions/with-proxy-repos base)
+                                           base))
+                                       (with-local-exclusions local-excl))
                               pool-ov (pool-overrides root-data data)
                               base-basis (resolve-basis mdir [] proj pool-ov)
                               base-mapped (plan/map-classpath (:classpath-roots base-basis) modules-abs m2 gl)
