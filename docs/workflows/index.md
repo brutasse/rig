@@ -7,6 +7,7 @@ nav: list
 Recipes for the things you do with Rig outside the editor.
 
 - [Day-to-day workflow](daily.md)
+- [Working with coding agents](agents.md)
 - [Dependency management](dependencies.md)
 - [All artifacts through one repository](pier.md)
 - [Build, publish, release](build-publish.md)
