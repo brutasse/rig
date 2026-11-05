@@ -73,7 +73,7 @@
   taking the tail with & would nest `dropped` in one element and leave the
   compile list permanently nil."
   [args]
-  (let [[preloads dropped] (split-with (complement #{"--"}) args)]
+  (let [[preloads dropped] (split-with (fn [x] (not (#{"--"} x))) args)]
     [preloads (next dropped)]))
 
 (defn- attempt

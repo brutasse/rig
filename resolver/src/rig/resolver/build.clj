@@ -34,7 +34,7 @@
      :libs (into {}
                  (for [e classpath
                        :when (not (str/starts-with? (get e :id) "paths:"))]
-                   [(get e :id) {:paths (into #{} (:paths e))}]))}))
+                   [(get e :id) {:paths (set (:paths e))}]))}))
 
 (defn- write-launch-descriptor
   "Writes the build's :launch config into the class-dir, where the jar and
@@ -240,7 +240,7 @@
                    "strictly newer than its AOT class; the runtime would load\n"
                    "the source, and the jar-level strip would run the stale\n"
                    "class instead:\n"
-                   (str/join "\n" (map (partial str "  ") stale)))
+                   (str/join "\n" (map #(str "  " %) stale)))
               {:stale stale})))))
 
 (defn- script-text
@@ -332,7 +332,7 @@
             script (io/file working "compile.clj")
             _ (io/make-parents class-dir)
             _ (spit script (script-text (.getPath wdir) (.getPath pdir) plan
-                                        (into #{} (:extra plan)) uber?))
+                                        (set (:extra plan)) uber?))
             args (process/java-command {:java-cmd (java-exe)
                                         :cp [(.getPath wdir) (str class-dir)]
                                         :java-opts compile-jvm-opts
@@ -414,7 +414,7 @@
       ;; this build produces: a class above it would fail to load there.
       ;; No floor in the config (the workspace pins no JVM) means no scan.
       (when-let [floor (get cfg :floor)]
-        (doseq [f (filter some? (map (partial get result) [:jar :uber]))]
+        (doseq [f (filter some? (map #(get result %) [:jar :uber]))]
           (floor/assert-floor f floor)))
       result)))
 

@@ -360,7 +360,7 @@
   [v]
   (let [ss (str/split (str v) #"\.")]
     (when (every? #(re-matches #"\d+" %) ss)
-      (map #(Long/parseLong %) ss))))
+      (map Long/parseLong ss))))
 
 (defn- ver<
   "True when numeric version a is < b; nil when either is not fully

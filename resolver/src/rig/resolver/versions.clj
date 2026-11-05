@@ -240,6 +240,12 @@
   [a b]
   (.compareTo (DefaultArtifactVersion. a) (DefaultArtifactVersion. b)))
 
+(defn newest
+  "The newest of the versions by Maven ordering (vcmp); the input must be
+  non-empty."
+  [vs]
+  (reduce (fn [a b] (if (pos? (vcmp a b)) a b)) vs))
+
 (defn iso
   [ms]
   (when ms (.toString (java.time.Instant/ofEpochMilli ms))))
@@ -281,8 +287,8 @@
                                           (contains? overrides (str c)))]
                               c))
          cooldown-str (fn [repo] (cooldown-for repo cooldown))
-        zero? (all-cooldowns-zero? cooldown)
-        meta (atom {}) ;; memo across coords: repo-metadata hits the network
+        all-zero? (all-cooldowns-zero? cooldown)
+        memo (atom {}) ;; memo across coords: repo-metadata hits the network
         step (fn [{:keys [selected skipped refused] :as st} c]
                (let [override (get overrides (str c))
                      pin (get pins (str c))
@@ -297,17 +303,17 @@
                    pin
                    (assoc st :selected (assoc selected c pin))
 
-                   zero?
+                   all-zero?
                    st
 
                    :else
-                   (do (when-not (contains? @meta c)
-                         (swap! meta assoc c (repo-metadata (str c) repos)))
-                       (let [md (get @meta c)
+                   (do (when-not (contains? @memo c)
+                         (swap! memo assoc c (repo-metadata (str c) repos)))
+                       (let [md (get @memo c)
                              byv (get md :by-version)
                              cands (if (= :latest (keyword (str/lower-case (or req ""))))
                                      (if (seq (get md :latest))
-                                       (into #{} (get md :latest))
+                                       (set (get md :latest))
                                        (keys byv))
                                      (keys byv))
                              age-ok (fn [v]
@@ -317,8 +323,7 @@
                              elig (fn [v]
                                     (or (true? force) (age-ok v)))
                              eligible (filter elig cands)
-                             chosen (when (seq eligible)
-                                      (reduce (fn [a b] (if (pos? (vcmp a b)) a b)) eligible))
+                             chosen (when (seq eligible) (newest eligible))
                              st1 (if chosen
                                    (cond-> (assoc st :selected (assoc selected c chosen))
                                      (and (true? force) (not (age-ok chosen)))
@@ -351,8 +356,8 @@
   [coord-str repos cooldown force now-ms]
   (let [md (repo-metadata coord-str repos)
         byv (get md :by-version)
-        all (if (seq (:latest md)) (into #{} (:latest md)) (keys byv))
-        cands (if (true? force) all (into #{} (remove snapshot? all)))
+        all (if (seq (:latest md)) (set (:latest md)) (keys byv))
+        cands (if (true? force) all (set (remove snapshot? all)))
         elig (fn [v]
                (let [d (get byv v)
                      pa (:published-at d)]
@@ -361,8 +366,7 @@
                                 (parse-duration-ms
                                  (cooldown-for (:repo d) cooldown)))))))
         chosen (when (some (fn [v] (or (true? force) (elig v))) cands)
-                 (reduce (fn [a b] (if (pos? (vcmp a b)) a b))
-                         (filter (fn [v] (or (true? force) (elig v))) cands)))
+                 (newest (filter (fn [v] (or (true? force) (elig v))) cands)))
         skipped (concat
                   (when (and (true? force) chosen (not (elig chosen)))
                     [{:coord (symbol coord-str)

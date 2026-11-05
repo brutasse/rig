@@ -10,6 +10,7 @@
             [clojure.tools.deps.extensions :as ext]
             [clojure.tools.deps.tree :as td-tree]
             [rig.resolver.manifest :as manifest]
+            [rig.resolver.pom :as pom]
             [rig.resolver.resolve :as resolve]
             [rig.resolver.versions :as versions]))
 
@@ -61,10 +62,7 @@
         mdir (if (= module ".") ws (str (io/file ws module)))
         man (manifest/read-manifest mdir)
         data (or (:data man) {})
-        pins (into {}
-                   (for [a (get (resolve/lock-of request) :artifacts)
-                         :when (= "mvn" (get a :kind))]
-                     [(str (get a :group) "/" (get a :name)) (get a :version)]))
+        pins (pom/pins-of (resolve/lock-of request))
         sel (versions/select-versions data
                                       (resolve/all-repos ws)
                                       (resolve/cooldown-of args data)

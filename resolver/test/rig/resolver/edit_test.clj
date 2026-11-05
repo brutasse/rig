@@ -117,7 +117,7 @@
                            ";; local dep"))
         (is (cljfmt-clean? (slurp (io/file dir "modules/lib/deps.edn"))))
         (is (= #{"deps.edn" "modules/lib/deps.edn" "modules/app/deps.edn"}
-               (into #{} (map #(get % "file")) (get resp "edits"))))
+               (set (map #(get % "file") (get resp "edits")))))
         (is (every? #(= "set" (get % "action")) (get resp "edits")))
         (is (= "1.12.4" (artifact-version (get resp "lock")
                                           "org.clojure/clojure:1.12.4:jar")))
@@ -161,7 +161,7 @@
                  (set (get-in (read-manifest dir "modules/lib/deps.edn")
                               [:deps 'cheshire/cheshire :exclusions]))))
           (is (= #{"deps.edn" "modules/lib/deps.edn"}
-                 (into #{} (map #(get % "file")) (get resp "edits"))))
+                 (set (map #(get % "file") (get resp "edits")))))
           (is (= "5.11.0" (artifact-version (get resp "lock")
                                             "cheshire/cheshire:5.11.0:jar"))))))))
 
@@ -185,7 +185,7 @@
             "shared=true records the alias requirement in :rig/deps")
         (is (cljfmt-clean? (slurp (io/file dir "modules/app/deps.edn"))))
         (is (= #{"deps.edn" "modules/app/deps.edn"}
-               (into #{} (map #(get % "file")) (get resp "edits"))))
+               (set (map #(get % "file") (get resp "edits")))))
         (is (some #(= "lambdaisland/kaocha:1.67.1055:jar" %)
                   (get-in (get resp "lock")
                           ["modules" "modules/app" :aliases :test :classpath])))))))
@@ -208,7 +208,7 @@
                                 [:deps 'org.clojure/clojure :mvn/version])))
         (is (= "1.12.5" (get-in (read-manifest dir "modules/app/deps.edn")
                                 [:deps 'org.clojure/clojure :mvn/version])))
-        (is (= #{"deps.edn"} (into #{} (map #(get % "file")) (get resp "edits")))
+        (is (= #{"deps.edn"} (set (map #(get % "file") (get resp "edits"))))
             "only the workspace manifest is edited")
         (is (some #(= "org.clojure/clojure:1.12.5:jar" %)
                   (get-in (get resp "lock") ["modules" "modules/lib" :classpath]))
@@ -248,7 +248,7 @@
           (is (cljfmt-clean? new)))
         (is (cljfmt-clean? (slurp (io/file dir "deps.edn"))))
         (is (= #{"deps.edn" "modules/app/deps.edn"}
-               (into #{} (map #(get % "file")) (get resp "edits"))))
+               (set (map #(get % "file") (get resp "edits")))))
         (is (= "0.4.74" (artifact-version (get resp "lock")
                                           "org.clojure/core.specs.alpha:0.4.74:jar")))))))
 
@@ -269,7 +269,7 @@
             "shared=false leaves root :rig/deps alone")
         (is (cljfmt-clean? (slurp (io/file dir "modules/app/deps.edn"))))
         (is (= #{"modules/app/deps.edn"}
-               (into #{} (map #(get % "file")) (get resp "edits"))))
+               (set (map #(get % "file") (get resp "edits")))))
         (is (some #(= "org.clojure/tools.logging:1.2.4:jar" %)
                   (get-in (get resp "lock")
                           ["modules" "modules/app" :aliases :test :classpath])))))))
@@ -332,7 +332,7 @@
                                  [:rig/deps 'org.clojure/tools.logging]))
               ":rig/deps section created in the same file")
           (is (cljfmt-clean? (slurp (io/file dir "deps.edn"))))
-          (is (= #{"deps.edn"} (into #{} (map #(get % "file")) (get resp "edits"))))
+          (is (= #{"deps.edn"} (set (map #(get % "file") (get resp "edits")))))
           (is (= 2 (count (get resp "edits"))))
           (is (some #(= "org.clojure/tools.logging:1.3.1:jar" %)
                     (get-in (get resp "lock") ["modules" "." :classpath]))))))))

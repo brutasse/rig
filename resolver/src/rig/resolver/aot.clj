@@ -91,8 +91,8 @@
             (if (str/ends-with? root ".jar")
               (let [names (try
                             (with-open [z (ZipFile. (io/file root))]
-                              (into #{} (map (memfn getName)
-                                             (enumeration-seq (.entries z)))))
+                              (set (map (memfn getName)
+                                        (enumeration-seq (.entries z)))))
                             (catch Exception _ #{}))]
                 (some (fn [n]
                         (some (fn [ext]
@@ -134,8 +134,8 @@
                            namespaces do not resolve from their paths}"
   [src-dirs main classpath]
   (let [main (when main (str main))
-        parsed (for [[root f] (ns-files src-dirs)]
-                 [[root f] (read-decl f)])
+        parsed (vec (for [[root f] (ns-files src-dirs)]
+                      [[root f] (read-decl f)]))
         skipped (vec
                  (mapcat (fn [[[root f] d]]
                            (cond

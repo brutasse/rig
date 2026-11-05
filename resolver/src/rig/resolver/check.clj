@@ -8,21 +8,12 @@
     git-ref          (error) git coord not pinned by a full commit sha
     no-lib           (error) publish enabled without a :rig/lib coordinate
     unknown-repo     (error) lock pins an artifact via a repo no manifest declares"
-  (:require [cheshire.core :as json]
-            [clojure.java.io :as io]
+  (:require [clojure.java.io :as io]
             [clojure.string :as str]
             [rig.resolver.manifest :as manifest]
+            [rig.resolver.resolve :as resolve]
             [rig.resolver.versions :as versions])
   (:import [org.apache.maven.artifact.versioning DefaultArtifactVersion]))
-
-(defn- read-lock
-  [ws lock]
-  (cond
-    (nil? lock) {}
-    (string? lock)
-    (let [f (io/file ws lock)]
-      (if (.exists f) (json/parse-string (slurp f) true) {}))
-    :else lock))
 
 (defn- classpath-pins
   "coord -> [version …] from a module plan's classpaths (base plus aliases);
@@ -116,7 +107,7 @@
 (defn check
   [request]
   (let [ws (str (:workspace request))
-        lock (read-lock ws (get request :lock))
+        lock (resolve/lock-of request)
         [per-pins all-pins] (pins-of lock)
         root-man (manifest/read-manifest ws)
         root-data (or (:data root-man) {})

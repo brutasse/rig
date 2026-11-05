@@ -8,6 +8,7 @@
             [clojure.tools.gitlibs :as gitlibs]
             [rig.resolver.manifest :as manifest]
             [rig.resolver.plan :as plan]
+            [rig.resolver.pom :as pom]
             [rig.resolver.versions :as versions]))
 
 ;; A workspace module can enter a module's basis twice under the same lib
@@ -50,7 +51,7 @@
   "The module's repos: the standard repos (any redeclared id replaced by the
   manifest's entry) plus every :mvn/repos entry."
   [data]
-  (into (vec (versions/standard-repos-of (get data :mvn/repos {})))
+  (into (versions/standard-repos-of (get data :mvn/repos {}))
         (for [[id sp] (sort-by key (get data :mvn/repos {}))]
           [id sp])))
 
@@ -167,8 +168,7 @@
                            (update :replace-deps fix))))]
       (-> data
           (update :deps fix)
-          (update :aliases (fn [als]
-                            (into {} (for [[k v] als] [k (fix-alias v)]))))))))
+          (update :aliases (fn [als] (update-vals als fix-alias)))))))
 
 (defn all-repos
   "Standard repos + every :mvn/repos entry of the workspace's manifests. An id
@@ -185,8 +185,8 @@
                                   (for [[id sp] (get-in (or (:data man) {}) [:mvn/repos] {})]
                                     [id sp]))
                                 (vals manifests)))
-        declared (into #{} (map first extra))]
-    (into (vec (versions/standard-repos-of declared)) (sort-by first extra))))
+        declared (set (map first extra))]
+    (into (versions/standard-repos-of declared) (sort-by first extra))))
 
 (defn skip-entry
   "Lock shape for a version-selection skip/refusal entry: string keys,
@@ -344,10 +344,7 @@
         overrides (into {} (for [[k v] (or (get args :requirement-overrides) {})]
                              [(str k) v]))
         lock (lock-of request)
-        pins (into {}
-                   (for [a (get lock :artifacts)
-                         :when (= "mvn" (get a :kind))]
-                     [(str (get a :group) "/" (get a :name)) (get a :version)]))
+        pins (pom/pins-of lock)
         now-ms (System/currentTimeMillis)
         module-dirs (manifest/modules-of root-data)
         declared-abs (into {} (for [m module-dirs]
@@ -391,7 +388,7 @@
                                                   (for [[id sp] (get-in (or (:data man) {}) [:mvn/repos] {})]
                                                     [id sp]))
                                                 (vals manifests)))]
-                    (into (vec (versions/standard-repos-of (into #{} (map first extra))))
+                    (into (versions/standard-repos-of (set (map first extra)))
                           (sort-by first extra)))
         local-excl (root-injected-deps)
         mres (into {} (for [m (concat module-dirs (keys local-mods))]
