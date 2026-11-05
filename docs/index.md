@@ -67,7 +67,8 @@ That is the whole loop. `rig info` tells you where you stand;
 - [Getting started](getting-started.md) — install Rig, walk through a first project.
 - [Concepts](concepts/index.md) — the manifest/lockfile model, the security model, workspaces.
 - [Workflows](workflows/daily.md) — day-to-day development, dependency management,
-  build/publish/release, and CI.
+  build/publish/release, and CI; coding agents work the same workflow
+  through the [using-rig skill](workflows/agents.md).
 - [Reference](reference/commands.md) — every command and every `:rig/*` config key.
 - [Migration](migration/index.md) — coming from tools.project, from deps-modules, or
   from a plain tools.deps project.
