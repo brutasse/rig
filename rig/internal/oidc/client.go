@@ -21,6 +21,7 @@ import (
 const (
 	defaultAudience = "pier"
 	defaultClientID = "rig"
+	defaultScope    = "openid"
 
 	// noExpiryFallback bounds the cached lifetime of tokens whose
 	// expiry cannot be determined from the token or the token response.
@@ -47,6 +48,10 @@ type ClientConfig struct {
 	// registered on the IdP client. Empty means an ephemeral
 	// http://127.0.0.1:PORT/callback listener.
 	RedirectURI string
+	// Scopes are the OAuth scopes requested (default ["openid"]). IdPs
+	// such as Dex gate token claims on scope: groups and email appear
+	// only when their scope is requested.
+	Scopes []string
 	// CachePath is where the negotiated token is cached.
 	CachePath string
 }
@@ -63,6 +68,9 @@ func (c *ClientConfig) fill() error {
 	}
 	if c.ClientID == "" {
 		c.ClientID = defaultClientID
+	}
+	if len(c.Scopes) == 0 {
+		c.Scopes = []string{defaultScope}
 	}
 	if c.RedirectURI != "" {
 		u, err := url.Parse(c.RedirectURI)

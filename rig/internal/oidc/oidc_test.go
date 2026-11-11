@@ -56,6 +56,9 @@ func TestLoadDefaults(t *testing.T) {
 	if len(g.URLs) != 1 || g.URLs[0] != "https://pier.example" {
 		t.Errorf("urls = %v", g.URLs)
 	}
+	if len(g.Scopes) != 1 || g.Scopes[0] != "openid" {
+		t.Errorf("scopes default = %v, want [openid]", g.Scopes)
+	}
 	if g.EnvVar() != "RIG_TOKEN_PIER" {
 		t.Errorf("env var = %q", g.EnvVar())
 	}
@@ -66,7 +69,7 @@ func TestLoadExplicitValues(t *testing.T) {
 	t.Setenv("HOME", home)
 	writeGateFile(t, home, "gates:\n  corp-maven:\n    url: [https://maven.corp.example, https://mvn2.corp.example]\n"+
 		"    well-known: https://idp.corp.example/w\n    audience: maven.corp.example\n    client-id: rig-ci\n"+
-		"    redirect-uri: http://127.0.0.1:8080\n")
+		"    redirect-uri: http://127.0.0.1:8080\n    scopes: [openid, groups]\n")
 	cfg, err := Load()
 	if err != nil {
 		t.Fatal(err)
@@ -81,6 +84,9 @@ func TestLoadExplicitValues(t *testing.T) {
 	// A loopback redirect with a missing path defaults to /callback.
 	if g.RedirectURI != "http://127.0.0.1:8080/callback" {
 		t.Errorf("redirect = %q", g.RedirectURI)
+	}
+	if len(g.Scopes) != 2 || g.Scopes[0] != "openid" || g.Scopes[1] != "groups" {
+		t.Errorf("scopes = %v, want [openid groups]", g.Scopes)
 	}
 	if g.EnvVar() != "RIG_TOKEN_CORP_MAVEN" {
 		t.Errorf("env var = %q, want RIG_TOKEN_CORP_MAVEN", g.EnvVar())
@@ -98,6 +104,7 @@ func TestLoadRejects(t *testing.T) {
 		{"bad name", "gates:\n  \"Bad Name\":\n    well-known: https://idp.example/w\n", `name "Bad Name" must match`},
 		{"uppercase name", "gates:\n  PIER:\n    well-known: https://idp.example/w\n", "name \"PIER\" must match"},
 		{"bad url", "gates:\n  pier:\n    url: not-a-url\n    well-known: https://idp.example/w\n", "url must be an http(s) URL prefix"},
+		{"space in scope", "gates:\n  pier:\n    well-known: https://idp.example/w\n    scopes: [\"openid groups\"]\n", "scope \"openid groups\" must be a non-empty token without spaces"},
 		{"bad redirect", "gates:\n  pier:\n    well-known: https://idp.example/w\n    redirect-uri: https://idp.example/cb\n", "redirect-uri must be an http loopback URI"},
 		{"portless redirect", "gates:\n  pier:\n    well-known: https://idp.example/w\n    redirect-uri: http://127.0.0.1/cb\n", "redirect-uri must be an http loopback URI"},
 		{"non-loopback redirect", "gates:\n  pier:\n    well-known: https://idp.example/w\n    redirect-uri: http://example.com/cb\n", "redirect-uri must be an http loopback URI"},

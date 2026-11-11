@@ -44,6 +44,8 @@ type fakeIDP struct {
 	// state captured from the authorize request, checked at /token
 	challenge   string
 	redirectURI string
+	// scopes requested by the flow (browser authorize or device request)
+	scope string
 
 	authorizeCalls atomic.Int64
 	tokenCalls     atomic.Int64
@@ -88,6 +90,7 @@ func newFakeIDP(t *testing.T) *fakeIDP {
 		}
 		idp.challenge = q.Get("code_challenge")
 		idp.redirectURI = q.Get("redirect_uri")
+		idp.scope = q.Get("scope")
 		// "The user" approves immediately.
 		u, _ := url.Parse(q.Get("redirect_uri"))
 		rq := u.Query()
@@ -97,6 +100,8 @@ func newFakeIDP(t *testing.T) *fakeIDP {
 		http.Redirect(w, r, u.String(), http.StatusFound)
 	})
 	mux.HandleFunc("/device", func(w http.ResponseWriter, r *http.Request) {
+		r.ParseForm()
+		idp.scope = r.Form.Get("scope")
 		json.NewEncoder(w).Encode(map[string]any{
 			"device_code":               "dev-code-1",
 			"user_code":                 "ABCD-EFGH",
@@ -264,6 +269,9 @@ func TestBrowserFlow(t *testing.T) {
 		if r.err != nil {
 			t.Fatal(r.err)
 		}
+		if idp.scope != "openid" {
+			t.Fatalf("requested scope %q, want openid", idp.scope)
+		}
 		tok := r.tok
 		// The issued token must verify against the IdP's JWKS.
 		if err := verifyToken(t, idp, tok); err != nil {
@@ -357,8 +365,47 @@ func TestDeviceFlow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if idp.scope != "openid" {
+		t.Fatalf("requested scope %q, want openid", idp.scope)
+	}
 	if err := verifyToken(t, idp, tok); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// TestBrowserFlowScopes requests extra scopes beyond openid (e.g. groups,
+// which IdPs such as Dex gate behind their own scope) and checks they
+// reach the authorize request.
+func TestBrowserFlowScopes(t *testing.T) {
+	openBrowser = func(string) {}
+	idp := newFakeIDP(t)
+	c := newTestClient(t, idp)
+	c.cfg.Scopes = []string{"openid", "groups"}
+
+	var out syncBuf
+	type res struct {
+		tok string
+		err error
+	}
+	ch := make(chan res, 1)
+	go func() {
+		tok, err := c.Token(context.Background(), "browser", &out)
+		ch <- res{tok, err}
+	}()
+	fakeBrowser(t, &out)
+	select {
+	case r := <-ch:
+		if r.err != nil {
+			t.Fatal(r.err)
+		}
+		if idp.scope != "openid groups" {
+			t.Fatalf("requested scope %q, want \"openid groups\"", idp.scope)
+		}
+		if err := verifyToken(t, idp, r.tok); err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(15 * time.Second):
+		t.Fatal("browser flow did not complete")
 	}
 }
 
