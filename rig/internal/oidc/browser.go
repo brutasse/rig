@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os/exec"
 	"runtime"
+	"strings"
 	"time"
 )
 
@@ -168,7 +169,7 @@ func (c *Client) browserFlow(ctx context.Context, out io.Writer) (string, error)
 		"response_type":         {"code"},
 		"client_id":             {c.cfg.ClientID},
 		"redirect_uri":          {cb.String()},
-		"scope":                 {"openid"},
+		"scope":                 {strings.Join(c.cfg.Scopes, " ")},
 		"state":                 {state},
 		"code_challenge":        {challenge},
 		"code_challenge_method": {"S256"},

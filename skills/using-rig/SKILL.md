@@ -1,6 +1,6 @@
 ---
 name: using-rig
-description: Use when the working directory is or contains a Rig project (deps.edn with :rig/* keys, a deps.lock), or the task touches one — adding, removing, or updating dependencies, setting up or fixing CI, fixing failing tests or iterating on code, building or launching artifacts. Symptoms: stale lock, exit 3, "run rig lock", rig check, rig test, rig nrepl, setup-rig, :rig/jvm. Not for plain tools.deps (no :rig keys) or Leiningen (project.clj).
+description: 'Use when the working directory is or contains a Rig project (deps.edn with :rig/* keys, a deps.lock), or the task touches one — adding, removing, or updating dependencies, setting up or fixing CI, fixing failing tests or iterating on code, building or launching artifacts. Symptoms: stale lock, exit 3, "run rig lock", rig check, rig test, rig nrepl, setup-rig, :rig/jvm. Not for plain tools.deps (no :rig keys) or Leiningen (project.clj).'
 ---
 
 # Using Rig

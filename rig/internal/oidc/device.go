@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"strings"
 	"time"
 )
 
@@ -18,7 +19,7 @@ func (c *Client) deviceFlow(ctx context.Context, out io.Writer) (string, error) 
 	if c.d.DeviceAuthorizationEndpoint == "" {
 		return "", errors.New("issuer does not advertise a device_authorization_endpoint (device flow unavailable)")
 	}
-	form := url.Values{"scope": {"openid"}}
+	form := url.Values{"scope": {strings.Join(c.cfg.Scopes, " ")}}
 	if c.cfg.ClientID != "" {
 		form.Set("client_id", c.cfg.ClientID)
 	}

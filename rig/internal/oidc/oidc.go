@@ -73,6 +73,10 @@ type Gate struct {
 	ClientID string `yaml:"client-id"`
 	// RedirectURI pins the browser flow's loopback redirect (optional).
 	RedirectURI string `yaml:"redirect-uri"`
+	// Scopes are the OAuth scopes the negotiated token must carry
+	// (default [openid]). IdPs such as Dex gate token claims on scope:
+	// groups and email appear only when their scope is requested.
+	Scopes []string `yaml:"scopes"`
 }
 
 // EnvVar is the environment variable carrying this gate's token.
@@ -83,7 +87,7 @@ func (g *Gate) EnvVar() string {
 // Identity is the gate's effective configuration: the cache key. Renaming
 // a gate does not invalidate its cached token.
 func (g *Gate) Identity() string {
-	return g.WellKnown + "\x00" + g.Audience + "\x00" + g.ClientID
+	return g.WellKnown + "\x00" + g.Audience + "\x00" + g.ClientID + "\x00" + strings.Join(g.Scopes, " ")
 }
 
 // Config is the gate configuration of one machine (the shared org file).
@@ -168,6 +172,14 @@ func (g *Gate) fill() error {
 	}
 	if g.ClientID == "" {
 		g.ClientID = defaultClientID
+	}
+	if len(g.Scopes) == 0 {
+		g.Scopes = []string{defaultScope}
+	}
+	for _, s := range g.Scopes {
+		if s == "" || strings.ContainsAny(s, " \t") {
+			return fmt.Errorf("scope %q must be a non-empty token without spaces", s)
+		}
 	}
 	if g.RedirectURI != "" {
 		u, err := url.Parse(g.RedirectURI)
@@ -293,6 +305,7 @@ func (r *Resolver) Token(ctx context.Context, g *Gate, flow string) (string, err
 			Audience:    g.Audience,
 			ClientID:    g.ClientID,
 			RedirectURI: g.RedirectURI,
+			Scopes:      g.Scopes,
 			CachePath:   r.CacheFile(g),
 		})
 		if err != nil {
