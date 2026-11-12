@@ -141,7 +141,7 @@ permission:
 gates:
   pier:
     url: https://pier.example
-    well-known: https://actions.githubusercontent.com/.well-known/openid-configuration
+    well-known: https://token.actions.githubusercontent.com/.well-known/openid-configuration
     audience: https://pier.example
 ```
 

@@ -355,3 +355,13 @@ func TestGHAStaticEnvTokenNotRefreshed(t *testing.T) {
 		t.Fatalf("id tokens minted = %d, want 0 (the env token wins)", got)
 	}
 }
+
+// TestGhaWellKnownIsThePublicDiscoveryURL pins the real discovery URL.
+// Every other test points GhaWellKnown at a fake issuer, so a wrong real
+// host would only surface on a live runner.
+func TestGhaWellKnownIsThePublicDiscoveryURL(t *testing.T) {
+	const want = "https://token.actions.githubusercontent.com/.well-known/openid-configuration"
+	if GhaWellKnown != want {
+		t.Fatalf("GhaWellKnown = %q, want %q", GhaWellKnown, want)
+	}
+}
