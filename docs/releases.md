@@ -4,6 +4,8 @@ Changelog for Rig.
 
 ## Unreleased
 
+## v0.5.0 — 2026-11-12
+
 ### Added
 
 #### GitHub Actions OIDC gates: just-in-time id-token negotiation
@@ -28,6 +30,41 @@ longer than 5 minutes keeps running.
 `RIG_TOKEN_<GATE>` still wins when set: Rig uses the environment
 token as-is and never re-negotiates it.
 [All artifacts through one repository](workflows/pier.md#ci).
+
+#### Custom scopes for OIDC gates
+
+A gate now takes a `scopes` field in the shared gate config
+(default `[openid]`). Rig requests the scopes in the browser flow's
+authorize request and in the device-code flow. IdPs such as Dex gate
+token claims on scope — `groups` and `email` appear in the token only
+when their scope was requested — so an IdP that authorizes on groups
+or email needs no different client or audience. A scope must be a
+non-empty token without spaces. The scopes join the gate's identity,
+so a change re-negotiates instead of reusing a cached token.
+[Configuration — OIDC gates](reference/config.md#oidc-gates).
+
+#### A skill for coding agents
+
+Rig ships a skill — `skills/using-rig/` in this repository, plain
+`SKILL.md` format — that teaches a coding agent the Rig workflow:
+dependency changes through `rig add` / `rig update` / `rig remove`
+rather than a hand-edited `deps.edn`, debugging in a live nREPL
+session with `rig test` as the final gate, and the Rig CI shape
+(`setup-rig` plus `rig check && rig test`). Link it where your agent
+looks (`~/.agents/skills/`, `~/.claude/skills/`,
+`.opencode/skills/`): a symlink from a checkout of this repository
+updates with `git pull`. The skill activates on its own inside a Rig
+project. [Working with coding
+agents](workflows/agents.md).
+
+### Docs
+
+- [Day-to-day workflow](workflows/daily.md): the `rig nrepl` section
+  says where the server runs, and a new
+  [Connecting the
+  editor](workflows/daily.md#connecting-the-editor) section covers the
+  `.nrepl-port` file, CIDER connecting to it, and turning on the
+  `cider-nrepl` middleware for completion, debugger and refresh.
 
 ## v0.4.1 — 2026-11-04
 

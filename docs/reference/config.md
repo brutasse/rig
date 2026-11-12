@@ -190,6 +190,7 @@ Fields:
 | `audience` | no | The audience the token must carry (default `pier`). |
 | `client-id` | no | The OAuth client identifier (default `rig`). |
 | `redirect-uri` | no | A fixed `http://127.0.0.1:PORT/callback` redirect for the browser flow. Without it Rig listens on an ephemeral loopback port. |
+| `scopes` | no | The OAuth scopes the negotiated token must carry (default `[openid]`). IdPs such as Dex gate token claims on scope: `groups` and `email` appear only when their scope is requested. |
 
 Rig binds a marked repo to the gate that fronts its `:url` (prefix
 match, on the URL). When exactly one gate matches, Rig uses it. When
