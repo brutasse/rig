@@ -216,7 +216,7 @@ Rig resolves the bearer of each gate on demand, per repo:
    JWKS of the issuer (signature, issuer, audience, expiry) before it
    uses or caches it.
    - When the gate's `well-known` is the GitHub Actions discovery URL
-     (`https://actions.githubusercontent.com/.well-known/openid-configuration`),
+     (`https://token.actions.githubusercontent.com/.well-known/openid-configuration`),
      Rig uses the GitHub Actions flow. GitHub sets the runner's
      credentials, `ACTIONS_ID_TOKEN_REQUEST_URL` and
      `ACTIONS_ID_TOKEN_REQUEST_TOKEN`, when the workflow declares

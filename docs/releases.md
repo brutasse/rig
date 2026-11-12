@@ -4,6 +4,18 @@ Changelog for Rig.
 
 ## Unreleased
 
+### Fixed
+
+#### GitHub Actions discovery URL
+
+The discovery URL of the GitHub Actions gate — the gate marker and the
+gate-config examples — was
+`https://actions.githubusercontent.com/.well-known/openid-configuration`,
+which does not resolve. The discovery document is published at
+`https://token.actions.githubusercontent.com/.well-known/openid-configuration`
+(issuer `https://token.actions.githubusercontent.com`). Update the
+`well-known` of any GitHub Actions gate to that URL.
+
 ## v0.5.0 — 2026-11-12
 
 ### Added
@@ -11,7 +23,7 @@ Changelog for Rig.
 #### GitHub Actions OIDC gates: just-in-time id-token negotiation
 
 A gate whose `well-known` is the GitHub Actions discovery URL
-(`https://actions.githubusercontent.com/.well-known/openid-configuration`)
+(`https://token.actions.githubusercontent.com/.well-known/openid-configuration`)
 negotiates with the runner's id-token endpoint instead of the issuer's
 browser or device flow. The workflow declares
 `permissions: id-token: write`; Rig exchanges the runner's credentials

@@ -16,7 +16,7 @@ import (
 // issuer. A gate whose well-known is this negotiates the GitHub Actions
 // flow: the runner's short-lived id-token request credentials, set by the
 // workflow's id-token: write permission. Tests point it at a fake issuer.
-var GhaWellKnown = "https://actions.githubusercontent.com/.well-known/openid-configuration"
+var GhaWellKnown = "https://token.actions.githubusercontent.com/.well-known/openid-configuration"
 
 const (
 	ghaRequestURLEnv   = "ACTIONS_ID_TOKEN_REQUEST_URL"

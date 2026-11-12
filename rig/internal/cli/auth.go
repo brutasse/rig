@@ -27,7 +27,7 @@ func newAuthCmd(o *opts) *cobra.Command {
 			"else the gate's cached token, else a fresh negotiation, verified\n" +
 			"against the issuer's JWKS before use.\n\n" +
 			"A gate whose well-known is the GitHub Actions discovery URL\n" +
-			"(https://actions.githubusercontent.com/.well-known/openid-\n" +
+			"(https://token.actions.githubusercontent.com/.well-known/openid-\n" +
 			"configuration) negotiates with the runner's id-token endpoint — the\n" +
 			"workflow's id-token: write permission — instead of the browser or\n" +
 			"device flow. Those tokens are short-lived: rig re-negotiates them\n" +
