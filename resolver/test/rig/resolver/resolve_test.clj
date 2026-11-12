@@ -539,12 +539,11 @@
         [orig-base orig-seen orig-srv] (start-serving (str orig-root) "tok-e2e")
         [proxy-base proxy-seen proxy-srv] (start-serving (str proxy-root) nil)
         base-path (repo-artifacts! (str proxy-root) group name v)
-        _ (repo-metadata! (str orig-root) group name v old-ms)
+        _ (repo-metadata! (str proxy-root) group name v old-ms)
         m2 (m2-dir-of group name)]
     (delete-tree m2)
     (try
-      (binding [versions/*proxy-repos* {"oidc" proxy-base}
-                versions/*oidc-tokens* {"oidc" "tok-e2e"}]
+      (binding [versions/*proxy-repos* {"oidc" proxy-base}]
         (let [ws (temp-ws (str "{:rig/lib x/y\n"
                                " :deps {" group "/" name " {:mvn/version \"RELEASE\"}}\n"
                                " :mvn/repos {\"oidc\" {:url \"" orig-base "\" :auth :oidc}}}\n"))
@@ -553,13 +552,11 @@
           (is (some? art) "the dep is in the lock")
           (is (= v (:version art)) "the kernel picks the candidate older than the cooldown")
           (is (= "oidc" (:repository art)))
-          (is (some #(= (str base-path "/maven-metadata.xml") (nth % 1)) @orig-seen)
-              "the kernel probe fetched the release metadata")
-          (is (every? #(re-find #".*/maven-metadata.*\.xml$" (nth % 1)) @orig-seen)
-              (str "only metadata hit the original repo: " (pr-str (map #(nth % 1) @orig-seen))))
-          (is (every? #(= "Bearer tok-e2e" (nth % 2)) @orig-seen) "probe carried the bearer")
+          (is (some #(= (str base-path "/maven-metadata.xml") (nth % 1)) @proxy-seen)
+              "the kernel probe fetched the release metadata through the proxy")
           (is (some #(= (str base-path "/" v "/" name "-" v ".jar") (nth % 1)) @proxy-seen)
-              "the artifact was fetched through the proxy")))
+              "the artifact was fetched through the proxy")
+          (is (empty? @orig-seen) "no traffic to the original repo")))
       (finally
         (.stop orig-srv 0)
         (.stop proxy-srv 0)

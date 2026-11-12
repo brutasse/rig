@@ -202,21 +202,36 @@ missing prefix.
 
 ### Resolving a gate's token
 
-Rig resolves the bearer of each gate once per command, per repo:
+Rig resolves the bearer of each gate on demand, per repo:
 
 1. `RIG_TOKEN_<GATE>` when set — Rig uppercases the gate name and turns
-   dashes into underscores (`pier` → `RIG_TOKEN_PIER`). This is the CI
-   path: the runner injects the token.
+   dashes into underscores (`pier` → `RIG_TOKEN_PIER`). Rig uses the
+   environment token as-is and never re-negotiates it.
 2. Else the cached token of the gate in the state dir
    (`~/.local/share/rig/oidc/`). The dir holds one file per gate identity
    — the issuer, audience and client-id. A cached token stays valid until
    30s before its expiry.
-3. Else a fresh negotiation with the issuer of the gate. Rig uses the
-   browser flow (authorization code + PKCE, opened in your browser) when
-   a browser is available. Otherwise Rig uses the device-code flow
-   (RFC 8628) in headless environments. Rig verifies the issued token
-   against the JWKS of the issuer (signature, issuer, audience, expiry)
-   before it uses or caches it.
+3. Else a fresh negotiation. Rig verifies the issued token against the
+   JWKS of the issuer (signature, issuer, audience, expiry) before it
+   uses or caches it.
+   - When the gate's `well-known` is the GitHub Actions discovery URL
+     (`https://actions.githubusercontent.com/.well-known/openid-configuration`),
+     Rig uses the GitHub Actions flow. GitHub sets the runner's
+     credentials, `ACTIONS_ID_TOKEN_REQUEST_URL` and
+     `ACTIONS_ID_TOKEN_REQUEST_TOKEN`, when the workflow declares
+     `permissions: id-token: write`. Rig exchanges them for an id token
+     with the gate's audience. The exchange endpoint is the
+     `ACTIONS_ID_TOKEN_REQUEST_URL` variable: the GitHub Actions
+     discovery document has no token endpoint.
+   - Otherwise Rig negotiates with the issuer of the gate. Rig uses the
+     browser flow (authorization code + PKCE, opened in your browser)
+     when a browser is available. Otherwise Rig uses the device-code
+     flow (RFC 8628) in headless environments.
+
+A GitHub Actions id token lives 5 minutes. Rig re-negotiates it when the
+registry rejects the bearer (401/403), or 30s before its expiry. Rig
+re-negotiates a rejected bearer at most every 5s. After a failed
+re-negotiation, Rig keeps the held token.
 
 `rig auth get [gate|url]` prints the token of one gate to stdout, using
 the same chain:
@@ -235,15 +250,15 @@ browser|device` forces the negotiation flow (auto by default).
 tools.deps (MIMA) cannot carry a bearer of its own, so Rig does not hand
 it the real repo URL. For every resolution run, Rig starts a local
 loopback proxy and rewrites the `:url` of each marked repo to it. The
-proxy forwards every Maven request — exact versions and floating ones
-alike — to the real URL of the repo, with the bearer of that repo
-attached. It streams the response without touching disk. Tokens never
-leave the process memory of Rig, and the proxy dies with the command.
-The repo id stays the same, so lock attribution (and the Maven
+proxy forwards every Maven request — version probes and artifact
+downloads alike — to the real URL of the repo, with the bearer of that
+repo attached. It streams the response without touching disk. Tokens
+never leave the process memory of Rig, and the proxy dies with the
+command. The repo id stays the same, so lock attribution (and the Maven
 `_remote.repositories`) still point at the original repo, and the lock
-records its original URL. For floating versions, the kernel probes
-the original URL, with the per-repo bearer and subject to the cooldown.
-Artifacts themselves always come through the proxy.
+records its original URL. When the registry rejects the bearer
+(401/403), the proxy asks for a fresh one and retries the request once —
+a GitHub Actions id token can expire mid-run.
 
 > [!TIP]
 > **One repository for everything**

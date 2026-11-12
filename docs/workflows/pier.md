@@ -93,13 +93,15 @@ gates:
     well-known: https://idp.example/.well-known/openid-configuration
 ```
 
-Rig resolves the bearer per gate, once per command. It uses
-`RIG_TOKEN_PIER` when set (the CI path — the runner injects it). If that is
-empty, it uses the cached token of the gate. Otherwise it negotiates a
-fresh token with the issuer (browser flow, or device code in
-headless environments) and verifies it against the issuer's JWKS. When no
-gate fronts the repo's URL, a command fails fast, before any resolution
-work. [Authenticated
+Rig resolves the bearer per gate. It uses `RIG_TOKEN_PIER` when set —
+Rig uses an environment token as-is and never re-negotiates it. If that
+is empty, it uses the cached token of the gate. Otherwise it negotiates
+a fresh token. When the gate fronts the GitHub Actions issuer, the
+negotiation uses the runner's id-token endpoint (see [CI](#ci)).
+Otherwise it uses the issuer's browser or device-code flow. Rig
+verifies the token against the issuer's JWKS.
+When no gate fronts the repo's URL, a command fails fast, before any
+resolution work. [Authenticated
 repositories](../reference/config.md#authenticated-repositories-auth-oidc)
 covers the gate config, the token chain, and the auth proxy in detail.
 
@@ -129,8 +131,37 @@ against the upstream on a 24h TTL.
 
 ## CI
 
-In CI the runner injects a short-lived token as `RIG_TOKEN_PIER` (the
-gate's environment variable). Nothing static lives in the repository or in
-Rig's state. The usual CI gate ([ci.md](ci.md)) works unchanged:
-`rig check` fetches from the lockfile's URLs — that is, from
-Pier — with the bearer.
+On GitHub Actions you do not mint a token or pass one around. Point the
+gate at the GitHub Actions issuer, set `audience` to the value your
+registry validates, and give the workflow the `id-token: write`
+permission:
+
+```yaml
+# ~/.config/rig/auth.yaml — the shared gate config
+gates:
+  pier:
+    url: https://pier.example
+    well-known: https://actions.githubusercontent.com/.well-known/openid-configuration
+    audience: https://pier.example
+```
+
+```yaml
+# .github/workflows/ci.yml
+permissions:
+  id-token: write
+```
+
+Rig exchanges the runner's credentials
+(`ACTIONS_ID_TOKEN_REQUEST_URL`, `ACTIONS_ID_TOKEN_REQUEST_TOKEN`) for
+an id token on demand. Nothing static lives in the repository or in
+Rig's state.
+
+A GitHub Actions id token lives 5 minutes; the runner's credentials
+live for the whole job. So a long job keeps working: when the registry
+rejects the expired bearer, Rig exchanges a fresh one. The usual CI
+gate ([ci.md](ci.md)) works unchanged: `rig check` fetches from the
+lockfile's URLs — that is, from Pier — with the bearer.
+
+For a runner that is not GitHub Actions, or a token minted by another
+workflow, set `RIG_TOKEN_PIER` instead. Rig uses that token as-is and
+never re-negotiates it.

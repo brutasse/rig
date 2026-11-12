@@ -7,11 +7,14 @@
 // must carry, and the repository URL prefixes it fronts. A repository
 // marked :auth :oidc is bound to the gate that fronts its :url.
 //
-// Each gate's bearer is resolved once per command: the RIG_TOKEN_<GATE>
-// environment variable when set (the CI path — the runner injects it),
-// else the gate's cached token in the state dir, else a fresh negotiation
-// with the issuer (browser or device flow, verified against the issuer's
-// JWKS before use).
+// Each gate's bearer is resolved on demand: the RIG_TOKEN_<GATE>
+// environment variable when set, else the gate's cached token in the state
+// dir, else a fresh negotiation with the issuer (browser or device flow,
+// verified against the issuer's JWKS before use). A gate fronting the
+// GitHub Actions issuer negotiates with the runner's id-token endpoint
+// (the workflow's id-token: write permission) instead: the token is
+// short-lived, so it is re-negotiated when the registry rejects it or
+// before it expires.
 package oidc
 
 import (
@@ -27,6 +30,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -252,21 +256,43 @@ func (c *Config) Names() []string {
 	return names
 }
 
-// Resolver resolves one bearer per gate for one command.
+// Resolver resolves the bearer of each gate. A gate's bearer is resolved
+// on demand: the RIG_TOKEN_<GATE> environment variable when set, else the
+// gate's cached token, else a fresh negotiation (progress output to
+// stderr). A gate fronting the GitHub Actions issuer negotiates with the
+// runner's id-token endpoint — the token is short-lived, so the held token
+// is re-negotiated when the registry rejects it (Invalidate) or when it is
+// within expiryMargin of its expiry. A token from the environment variable
+// is used as-is; the other flows negotiate at most once per command.
 type Resolver struct {
 	cfg *Config
 	dir string // state dir; per-gate token caches under <dir>/oidc
 
-	mu   sync.Mutex
-	once map[string]*sync.Once
-	toks map[string]string
-	errs map[string]error
+	mu  sync.Mutex
+	sts map[string]*gateState
 }
+
+// gateState is the resolved bearer of one gate for the lifetime of the
+// command.
+type gateState struct {
+	mu      sync.Mutex
+	token   string
+	expires time.Time // zero when unknown
+	static  bool      // env-var token: never re-negotiated
+	invalid bool      // the registry rejected the held token (401/403)
+	have    bool
+	err     error     // the first negotiation failure, stable for the command
+	next    time.Time // earliest time for the next re-negotiation (throttle)
+}
+
+const expiryMargin = 30 * time.Second // a token is stale this long before its expiry
+
+var jitThrottle = 5 * time.Second // minimum interval between re-negotiations of a rejected token
 
 // NewResolver builds a Resolver over the gate config, caching per-gate
 // tokens under dir (the state dir).
 func NewResolver(cfg *Config, dir string) *Resolver {
-	return &Resolver{cfg: cfg, dir: dir, once: map[string]*sync.Once{}, toks: map[string]string{}, errs: map[string]error{}}
+	return &Resolver{cfg: cfg, dir: dir, sts: map[string]*gateState{}}
 }
 
 // Config is the resolver's gate config.
@@ -278,49 +304,116 @@ func (r *Resolver) CacheFile(g *Gate) string {
 	return filepath.Join(r.dir, "oidc", hex.EncodeToString(sum[:])[:16]+".json")
 }
 
-// Token returns the bearer for gate, resolved once per command: the gate's
-// environment variable when set, else the per-gate cache, else a fresh
-// negotiation (progress output to stderr). flow selects "browser" or
-// "device"; empty means auto.
-func (r *Resolver) Token(ctx context.Context, g *Gate, flow string) (string, error) {
+func (r *Resolver) state(g *Gate) *gateState {
 	id := g.Identity()
 	r.mu.Lock()
-	o := r.once[id]
-	if o == nil {
-		o = &sync.Once{}
-		r.once[id] = o
+	defer r.mu.Unlock()
+	st, ok := r.sts[id]
+	if !ok {
+		st = &gateState{}
+		r.sts[id] = st
 	}
-	r.mu.Unlock()
-	o.Do(func() {
-		if t := strings.TrimSpace(os.Getenv(g.EnvVar())); t != "" {
-			r.toks[id] = t
-			return
+	return st
+}
+
+// Token returns the bearer for gate. The first call resolves it: the gate's
+// environment variable when set, else the per-gate cache, else a fresh
+// negotiation — the GitHub Actions flow for a gate fronting the GitHub
+// Actions issuer, else the issuer's browser or device-code flow (verified
+// against the issuer's JWKS before use). Later calls return the held
+// token; the GitHub Actions token is re-negotiated when the registry
+// rejected it or when it is within expiryMargin of its expiry. flow selects
+// "browser" or "device" for the issuer's flows; empty means auto.
+func (r *Resolver) Token(ctx context.Context, g *Gate, flow string) (string, error) {
+	st := r.state(g)
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	if !st.have {
+		if st.err != nil {
+			return "", st.err
 		}
-		if t, err := loadCache(r.CacheFile(g)); err == nil && t.Valid() {
-			r.toks[id] = t.Value
-			return
+		if err := r.resolve(ctx, st, g, flow); err != nil {
+			st.err = err
+			return "", err
 		}
-		c, err := New(ctx, &ClientConfig{
-			WellKnown:   g.WellKnown,
-			Audience:    g.Audience,
-			ClientID:    g.ClientID,
-			RedirectURI: g.RedirectURI,
-			Scopes:      g.Scopes,
-			CachePath:   r.CacheFile(g),
-		})
+	} else if isGHA(g) && !st.static {
+		expiring := !st.expires.IsZero() && !time.Now().Add(expiryMargin).Before(st.expires)
+		if (expiring || st.invalid) && (expiring || time.Now().After(st.next)) {
+			// A failed re-negotiation keeps the held token: it may
+			// still be accepted, and the registry is the judge.
+			_ = r.reneg(ctx, st, g, flow)
+		}
+	}
+	return st.token, nil
+}
+
+// Invalidate marks the held bearer of gate as rejected by the registry
+// (401/403): the next Token call re-negotiates it for the gates that can
+// (the GitHub Actions ones). It is a no-op for the others.
+func (r *Resolver) Invalidate(g *Gate) {
+	st := r.state(g)
+	st.mu.Lock()
+	st.invalid = true
+	st.mu.Unlock()
+}
+
+// resolve is the first-resolution chain: the env var, the cache, the
+// negotiation. It leaves the state resolved (have) or with a stable error.
+func (r *Resolver) resolve(ctx context.Context, st *gateState, g *Gate, flow string) error {
+	if t := strings.TrimSpace(os.Getenv(g.EnvVar())); t != "" {
+		st.token = t
+		st.static = true
+		st.have = true
+		return nil
+	}
+	if t, err := loadCache(r.CacheFile(g)); err == nil && t.Valid() {
+		st.token = t.Value
+		st.expires = t.ExpiresAt
+		st.have = true
+		return nil
+	}
+	if isGHA(g) && flow != "" {
+		return fmt.Errorf("flow %q does not apply: the gate negotiates with GitHub Actions", flow)
+	}
+	return r.reneg(ctx, st, g, flow)
+}
+
+// reneg negotiates a fresh bearer and records it in the state: the GitHub
+// Actions flow for a gate fronting the GitHub Actions issuer, else the
+// issuer's browser or device-code flow (flow selects; empty means auto).
+func (r *Resolver) reneg(ctx context.Context, st *gateState, g *Gate, flow string) error {
+	if isGHA(g) {
+		tok, claims, err := ghaToken(ctx, g)
 		if err != nil {
-			r.errs[id] = err
-			return
+			return err
 		}
-		tok, err := c.Token(ctx, flow, os.Stderr)
-		if err != nil {
-			r.errs[id] = err
-			return
+		st.token = tok
+		st.expires = claimExpiry(claims)
+		st.have = true
+		st.invalid = false
+		st.next = time.Now().Add(jitThrottle)
+		if err := cacheToken(r.CacheFile(g), tok, 0, claims); err != nil {
+			fmt.Fprintf(os.Stderr, "rig: cannot cache the OIDC token: %v\n", err)
 		}
-		r.toks[id] = tok
+		return nil
+	}
+	c, err := New(ctx, &ClientConfig{
+		WellKnown:   g.WellKnown,
+		Audience:    g.Audience,
+		ClientID:    g.ClientID,
+		RedirectURI: g.RedirectURI,
+		Scopes:      g.Scopes,
+		CachePath:   r.CacheFile(g),
 	})
-	if err := r.errs[id]; err != nil {
-		return "", err
+	if err != nil {
+		return err
 	}
-	return r.toks[id], nil
+	tok, err := c.Token(ctx, flow, os.Stderr)
+	if err != nil {
+		return err
+	}
+	st.token = tok
+	st.have = true
+	st.invalid = false
+	return nil
 }

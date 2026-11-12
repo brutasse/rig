@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -666,5 +667,74 @@ func TestLastModified(t *testing.T) {
 	_, ok = c.LastModified(context.Background(), srv.URL+"/missing")
 	if ok {
 		t.Error("expected no last-modified for 404")
+	}
+}
+
+// TestFetchRefreshesRejectedBearer: the repository rejects the current
+// bearer (401) and accepts the refreshed one — GetNew succeeds, one retry,
+// one refresh. Without a fresh bearer (RefreshBearer reports no change)
+// the failure stands: no retry.
+func TestFetchRefreshesRejectedBearer(t *testing.T) {
+	var mu sync.Mutex
+	toks := []string{} // bearers seen, per request
+	refreshed := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		au := r.Header.Get("Authorization")
+		mu.Lock()
+		toks = append(toks, au)
+		accept := refreshed && au == "Bearer tok-fresh"
+		mu.Unlock()
+		if !accept {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		w.Write([]byte("refreshed-bytes"))
+	}))
+	t.Cleanup(srv.Close)
+	c := New(false)
+	c.BearerFor = func(repo string) (string, bool) {
+		if refreshed {
+			return "tok-fresh", true
+		}
+		return "tok-stale", true
+	}
+	var refs int32
+	c.RefreshBearer = func(repo string) bool {
+		mu.Lock()
+		changed := !refreshed
+		refreshed = changed
+		mu.Unlock()
+		atomic.AddInt32(&refs, 1)
+		return changed
+	}
+
+	sha, _, err := c.GetNew(context.Background(), cache.NewAt(t.TempDir()), Item{URL: srv.URL + "/a.jar", Repo: "oidc"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sha != shaOf(t, "refreshed-bytes") {
+		t.Errorf("sha = %s", sha)
+	}
+	mu.Lock()
+	if len(toks) != 2 || toks[0] != "Bearer tok-stale" || toks[1] != "Bearer tok-fresh" {
+		mu.Unlock()
+		t.Fatalf("bearers seen = %v, want stale then fresh", toks)
+	}
+	mu.Unlock()
+	if got := atomic.LoadInt32(&refs); got != 1 {
+		t.Fatalf("refreshes = %d, want 1", got)
+	}
+
+	// A rejection the refresh cannot fix (unchanged bearer) is not
+	// retried: one request, the failure stands.
+	c2 := New(false)
+	c2.BearerFor = func(repo string) (string, bool) { return "tok-stale", true }
+	var refs2 int32
+	c2.RefreshBearer = func(repo string) bool { atomic.AddInt32(&refs2, 1); return false }
+	if _, _, err := c2.GetNew(context.Background(), cache.NewAt(t.TempDir()), Item{URL: srv.URL + "/b.jar", Repo: "oidc"}); err == nil {
+		t.Error("expected the auth failure to stand without a fresh bearer")
+	}
+	if got := atomic.LoadInt32(&refs2); got != 1 {
+		t.Fatalf("refreshes = %d, want 1 (the hook was consulted)", got)
 	}
 }

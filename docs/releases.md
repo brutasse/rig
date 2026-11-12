@@ -4,6 +4,31 @@ Changelog for Rig.
 
 ## Unreleased
 
+### Added
+
+#### GitHub Actions OIDC gates: just-in-time id-token negotiation
+
+A gate whose `well-known` is the GitHub Actions discovery URL
+(`https://actions.githubusercontent.com/.well-known/openid-configuration`)
+negotiates with the runner's id-token endpoint instead of the issuer's
+browser or device flow. The workflow declares
+`permissions: id-token: write`; Rig exchanges the runner's credentials
+(`ACTIONS_ID_TOKEN_REQUEST_URL`, `ACTIONS_ID_TOKEN_REQUEST_TOKEN`)
+for an id token carrying the gate's audience. The workflow needs no
+token or secret: the gate config plus the permission are the whole
+setup.
+
+A GitHub Actions id token lives 5 minutes; the runner's credentials
+live for the whole job. When the registry rejects the bearer
+(401/403), Rig re-negotiates and retries the request once. The
+kernel's version probes go through the auth proxy, which carries the
+fresh bearer. The artifact fetcher re-negotiates the same way. A job
+longer than 5 minutes keeps running.
+
+`RIG_TOKEN_<GATE>` still wins when set: Rig uses the environment
+token as-is and never re-negotiates it.
+[All artifacts through one repository](workflows/pier.md#ci).
+
 ## v0.4.1 — 2026-11-04
 
 ### Changed

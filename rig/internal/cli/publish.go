@@ -200,13 +200,15 @@ func (e *hotEnv) publishOne(ctx context.Context, m string, remote bool) error {
 			return exitf(2, "publish: unsupported repository URL %s (only http/https repositories are supported)", plan.URL)
 		}
 		user, pass := maven.Credentials(plan.Repo)
-		bearer := ""
+		oidcBearer := func() (string, bool) { return "", false }
+		refresh := func() bool { return false }
 		if e.oidc != nil {
-			bearer, _ = e.oidc(plan.Repo)
+			oidcBearer = func() (string, bool) { return e.oidc(plan.Repo) }
+			refresh = func() bool { return e.refresh(plan.Repo) }
 		}
 		url := strings.TrimSuffix(plan.URL, "/") + base
 		for _, f := range []string{jar, pomPath} {
-			if err := putFile(ctx, url+"/"+filepath.Base(f), user, pass, bearer, f); err != nil {
+			if err := putFile(ctx, url+"/"+filepath.Base(f), user, pass, oidcBearer, refresh, f); err != nil {
 				return err
 			}
 		}
@@ -234,28 +236,52 @@ func mavenPath(coord, version string) string {
 	return "/" + strings.ReplaceAll(coord[:i], ".", "/") + "/" + coord[i+1:] + "/" + version
 }
 
-// putFile uploads file to url with an HTTP PUT. Authorization: a bearer
-// token when given, else basic auth when user != "", else none.
-func putFile(ctx context.Context, url, user, pass, bearer, file string) error {
-	f, err := os.Open(file)
+// putFile uploads file to url with an HTTP PUT. Authorization: the bearer
+// token the bearer lookup returns when it reports one, else basic auth when
+// user != "", else none. When the repository rejects the bearer (401/403),
+// the refresh hook re-negotiates it and the PUT is retried once when it
+// reports a changed bearer.
+func putFile(ctx context.Context, url, user, pass string, bearer func() (string, bool), refresh func() bool, file string) error {
+	doPut := func() (*http.Response, error) {
+		f, err := os.Open(file)
+		if err != nil {
+			return nil, err
+		}
+		defer f.Close()
+		req, err := http.NewRequestWithContext(ctx, http.MethodPut, url, f)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Content-Type", "application/octet-stream")
+		b, hasBearer := bearer()
+		switch {
+		case hasBearer:
+			req.Header.Set("Authorization", "Bearer "+b)
+		case user != "":
+			req.SetBasicAuth(user, pass)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("publish: PUT %s: %w", url, err)
+		}
+		return resp, nil
+	}
+	resp, err := doPut()
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, url, f)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/octet-stream")
-	switch {
-	case bearer != "":
-		req.Header.Set("Authorization", "Bearer "+bearer)
-	case user != "":
-		req.SetBasicAuth(user, pass)
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("publish: PUT %s: %w", url, err)
+	// The bearer may have been rejected (401/403): a short-lived token can
+	// expire mid-publish. Refresh it and retry once.
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		resp.Body.Close()
+		if refresh == nil || !refresh() {
+			return exitf(1, "publish: PUT %s -> %s: %s", url, resp.Status, strings.TrimSpace(string(body)))
+		}
+		resp, err = doPut()
+		if err != nil {
+			return err
+		}
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))

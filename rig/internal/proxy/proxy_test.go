@@ -1,16 +1,44 @@
 package proxy
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 )
 
 type req struct {
 	method, path, auth, host string
+}
+
+// staticTok is a TokenSource serving one fixed bearer.
+type staticTok struct{ tok string }
+
+func (s staticTok) Token(context.Context) (string, error)   { return s.tok, nil }
+func (s staticTok) Refresh(context.Context) (string, error) { return s.tok, nil }
+
+// steppingTok serves its bearers in order: Token returns the current one,
+// Refresh advances to the next (staying at the last).
+type steppingTok struct {
+	mu   sync.Mutex
+	toks []string
+	idx  int
+	refs int32
+}
+
+func (s *steppingTok) Token(context.Context) (string, error) { return s.toks[s.idx], nil }
+func (s *steppingTok) Refresh(context.Context) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	atomic.AddInt32(&s.refs, 1)
+	if s.idx < len(s.toks)-1 {
+		s.idx++
+	}
+	return s.toks[s.idx], nil
 }
 
 // target is a recording "upstream" server: it enforces the expected bearer
@@ -62,7 +90,7 @@ func TestProxyPerRepoTokens(t *testing.T) {
 	b, seenB := target(t, "Bearer tok-b")
 	p, err := Start(
 		map[string]string{"a": a.URL, "b": b.URL},
-		map[string]string{"a": "tok-a", "b": "tok-b"})
+		map[string]TokenSource{"a": staticTok{"tok-a"}, "b": staticTok{"tok-b"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +116,7 @@ func TestProxyPerRepoTokens(t *testing.T) {
 
 func TestProxyUnknownIDIs404(t *testing.T) {
 	up, _ := target(t, "")
-	p, err := Start(map[string]string{"pier": up.URL}, map[string]string{"pier": "tok-1"})
+	p, err := Start(map[string]string{"pier": up.URL}, map[string]TokenSource{"pier": staticTok{"tok-1"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,7 +154,7 @@ func TestProxyForwardsStatusAndQuery(t *testing.T) {
 		http.Error(w, "nope", http.StatusNotFound)
 	}))
 	t.Cleanup(srv.Close)
-	p, err := Start(map[string]string{"pier": srv.URL}, map[string]string{"pier": "tok-1"})
+	p, err := Start(map[string]string{"pier": srv.URL}, map[string]TokenSource{"pier": staticTok{"tok-1"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -151,7 +179,7 @@ func TestProxyStreamsBody(t *testing.T) {
 		io.WriteString(w, want)
 	}))
 	t.Cleanup(srv.Close)
-	p, err := Start(map[string]string{"pier": srv.URL}, map[string]string{"pier": "tok-1"})
+	p, err := Start(map[string]string{"pier": srv.URL}, map[string]TokenSource{"pier": staticTok{"tok-1"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -180,7 +208,7 @@ func TestProxyHead(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	t.Cleanup(srv.Close)
-	p, err := Start(map[string]string{"pier": srv.URL}, map[string]string{"pier": "tok-1"})
+	p, err := Start(map[string]string{"pier": srv.URL}, map[string]TokenSource{"pier": staticTok{"tok-1"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,5 +225,72 @@ func TestProxyHead(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK || resp.ContentLength != 1234 {
 		t.Fatalf("status %d content-length %d", resp.StatusCode, resp.ContentLength)
+	}
+}
+
+// TestProxyRefreshesRejectedBearer: the upstream rejects the current
+// bearer (401) and accepts the refreshed one — the client sees 200, the
+// upstream sees one request per bearer, one refresh.
+func TestProxyRefreshesRejectedBearer(t *testing.T) {
+	var mu sync.Mutex
+	var seen []string
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth := r.Header.Get("Authorization")
+		mu.Lock()
+		seen = append(seen, auth)
+		mu.Unlock()
+		if auth != "Bearer tok-fresh" {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		io.WriteString(w, "artifact-bytes")
+	}))
+	t.Cleanup(up.Close)
+	src := &steppingTok{toks: []string{"tok-stale", "tok-fresh"}}
+	p, err := Start(map[string]string{"pier": up.URL}, map[string]TokenSource{"pier": src})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
+
+	_, body := get(t, p.Base("pier")+"/a/b", 200)
+	if body != "artifact-bytes" {
+		t.Fatalf("body = %q, want the upstream body", body)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(seen) != 2 || seen[0] != "Bearer tok-stale" || seen[1] != "Bearer tok-fresh" {
+		t.Fatalf("upstream saw %v, want the stale then the fresh bearer", seen)
+	}
+	if got := atomic.LoadInt32(&src.refs); got != 1 {
+		t.Fatalf("refreshes = %d, want 1", got)
+	}
+}
+
+// TestProxyNoRetryWithoutFreshBearer: the upstream rejects the bearer
+// (403) and the refresh yields the same bearer (a static token, or a
+// throttled one): the request is not retried, the client sees the 403,
+// the upstream saw a single request.
+func TestProxyNoRetryWithoutFreshBearer(t *testing.T) {
+	var mu sync.Mutex
+	var seen []string
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		seen = append(seen, r.Header.Get("Authorization"))
+		mu.Unlock()
+		http.Error(w, "forbidden", http.StatusForbidden)
+	}))
+	t.Cleanup(up.Close)
+	p, err := Start(map[string]string{"pier": up.URL}, map[string]TokenSource{"pier": staticTok{"tok-1"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
+
+	get(t, p.Base("pier")+"/a/b", 403)
+	mu.Lock()
+	defer mu.Unlock()
+	if len(seen) != 1 {
+		t.Fatalf("upstream saw %d requests, want 1 (no retry with an unchanged bearer)", len(seen))
 	}
 }

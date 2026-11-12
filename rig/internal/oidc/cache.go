@@ -16,10 +16,10 @@ type cachedToken struct {
 	IssuedAt  time.Time `json:"issued_at"`
 }
 
-// Valid reports whether the cached token can still be used, with a 30s
-// safety margin.
+// Valid reports whether the cached token can still be used, with the
+// expiryMargin safety margin.
 func (t *cachedToken) Valid() bool {
-	return t != nil && t.Value != "" && time.Now().Add(30*time.Second).Before(t.ExpiresAt)
+	return t != nil && t.Value != "" && time.Now().Add(expiryMargin).Before(t.ExpiresAt)
 }
 
 func loadCache(path string) (*cachedToken, error) {

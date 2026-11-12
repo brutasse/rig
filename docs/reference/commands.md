@@ -393,10 +393,12 @@ Print the bearer token of an OIDC gate to stdout. The gate comes from the
 gate config (`~/.config/rig/auth.yaml`): pass a gate name or a repository
 URL the gate fronts, or nothing when the config holds a single gate. Rig
 uses the `RIG_TOKEN_<GATE>` environment variable of the gate when you set
-it, else the cached token of the gate, else a fresh negotiation with the
-issuer of the gate. Rig verifies a freshly negotiated token against the
-JWKS before caching it, and uses a token you supply in the environment as
-you supplied it. The output is machine-friendly: script it into a `curl`, or pipe it anywhere a
+it, else the cached token of the gate, else a fresh negotiation. When the
+gate fronts the GitHub Actions issuer, the negotiation uses the runner's
+id-token endpoint, with the issuer of the gate otherwise. Rig verifies a freshly
+negotiated token against the JWKS before caching it, and uses a token you
+supply in the environment as you supplied it. The output is
+machine-friendly: script it into a `curl`, or pipe it anywhere a
 bearer belongs. See
 [authenticated repositories](config.md#authenticated-repositories-auth-oidc).
 
