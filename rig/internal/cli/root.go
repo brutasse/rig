@@ -45,7 +45,9 @@ func (o *opts) store() (*cache.Store, error) {
 
 // fetchClient builds the artifact fetch client: basic auth from
 // ~/.m2/settings.xml per repository id, and a bearer token for the
-// workspace's :auth :oidc repositories (see oidc.go).
+// workspace's :auth :oidc repositories (see oidc.go), re-negotiated when
+// the registry rejects it (401/403) — the GitHub Actions tokens are
+// short-lived.
 func (o *opts) fetchClient(ctx context.Context, root *workspace.Root) *fetch.Client {
 	c := fetch.New(o.offline)
 	if p := maven.DefaultUserSettings(); p != "" {
@@ -59,6 +61,7 @@ func (o *opts) fetchClient(ctx context.Context, root *workspace.Root) *fetch.Cli
 		}
 	}
 	c.BearerFor = o.bearerFor(ctx, root)
+	c.RefreshBearer = o.refreshBearerFor(ctx, root)
 	return c
 }
 

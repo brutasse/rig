@@ -20,18 +20,36 @@ import (
 // the workspace's repositories sit behind an OIDC gate (:auth :oidc), the
 // gate each one fronts, the bearer resolved per repository (the gate's
 // RIG_TOKEN_<GATE> environment variable, else the gate's cached token,
-// else a fresh negotiation), and the local auth proxy that carries the
-// bearers for resolver traffic.
+// else a fresh negotiation — re-negotiated on demand for the GitHub
+// Actions gates, whose tokens are short-lived), and the local auth proxy
+// that carries the bearers for resolver traffic.
 type oidcAuth struct {
-	once  sync.Once
-	urls  map[string]string // repo id -> real repo URL
-	toks  map[string]string // repo id -> bearer
-	gates map[string]string // repo id -> gate name (error messages)
-	err   error
+	once     sync.Once
+	urls     map[string]string     // repo id -> real repo URL
+	toks     map[string]string     // repo id -> bearer (resolved at start)
+	gates    map[string]*oidc.Gate // repo id -> the gate fronting it
+	resolver *oidc.Resolver
+	err      error
 
 	proxyOnce sync.Once
 	proxy     *proxy.Proxy
 	proxyErr  error
+}
+
+// repoToken is the proxy's TokenSource of one :auth :oidc repository: the
+// gate's held bearer, re-negotiated when the registry rejected it.
+type repoToken struct {
+	r *oidc.Resolver
+	g *oidc.Gate
+}
+
+func (s repoToken) Token(ctx context.Context) (string, error) {
+	return s.r.Token(ctx, s.g, "")
+}
+
+func (s repoToken) Refresh(ctx context.Context) (string, error) {
+	s.r.Invalidate(s.g)
+	return s.r.Token(ctx, s.g, "")
 }
 
 func (o *opts) auth() *oidcAuth {
@@ -69,8 +87,9 @@ func (o *opts) resolve(ctx context.Context, root *workspace.Root) error {
 			return
 		}
 		r := oidc.NewResolver(cfg, store.Root)
+		a.resolver = r
 		a.toks = make(map[string]string, len(urls))
-		a.gates = make(map[string]string, len(urls))
+		a.gates = make(map[string]*oidc.Gate, len(urls))
 		ids := make([]string, 0, len(urls))
 		for id := range urls {
 			ids = append(ids, id)
@@ -88,7 +107,7 @@ func (o *opts) resolve(ctx context.Context, root *workspace.Root) error {
 				return
 			}
 			a.toks[id] = tok
-			a.gates[id] = g.Name
+			a.gates[id] = g
 		}
 	})
 	return a.err
@@ -128,7 +147,11 @@ func (o *opts) kernelProxy(ctx context.Context, root *workspace.Root) ([]string,
 	}
 	var env []string
 	o.oidcA.proxyOnce.Do(func() {
-		p, err := proxy.Start(o.oidcA.urls, o.oidcA.toks)
+		suppliers := make(map[string]proxy.TokenSource, len(o.oidcA.urls))
+		for id, g := range o.oidcA.gates {
+			suppliers[id] = repoToken{r: o.oidcA.resolver, g: g}
+		}
+		p, err := proxy.Start(o.oidcA.urls, suppliers)
 		o.oidcA.proxyErr = err
 		if err != nil {
 			return
@@ -205,7 +228,9 @@ func (o *opts) closeProxy() {
 
 // bearerFor returns the fetch client's BearerFor hook: the bearer token for
 // repositories marked :auth :oidc (per the gate fronting each repo), "" for
-// any other repository.
+// any other repository. The token is drawn from the resolver on every
+// call, so a re-negotiated token (the GitHub Actions gates' tokens are
+// short-lived) takes effect on the next request.
 func (o *opts) bearerFor(ctx context.Context, root *workspace.Root) func(repo string) (string, bool) {
 	if root == nil {
 		return func(repo string) (string, bool) { return "", false }
@@ -214,8 +239,43 @@ func (o *opts) bearerFor(ctx context.Context, root *workspace.Root) func(repo st
 		if err := o.resolve(ctx, root); err != nil {
 			return "", false
 		}
-		tok, ok := o.oidcA.toks[repo]
-		return tok, ok
+		g, ok := o.oidcA.gates[repo]
+		if !ok || o.oidcA.resolver == nil {
+			return "", false
+		}
+		tok, err := o.oidcA.resolver.Token(ctx, g, "")
+		if err != nil {
+			return "", false
+		}
+		o.oidcA.toks[repo] = tok
+		return tok, true
+	}
+}
+
+// refreshBearerFor returns the fetch client's RefreshBearer hook: when the
+// registry rejects the repo's bearer (401/403), the gate's token is
+// re-negotiated and the token's change is reported (the client retries the
+// request once when it changed).
+func (o *opts) refreshBearerFor(ctx context.Context, root *workspace.Root) func(repo string) bool {
+	if root == nil {
+		return func(repo string) bool { return false }
+	}
+	return func(repo string) bool {
+		if err := o.resolve(ctx, root); err != nil {
+			return false
+		}
+		g, ok := o.oidcA.gates[repo]
+		if !ok || o.oidcA.resolver == nil {
+			return false
+		}
+		old, _ := o.oidcA.resolver.Token(ctx, g, "")
+		o.oidcA.resolver.Invalidate(g)
+		fresh, err := o.oidcA.resolver.Token(ctx, g, "")
+		if err != nil || fresh == old {
+			return false
+		}
+		o.oidcA.toks[repo] = fresh
+		return true
 	}
 }
 

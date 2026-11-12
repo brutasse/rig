@@ -30,6 +30,32 @@
         (edn/read-string s)))
     *oidc-tokens*))
 
+;; The auth proxy of one :auth :oidc repository (see the section at the
+;; bottom of this file): rig (the Go side) runs a local loopback proxy that
+;; injects the bearer into the resolver's traffic (re-negotiating it when
+;; the registry rejects it), and exports RIG_PROXY_REPOS, a {repo-id
+;; proxy-base-url} map.
+
+(def ^:dynamic *proxy-repos* :unset)
+
+(defn proxy-map
+  "The RIG_PROXY_REPOS binding exported by rig: {repo-id proxy-base-url},
+   {} when absent. Tests bind *proxy-repos* (to a map or nil) instead of
+   touching the environment."
+  []
+  (if (identical? *proxy-repos* :unset)
+    (or (some-> (System/getenv "RIG_PROXY_REPOS")
+                (edn/read-string))
+        {})
+    *proxy-repos*))
+
+(defn- probe-base
+  "The base url to probe for [id spec]: the proxy base url when id is
+   mapped in proxy-map (the proxy carries the bearer and re-negotiates it
+   when the registry rejects it), else the repo's own url."
+  [proxy id spec]
+  (or (get proxy (str id)) (get spec :url)))
+
 (defn- with-auth
   "Sets the bearer Authorization header on conn when the repo spec is marked
   :auth :oidc and a token for repo-id is available; otherwise no-op."
@@ -140,22 +166,25 @@
 (defn resolve-repo
   "Determines the [repo-id url] serving an mvn artifact. Reads the repo id Maven
   recorded in m2's _remote.repositories first (offline, exact); falls back to a
-  repo probe, then to the first repo."
+  repo probe, then to the first repo. The probe goes through the auth proxy
+  when the repo id is mapped in it (the proxy carries the bearer); the
+  returned url is the repo's own, for lock attribution."
   [m2dir repos artifact]
-  (let [url-of (fn [spec]
-                 (artifact-url (get spec :url) (:group artifact) (:name artifact)
+  (let [proxy (proxy-map)
+        url-of (fn [base]
+                 (artifact-url base (:group artifact) (:name artifact)
                                (:version artifact) (:extension artifact)
                                (:classifier artifact)))
         id (m2-repo-of m2dir artifact)
         spec (some #(when (= id (first %)) (second %)) repos)]
     (if spec
-      [id (url-of spec)]
+      [id (url-of (get spec :url))]
       (or (some (fn [[rid sp]]
-                  (let [u (url-of sp)]
-                    (when (head-200? u rid sp) [rid u])))
+                  (when (head-200? (url-of (probe-base proxy rid sp)) rid sp)
+                    [rid (url-of (get sp :url))]))
                 repos)
           (let [[fid fsp] (first repos)]
-            [fid (url-of fsp)])))))
+            [fid (url-of (get fsp :url))])))))
 
 (defn- children
   [node tag]
@@ -213,10 +242,11 @@
 (defn repo-metadata
   "Returns {:by-version {v {:published-at ms|nil :repo id}} :latest #{v ...}}."
   [coord repos]
-  (let [[group name] (str/split coord #"/" 2)
+  (let [proxy (proxy-map)
+        [group name] (str/split coord #"/" 2)
         base-path (str (str/replace group "." "/") "/" name "/")]
     (reduce (fn [{:keys [by-version latest] :as acc} [id spec]]
-              (let [base (str (str/replace (get spec :url) #"/+$" "") "/" base-path)]
+              (let [base (str (str/replace (probe-base proxy id spec) #"/+$" "") "/" base-path)]
                 (if-let [md (plain-metadata (str base "maven-metadata.xml") id spec)]
                   (let [ts (repo-version-timestamps (str base (str "maven-metadata-" id ".xml")) id spec)]
                     (-> acc
@@ -409,25 +439,10 @@
         (update :deps (fn [d] (when d (rewrite-deps d))))
         (update :aliases (fn [al] (when al (rewrite-aliases al)))))))
 
-;; --- Auth proxy: for :auth :oidc repos, rig (the Go side) runs a local
-;; --- loopback proxy that injects the bearer into the resolver's traffic.
-;; --- It exports RIG_PROXY_REPOS, a {repo-id proxy-base-url} map, and we
-;; --- rewrite the :url of the affected :mvn/repos entries so that
-;; --- create-basis/calc-trace resolve through it. Repo ids are kept, so
-;; --- lock attribution is unchanged.
-
-(def ^:dynamic *proxy-repos* :unset)
-
-(defn proxy-map
-  "The RIG_PROXY_REPOS binding exported by rig: {repo-id proxy-base-url},
-   {} when absent. Tests bind *proxy-repos* (to a map or nil) instead of
-   touching the environment."
-  []
-  (if (identical? *proxy-repos* :unset)
-    (or (some-> (System/getenv "RIG_PROXY_REPOS")
-                (edn/read-string))
-        {})
-    *proxy-repos*))
+;; --- Auth proxy (see *proxy-repos* above): for :auth :oidc repos, the
+;; --- :url of the affected :mvn/repos entries is rewritten to the proxy
+;; --- base url for create-basis/calc-trace. Repo ids are kept, so lock
+;; --- attribution is unchanged.
 
 (defn with-proxy-repos
   "data with the :url of each :mvn/repos entry whose id is mapped in

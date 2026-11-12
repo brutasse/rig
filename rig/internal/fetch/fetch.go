@@ -39,6 +39,11 @@ type Client struct {
 	// BearerFor returns the bearer token for a Maven repository id, if any.
 	// Takes precedence over CredFor when it reports a token.
 	BearerFor func(repo string) (token string, ok bool)
+	// RefreshBearer re-negotiates the bearer token of a Maven repository
+	// after the repository rejected it (401/403), reporting whether the
+	// token changed. When set, one retry with the fresh bearer follows
+	// the rejection.
+	RefreshBearer func(repo string) bool
 }
 
 func New(offline bool) *Client {
@@ -302,6 +307,7 @@ func (c *Client) doGet(ctx context.Context, url, repo string) (*http.Response, e
 	}
 	deadline := time.Now().Add(fetchBudget)
 	delay := time.Second
+	authRetried := false
 	for {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 		if err != nil {
@@ -312,6 +318,17 @@ func (c *Client) doGet(ctx context.Context, url, repo string) (*http.Response, e
 		req.Header.Set("User-Agent", "rig")
 		c.authorize(req, repo)
 		resp, err := c.HTTP.Do(req)
+		// An auth rejection on a bearer-protected repository is not
+		// transient: the bearer may be expired. Re-negotiate it and
+		// retry once.
+		if err == nil && !authRetried && c.RefreshBearer != nil &&
+			(resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden) {
+			if c.RefreshBearer(repo) {
+				resp.Body.Close()
+				authRetried = true
+				continue
+			}
+		}
 		if err == nil && !retryable(resp.StatusCode) {
 			return resp, nil
 		}
