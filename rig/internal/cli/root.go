@@ -159,6 +159,7 @@ func Execute() int {
 		newPublishCmd(o),
 		newOutdatedCmd(o),
 		newTreeCmd(o),
+		newAuditCmd(o),
 		newFmtCmd(o),
 		newExecCmd(o),
 		newNewCmd(o),

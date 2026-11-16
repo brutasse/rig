@@ -1,8 +1,8 @@
 # Security model
 
-Rig protects the software supply chain in three ways: it **pins** what you
-use, **verifies** what you run, and applies a **cooldown** to what you
-adopt.
+Rig protects the software supply chain in four ways: it **pins** what you
+use, **verifies** what you run, applies a **cooldown** to what you
+adopt, and **audits** what it locked against known vulnerabilities.
 
 ## Every artifact is hash-pinned
 
@@ -109,6 +109,30 @@ prints it:
 Rig never re-applies a cooldown to an already-locked version: cooldowns
 apply at selection time only. A plain `rig lock` keeps the pins already
 in the lock; newly selected versions face the window.
+
+## Known vulnerabilities: `rig audit`
+
+Hashing pins the bytes and cooldowns gate the adoption — but neither
+says whether a version you already use has a known vulnerability.
+`rig audit` asks the OSV vulnerability database (osv.dev) about every
+maven artifact pinned in the lock and lists each known vulnerability of
+a pinned version:
+
+```
+audit: 1 known vulnerability in 1 of 510 pinned artifacts
+
+com.fasterxml.jackson.core/jackson-databind 2.9.0
+  GHSA-… (CVE-2024-…) Deserialization of untrusted data
+    published 2024-… · severity CVSS_V3 9.8 · fixed in 2.17.1
+```
+
+It exits 1 when anything is found, so `rig audit` sits next to
+`rig check` as a CI gate — with the difference that it needs the
+network (OSV is the data source) and never joins the hermetic
+`--offline` gate. Git deps are pinned by commit sha and are skipped
+(counted in the report). The OSV API is a trust boundary like the Maven
+repositories or the Adoptium API: Rig reports what OSV knows, and pins
+nothing from it.
 
 ## Reproducibility
 
