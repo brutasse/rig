@@ -2,15 +2,20 @@ package cli
 
 import (
 	"archive/zip"
+	"context"
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/brutasse/rig/internal/cache"
+	"github.com/brutasse/rig/internal/jdk"
 	"github.com/brutasse/rig/internal/jvm"
 	"github.com/brutasse/rig/internal/lockfile"
+	"github.com/brutasse/rig/internal/workspace"
 )
 
 // resolverVersion is the version the local jars are named with: the
@@ -266,24 +271,24 @@ func TestBuildNativeFlags(t *testing.T) {
 
 // TestHotBuildNative builds the testdata/native fixture's module as a
 // GraalVM native-image binary and runs it. Skips unless RIG_TEST_GRAALVM
-// points at a GraalVM home with bin/native-image (the JVM pins in the lock
-// are overridden by RIG_JAVA/RIG_GRAALVM_HOME, so no managed download).
+// points at a GraalVM home with bin/native-image. The build JVM is the
+// one pickJava resolves for the fixture's :rig/jvm pin (managed or
+// matching system, installed on demand): never the machine's ambient
+// java, whose major can outgrow the native-image JVM's and make the
+// entry shim's bytecode unreadable.
 func TestHotBuildNative(t *testing.T) {
 	graalHome := os.Getenv("RIG_TEST_GRAALVM")
 	if graalHome == "" {
 		t.Skip("RIG_TEST_GRAALVM not set (point it at a GraalVM home with bin/native-image)")
 	}
-	java, err := jvm.Find()
-	if err != nil {
+	if _, err := jvm.Find(); err != nil {
 		t.Skipf("no java available: %v", err)
 	}
 	jar := kernelJarPath(t)
 	os.Setenv("RIG_KERNEL_JAR", jar)
-	os.Setenv("RIG_JAVA", java)
 	os.Setenv("RIG_GRAALVM_HOME", graalHome)
 	t.Cleanup(func() {
 		os.Unsetenv("RIG_KERNEL_JAR")
-		os.Unsetenv("RIG_JAVA")
 		os.Unsetenv("RIG_GRAALVM_HOME")
 	})
 	dst := t.TempDir()
@@ -292,6 +297,31 @@ func TestHotBuildNative(t *testing.T) {
 	}
 	t.Chdir(dst)
 	cacheDir := t.TempDir()
+
+	// The entry shim is compiled by the build JVM and loaded by the
+	// native-image JVM: resolve the build JVM now, from the same store
+	// the build uses, and fail fast when either side is not the major
+	// the fixture pins — a mismatch is a cryptic native-image error deep
+	// into the build, not a test error.
+	root, err := workspace.Find(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if root.Lock.JVM == nil || root.Lock.GraalVM == nil {
+		t.Fatal("fixture lock pins no jvm/graalvm; the guard needs both")
+	}
+	store := cache.NewAt(cacheDir)
+	buildJava, _, err := (&opts{}).pickJava(context.Background(), store, root)
+	if err != nil {
+		t.Fatalf("build JVM for the fixture's :rig/jvm pin %q: %v", root.Lock.JVM.Requested, err)
+	}
+	assertMajor(t, "build JVM", buildJava, root.Lock.JVM.Requested)
+	graalJava := filepath.Join(graalHome, "bin", "java")
+	if runtime.GOOS == "windows" {
+		graalJava += ".exe"
+	}
+	assertMajor(t, "native-image JVM", graalJava, root.Lock.GraalVM.Requested)
+
 	code, out := runCLI(t, "build", "--cache-dir", cacheDir, "-p", "modules/app", "--native")
 	if code != 0 {
 		t.Fatalf("build --native exit = %d, want 0; out: %s", code, out)
@@ -307,6 +337,20 @@ func TestHotBuildNative(t *testing.T) {
 	}
 	if !strings.Contains(out, "native hello world") {
 		t.Errorf("native binary out = %q", out)
+	}
+}
+
+// assertMajor fails the test when the java binary at path does not report
+// the major version the fixture pins.
+func assertMajor(t *testing.T, what, path, wanted string) {
+	t.Helper()
+	ver, err := jvm.Version(path)
+	if err != nil {
+		t.Fatalf("%s %s: %v", what, path, err)
+	}
+	if maj := jdk.FeatureVersion(ver); maj != jdk.FeatureVersion(wanted) {
+		t.Fatalf("%s %s is major %d, the fixture pins %q — its bytecode would not match the other side of the native build",
+			what, path, maj, wanted)
 	}
 }
 
