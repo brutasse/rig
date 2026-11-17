@@ -82,6 +82,14 @@ const testVulnRecord = `{
 	"affected": [{"ranges": [{"type": "ECOSYSTEM", "events": [{"introduced": "0"}, {"fixed": "1.12.0"}]}]}]
 }`
 
+const testPrivVulnRecord = `{
+	"id": "GHSA-priv-1111-2222",
+	"summary": "Something in internal",
+	"severity": [{"type": "CVSS_V3", "score": "7.5"}],
+	"published": "2024-02-02T03:04:05Z",
+	"affected": [{"ranges": [{"type": "ECOSYSTEM", "events": [{"introduced": "0"}, {"fixed": "2.1.0"}]}]}]
+}`
+
 func TestAuditClean(t *testing.T) {
 	auditWorkspace(t)
 	t.Setenv("RIG_OSV_API", osvServer(t, osvFixture{}).URL)
@@ -183,5 +191,133 @@ func TestAuditGitOnly(t *testing.T) {
 	}
 	if want := "audit: no maven artifacts to scan (1 git dep skipped, pinned by commit sha)"; !strings.Contains(out, want) {
 		t.Errorf("out missing %q; out: %s", want, out)
+	}
+}
+
+// privArtifactTo appends a com.example/internal artifact pinned from the
+// given repository to the doc, on the module's classpath.
+func privArtifactTo(t *testing.T, doc *lockfile.Document, repo string) {
+	t.Helper()
+	internal := lockfile.Artifact{
+		ID:         "com.example/internal:2.0.0:jar",
+		Kind:       "mvn",
+		Group:      "com.example",
+		Name:       "internal",
+		Version:    "2.0.0",
+		Extension:  "jar",
+		Repository: repo,
+		URL:        "https://example.invalid/internal-2.0.0.jar",
+		SHA256:     strings.Repeat("ab", 32),
+	}
+	doc.Artifacts = append(doc.Artifacts, internal)
+	ref := internal.ID
+	for m, mod := range doc.Modules {
+		mod.Classpath = append(mod.Classpath, lockfile.ClasspathEntry{Ref: &ref})
+		doc.Modules[m] = mod
+	}
+}
+
+// Artifacts from a private repository are skipped before the OSV query:
+// the fixture carries a finding for the coordinate, which a regression
+// that queried it would fail on (exit 1). The scan sees nothing to audit.
+func TestAuditPrivateRepoSkipped(t *testing.T) {
+	doc := auditWorkspace(t)
+	doc.Artifacts[0].Repository = "nexus"
+	if err := doc.Save("deps.lock"); err != nil {
+		t.Fatal(err)
+	}
+	fix := osvFixture{
+		batch:  map[string][]string{"org.clojure:clojure@1.11.0": {"GHSA-test-aaaa-bbbb"}},
+		detail: map[string]string{"GHSA-test-aaaa-bbbb": testVulnRecord},
+	}
+	t.Setenv("RIG_OSV_API", osvServer(t, fix).URL)
+	code, out := runCLI(t, "audit", "--cache-dir", t.TempDir())
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0; out: %s", code, out)
+	}
+	if want := "audit: no maven artifacts to scan (1 from private repositories, not audited)"; !strings.Contains(out, want) {
+		t.Errorf("out missing %q; out: %s", want, out)
+	}
+}
+
+// Overriding central or clojars keeps the id: the artifact is scanned as
+// the real one, and its finding fails the audit.
+func TestAuditRepoOverrideScanned(t *testing.T) {
+	doc := auditWorkspace(t)
+	doc.Artifacts[0].Repository = "clojars"
+	doc.Artifacts[0].URL = "https://mirror.example.invalid/clojure-1.11.0.jar"
+	if err := doc.Save("deps.lock"); err != nil {
+		t.Fatal(err)
+	}
+	fix := osvFixture{
+		batch:  map[string][]string{"org.clojure:clojure@1.11.0": {"GHSA-test-aaaa-bbbb"}},
+		detail: map[string]string{"GHSA-test-aaaa-bbbb": testVulnRecord},
+	}
+	t.Setenv("RIG_OSV_API", osvServer(t, fix).URL)
+	code, out := runCLI(t, "audit", "--cache-dir", t.TempDir())
+	if code != 1 {
+		t.Fatalf("exit = %d, want 1; out: %s", code, out)
+	}
+	if want := "audit: 1 known vulnerabilities in 1 of 1 pinned artifacts"; !strings.Contains(out, want) {
+		t.Errorf("out missing %q; out: %s", want, out)
+	}
+}
+
+// A clean public artifact next to a private one: the private artifact is
+// counted, not audited, and the scan is clean.
+func TestAuditCleanWithPrivate(t *testing.T) {
+	doc := auditWorkspace(t)
+	privArtifactTo(t, doc, "nexus")
+	if err := doc.Save("deps.lock"); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("RIG_OSV_API", osvServer(t, osvFixture{}).URL)
+	code, out := runCLI(t, "audit", "--cache-dir", t.TempDir())
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0; out: %s", code, out)
+	}
+	if want := "audit: no known vulnerabilities (1 maven artifact, 1 from private repositories, not audited)"; !strings.Contains(out, want) {
+		t.Errorf("out missing %q; out: %s", want, out)
+	}
+}
+
+// Private coordinates never enter the OSV query: only the public one is
+// counted and failed on, and the fixture's private finding stays unseen.
+func TestAuditPrivateNotCounted(t *testing.T) {
+	doc := auditWorkspace(t)
+	privArtifactTo(t, doc, "nexus")
+	if err := doc.Save("deps.lock"); err != nil {
+		t.Fatal(err)
+	}
+	fix := osvFixture{
+		batch: map[string][]string{
+			"org.clojure:clojure@1.11.0": {"GHSA-test-aaaa-bbbb"},
+			"com.example:internal@2.0.0":  {"GHSA-priv-1111-2222"},
+		},
+		detail: map[string]string{
+			"GHSA-test-aaaa-bbbb": testVulnRecord,
+			"GHSA-priv-1111-2222": testPrivVulnRecord,
+		},
+	}
+	t.Setenv("RIG_OSV_API", osvServer(t, fix).URL)
+	code, out := runCLI(t, "audit", "--cache-dir", t.TempDir())
+	if code != 1 {
+		t.Fatalf("exit = %d, want 1; out: %s", code, out)
+	}
+	for _, want := range []string{
+		"audit: 1 known vulnerabilities in 1 of 1 pinned artifacts",
+		"org.clojure/clojure 1.11.0",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("out missing %q; out: %s", want, out)
+		}
+	}
+	for _, absent := range []string{
+		"com.example/internal",
+		"GHSA-priv-1111-2222",
+	} {
+		if strings.Contains(out, absent) {
+			t.Errorf("out should not contain %q; out: %s", absent, out)
+		}
 	}
 }

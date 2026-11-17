@@ -269,11 +269,15 @@ Scan every maven artifact pinned in the workspace lock against the OSV
 vulnerability database (osv.dev), listing each known vulnerability of a
 pinned version — its id, aliases (the CVE ids), summary, severity, and
 fix. Git deps are pinned by commit sha and OSV cannot look them up; they
-are skipped and counted. `audit` reads the lock only: it never re-locks,
-never downloads artifacts, and needs no JVM. It exits 1 when any pinned
-artifact has a known vulnerability, 0 when the lock is clean, 3 when the
-lock is missing. `--offline` refuses — the scan needs the network, so it
-never joins the hermetic gate (see [CI](../workflows/ci.md)).
+are skipped and counted. Artifacts from private repositories (the
+`:mvn/repos` entries other than `central` and `clojars`) are skipped
+and counted the same way; an overridden `central` or `clojars` keeps its
+name and is scanned as the real one. `audit` reads the lock only: it
+never re-locks, never downloads artifacts, and needs no JVM. It exits 1
+when any scanned artifact has a known vulnerability, 0 when the lock is
+clean, 3 when the lock is missing. `--offline` refuses — the scan needs
+the network, so it never joins the hermetic gate (see
+[CI](../workflows/ci.md)).
 
 ### `rig info`
 

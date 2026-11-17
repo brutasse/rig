@@ -25,6 +25,15 @@ func osvAPI() string {
 	return osv.DefaultAPI
 }
 
+// publicRepo reports whether a lock's repository id names a public
+// repository: maven central or clojars. An override keeps the id and
+// changes only the url, so it counts as the real one. Every other id is
+// a :mvn/repos entry, a private repository: its artifacts are not
+// audited.
+func publicRepo(id string) bool {
+	return id == "central" || id == "clojars"
+}
+
 // auditFinding is one known vulnerability of one pinned artifact.
 type auditFinding struct {
 	coord   string
@@ -39,10 +48,13 @@ func newAuditCmd(o *opts) *cobra.Command {
 		Long: `Scans every maven artifact pinned in the workspace lock against the OSV
 vulnerability database (osv.dev) and lists each known vulnerability of a
 pinned version. Git deps are pinned by commit sha and OSV cannot look
-them up; they are skipped and counted.
+them up; they are skipped and counted. Artifacts from private
+repositories (the :mvn/repos entries other than central and clojars)
+are skipped and counted the same way; an overridden central or clojars
+keeps its name and is scanned as the real one.
 
 audit reads the lock only: it never re-locks, never downloads artifacts,
-and needs no JVM. It exits 1 when any pinned artifact has a known
+and needs no JVM. It exits 1 when any scanned artifact has a known
 vulnerability, 0 when the lock is clean. --offline refuses (the scan
 needs the network).`,
 		Args: cobra.NoArgs,
@@ -66,14 +78,19 @@ func runAudit(ctx context.Context, o *opts) error {
 
 	// One query per pinned maven coordinate: the same coordinate can be
 	// locked under several extensions or classifiers, and it is one
-	// version either way.
+	// version either way. Artifacts from private repositories are
+	// skipped before the query (counted), like git deps.
 	type coord struct{ name, version string }
 	seen := make(map[coord]bool)
 	var coords []coord
-	git := 0
+	git, priv := 0, 0
 	for _, a := range root.Lock.Artifacts {
 		switch a.Kind {
 		case "mvn":
+			if !publicRepo(a.Repository) {
+				priv++
+				continue
+			}
 			c := coord{a.Group + "/" + a.Name, a.Version}
 			if !seen[c] {
 				seen[c] = true
@@ -85,7 +102,13 @@ func runAudit(ctx context.Context, o *opts) error {
 	}
 	if len(coords) == 0 {
 		msg := "audit: no maven artifacts to scan"
-		if git > 0 {
+		if priv > 0 {
+			msg += fmt.Sprintf(" (%d from private repositories, not audited", priv)
+			if git > 0 {
+				msg += fmt.Sprintf(", %d git dep%s skipped, pinned by commit sha", git, plural(git))
+			}
+			msg += ")"
+		} else if git > 0 {
 			msg += fmt.Sprintf(" (%d git dep%s skipped, pinned by commit sha)", git, plural(git))
 		}
 		fmt.Println(msg)
@@ -121,6 +144,9 @@ func runAudit(ctx context.Context, o *opts) error {
 	}
 	if len(findings) == 0 {
 		msg := fmt.Sprintf("audit: no known vulnerabilities (%d maven artifact%s", len(coords), plural(len(coords)))
+		if priv > 0 {
+			msg += fmt.Sprintf(", %d from private repositories, not audited", priv)
+		}
 		if git > 0 {
 			msg += fmt.Sprintf(", %d git dep%s skipped", git, plural(git))
 		}

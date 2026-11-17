@@ -129,10 +129,12 @@ com.fasterxml.jackson.core/jackson-databind 2.9.0
 It exits 1 when anything is found, so `rig audit` sits next to
 `rig check` as a CI gate — with the difference that it needs the
 network (OSV is the data source) and never joins the hermetic
-`--offline` gate. Git deps are pinned by commit sha and are skipped
-(counted in the report). The OSV API is a trust boundary like the Maven
-repositories or the Adoptium API: Rig reports what OSV knows, and pins
-nothing from it.
+`--offline` gate. Only the public repositories are scanned: an
+overridden `central` or `clojars` counts as the real one, while
+artifacts from other `:mvn/repos` repositories are private and skipped
+(counted in the report), as are git deps, which are pinned by commit
+sha. The OSV API is a trust boundary like the Maven repositories or the
+Adoptium API: Rig reports what OSV knows, and pins nothing from it.
 
 ## Reproducibility
 
