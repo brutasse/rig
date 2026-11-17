@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/spf13/cobra"
 
@@ -33,7 +34,8 @@ type opts struct {
 	cacheDir     string
 	verbose      bool
 	autocomplete string
-	oidcA        *oidcAuth // lazily resolved per command (see oidc.go)
+	authOnce     sync.Once
+	oidcA        *oidcAuth // lazily created per command (see oidc.go)
 }
 
 func (o *opts) store() (*cache.Store, error) {

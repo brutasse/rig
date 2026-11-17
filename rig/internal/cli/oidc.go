@@ -31,6 +31,9 @@ type oidcAuth struct {
 	resolver *oidc.Resolver
 	err      error
 
+	// tokMu guards toks: the fetch client's bearer hooks write it from
+	// concurrent fetch workers, and kernelEnv/kernelProxy read it.
+	tokMu     sync.Mutex
 	proxyOnce sync.Once
 	proxy     *proxy.Proxy
 	proxyErr  error
@@ -53,9 +56,9 @@ func (s repoToken) Refresh(ctx context.Context) (string, error) {
 }
 
 func (o *opts) auth() *oidcAuth {
-	if o.oidcA == nil {
-		o.oidcA = &oidcAuth{}
-	}
+	// The fetch client's hooks call this from concurrent workers; the
+	// lazy init must not race.
+	o.authOnce.Do(func() { o.oidcA = &oidcAuth{} })
 	return o.oidcA
 }
 
@@ -121,12 +124,14 @@ func (o *opts) kernelEnv(ctx context.Context, root *workspace.Root) ([]string, e
 	if err := o.resolve(ctx, root); err != nil {
 		return nil, err
 	}
-	if len(o.oidcA.toks) == 0 {
-		return nil, nil
-	}
+	o.oidcA.tokMu.Lock()
 	m := make(map[string]string, len(o.oidcA.toks))
 	for id, tok := range o.oidcA.toks {
 		m[id] = tok
+	}
+	o.oidcA.tokMu.Unlock()
+	if len(m) == 0 {
+		return nil, nil
 	}
 	return []string{"RIG_REPO_TOKENS=" + ednStringMap(m)}, nil
 }
@@ -142,7 +147,10 @@ func (o *opts) kernelProxy(ctx context.Context, root *workspace.Root) ([]string,
 	if err := o.resolve(ctx, root); err != nil {
 		return nil, err
 	}
-	if len(o.oidcA.toks) == 0 {
+	o.oidcA.tokMu.Lock()
+	empty := len(o.oidcA.toks) == 0
+	o.oidcA.tokMu.Unlock()
+	if empty {
 		return nil, nil
 	}
 	var env []string
@@ -247,7 +255,9 @@ func (o *opts) bearerFor(ctx context.Context, root *workspace.Root) func(repo st
 		if err != nil {
 			return "", false
 		}
+		o.oidcA.tokMu.Lock()
 		o.oidcA.toks[repo] = tok
+		o.oidcA.tokMu.Unlock()
 		return tok, true
 	}
 }
@@ -274,7 +284,9 @@ func (o *opts) refreshBearerFor(ctx context.Context, root *workspace.Root) func(
 		if err != nil || fresh == old {
 			return false
 		}
+		o.oidcA.tokMu.Lock()
 		o.oidcA.toks[repo] = fresh
+		o.oidcA.tokMu.Unlock()
 		return true
 	}
 }
