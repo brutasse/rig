@@ -292,7 +292,7 @@ func TestAuditPrivateNotCounted(t *testing.T) {
 	fix := osvFixture{
 		batch: map[string][]string{
 			"org.clojure:clojure@1.11.0": {"GHSA-test-aaaa-bbbb"},
-			"com.example:internal@2.0.0":  {"GHSA-priv-1111-2222"},
+			"com.example:internal@2.0.0": {"GHSA-priv-1111-2222"},
 		},
 		detail: map[string]string{
 			"GHSA-test-aaaa-bbbb": testVulnRecord,
