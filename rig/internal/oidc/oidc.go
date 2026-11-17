@@ -8,9 +8,10 @@
 // marked :auth :oidc is bound to the gate that fronts its :url.
 //
 // Each gate's bearer is resolved on demand: the RIG_TOKEN_<GATE>
-// environment variable when set, else the gate's cached token in the state
-// dir, else a fresh negotiation with the issuer (browser or device flow,
-// verified against the issuer's JWKS before use). A gate fronting the
+// environment variable of any gate sharing its identity when set, else the
+// gate's cached token in the state dir, else a fresh negotiation with the
+// issuer (browser or device flow, verified against the issuer's JWKS before
+// use). A gate fronting the
 // GitHub Actions issuer negotiates with the runner's id-token endpoint
 // (the workflow's id-token: write permission) instead: the token is
 // short-lived, so it is re-negotiated when the registry rejects it or
@@ -88,10 +89,14 @@ func (g *Gate) EnvVar() string {
 	return "RIG_TOKEN_" + strings.ReplaceAll(strings.ToUpper(g.Name), "-", "_")
 }
 
-// Identity is the gate's effective configuration: the cache key. Renaming
-// a gate does not invalidate its cached token.
+// Identity is the gate's effective configuration: the key of its cached
+// token and its resolved state. Renaming a gate does not invalidate its
+// cached token. Scopes are order-insensitive: the set requested, not its
+// order in the config, determines the token.
 func (g *Gate) Identity() string {
-	return g.WellKnown + "\x00" + g.Audience + "\x00" + g.ClientID + "\x00" + strings.Join(g.Scopes, " ")
+	scopes := append([]string(nil), g.Scopes...)
+	sort.Strings(scopes)
+	return g.WellKnown + "\x00" + g.Audience + "\x00" + g.ClientID + "\x00" + strings.Join(scopes, " ")
 }
 
 // Config is the gate configuration of one machine (the shared org file).
@@ -257,13 +262,14 @@ func (c *Config) Names() []string {
 }
 
 // Resolver resolves the bearer of each gate. A gate's bearer is resolved
-// on demand: the RIG_TOKEN_<GATE> environment variable when set, else the
-// gate's cached token, else a fresh negotiation (progress output to
-// stderr). A gate fronting the GitHub Actions issuer negotiates with the
-// runner's id-token endpoint — the token is short-lived, so the held token
-// is re-negotiated when the registry rejects it (Invalidate) or when it is
-// within expiryMargin of its expiry. A token from the environment variable
-// is used as-is; the other flows negotiate at most once per command.
+// on demand: the RIG_TOKEN_<GATE> environment variable of any gate
+// sharing its identity when set, else the gate's cached token, else a
+// fresh negotiation (progress output to stderr). A gate fronting the
+// GitHub Actions issuer negotiates with the runner's id-token endpoint —
+// the token is short-lived, so the held token is re-negotiated when the
+// registry rejects it (Invalidate) or when it is within expiryMargin of
+// its expiry. A token from the environment variable is used as-is; the
+// other flows negotiate at most once per command.
 type Resolver struct {
 	cfg *Config
 	dir string // state dir; per-gate token caches under <dir>/oidc
@@ -357,10 +363,32 @@ func (r *Resolver) Invalidate(g *Gate) {
 	st.mu.Unlock()
 }
 
+// envToken is the token the gates sharing g's identity carry in their
+// environment: the first non-empty RIG_TOKEN_<GATE> in gate-name order.
+// The identity, not the gate name, is the unit of the token, so any gate
+// of the shared config can supply it, and the held bearer is then valid
+// for every gate of the identity.
+func (r *Resolver) envToken(g *Gate) string {
+	id := g.Identity()
+	var names []string
+	for name, gt := range r.cfg.Gates {
+		if gt.Identity() == id {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		if t := strings.TrimSpace(os.Getenv(r.cfg.Gates[name].EnvVar())); t != "" {
+			return t
+		}
+	}
+	return ""
+}
+
 // resolve is the first-resolution chain: the env var, the cache, the
 // negotiation. It leaves the state resolved (have) or with a stable error.
 func (r *Resolver) resolve(ctx context.Context, st *gateState, g *Gate, flow string) error {
-	if t := strings.TrimSpace(os.Getenv(g.EnvVar())); t != "" {
+	if t := r.envToken(g); t != "" {
 		st.token = t
 		st.static = true
 		st.have = true

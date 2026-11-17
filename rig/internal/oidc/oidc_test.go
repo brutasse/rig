@@ -268,6 +268,123 @@ func TestResolverPerGateCaches(t *testing.T) {
 	}
 }
 
+// TestResolverSharedConfigNegotiatesOnce: two gate names sharing one config
+// (same issuer, audience, client, scopes) resolve one shared token: a single
+// negotiation, one cache file, no re-negotiation by a later resolver over
+// the same state dir.
+func TestResolverSharedConfigNegotiatesOnce(t *testing.T) {
+	idp := newFakeIDP(t)
+	ga := testGate(t, "a", idp.ts.URL)
+	gb := testGate(t, "b", idp.ts.URL) // same well-known, audience, client, scopes
+	dir := t.TempDir()
+	r := NewResolver(&Config{Gates: map[string]*Gate{"a": ga, "b": gb}}, dir)
+
+	tokA, err := r.Token(context.Background(), ga, "device")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tokB, err := r.Token(context.Background(), gb, "device")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := idp.tokenCalls.Load(); got != 1 {
+		t.Fatalf("token endpoint calls = %d, want 1 (one negotiation for the shared config)", got)
+	}
+	if tokA != tokB {
+		t.Fatalf("tokens differ: %q vs %q", tokA, tokB)
+	}
+	if r.CacheFile(ga) != r.CacheFile(gb) {
+		t.Fatalf("cache files differ: %q vs %q", r.CacheFile(ga), r.CacheFile(gb))
+	}
+	entries, err := os.ReadDir(filepath.Join(dir, "oidc"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := len(entries); got != 1 {
+		t.Fatalf("cache files = %d (%v), want 1", got, entries)
+	}
+
+	// A later resolver over the same state dir reuses the cached token.
+	r2 := NewResolver(&Config{Gates: map[string]*Gate{"a": ga, "b": gb}}, dir)
+	before := idp.tokenCalls.Load()
+	tok2, err := r2.Token(context.Background(), gb, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tok2 != tokA {
+		t.Fatalf("second resolver token = %q, want the cached one", tok2)
+	}
+	if got := idp.tokenCalls.Load(); got != before {
+		t.Fatalf("second resolver re-negotiated: token endpoint calls %d -> %d", before, got)
+	}
+}
+
+// TestResolverSharedConfigEnvToken: the environment token of any gate
+// sharing an identity covers the whole config, no matter which gate name
+// is resolved first — no negotiation when one is available.
+func TestResolverSharedConfigEnvToken(t *testing.T) {
+	idp := newFakeIDP(t)
+	ga := testGate(t, "a", idp.ts.URL)
+	gb := testGate(t, "b", idp.ts.URL)
+	dir := t.TempDir()
+	r := NewResolver(&Config{Gates: map[string]*Gate{"a": ga, "b": gb}}, dir)
+	t.Setenv(ga.EnvVar(), "")
+	t.Setenv(gb.EnvVar(), "  env-token-b  ")
+
+	// Gate "a" has no env var of its own; the shared config carries one
+	// via gate "b". Resolving "a" first must not negotiate.
+	tok, err := r.Token(context.Background(), ga, "device")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tok != "env-token-b" {
+		t.Fatalf("token = %q, want the shared-config env token env-token-b", tok)
+	}
+	if got := idp.tokenCalls.Load(); got != 0 {
+		t.Fatalf("token endpoint calls = %d, want 0 (env token available for the shared config)", got)
+	}
+	tok2, err := r.Token(context.Background(), gb, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tok2 != "env-token-b" {
+		t.Fatalf("second token = %q, want env-token-b", tok2)
+	}
+	if got := idp.tokenCalls.Load(); got != 0 {
+		t.Fatalf("token endpoint calls = %d, want 0", got)
+	}
+}
+
+// TestResolverSharedConfigScopeOrder: the same scope set in different
+// config orders is the same identity: one negotiation, one cache file.
+func TestResolverSharedConfigScopeOrder(t *testing.T) {
+	idp := newFakeIDP(t)
+	ga := testGate(t, "a", idp.ts.URL)
+	ga.Scopes = []string{"openid", "groups"}
+	gb := testGate(t, "b", idp.ts.URL)
+	gb.Scopes = []string{"groups", "openid"}
+	dir := t.TempDir()
+	r := NewResolver(&Config{Gates: map[string]*Gate{"a": ga, "b": gb}}, dir)
+
+	tokA, err := r.Token(context.Background(), ga, "device")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tokB, err := r.Token(context.Background(), gb, "device")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := idp.tokenCalls.Load(); got != 1 {
+		t.Fatalf("token endpoint calls = %d, want 1 (scope order must not split the identity)", got)
+	}
+	if tokA != tokB {
+		t.Fatalf("tokens differ: %q vs %q", tokA, tokB)
+	}
+	if r.CacheFile(ga) != r.CacheFile(gb) {
+		t.Fatalf("cache files differ: %q vs %q", r.CacheFile(ga), r.CacheFile(gb))
+	}
+}
+
 func TestResolverNegotiationFailure(t *testing.T) {
 	// No issuer at all: negotiation fails, and the error is stable
 	// across calls (resolved once).

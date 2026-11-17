@@ -207,7 +207,10 @@ Rig resolves the bearer of each gate on demand, per repo:
 
 1. `RIG_TOKEN_<GATE>` when set — Rig uppercases the gate name and turns
    dashes into underscores (`pier` → `RIG_TOKEN_PIER`). Rig uses the
-   environment token as-is and never re-negotiates it.
+   environment token as-is and never re-negotiates it. When several gates
+   share the same identity (issuer, audience, client-id, scopes), the
+   token of any one of them covers all of them — the first in gate-name
+   order is used.
 2. Else the cached token of the gate in the state dir
    (`~/.local/share/rig/oidc/`). The dir holds one file per gate identity
    — the issuer, audience and client-id. A cached token stays valid until
