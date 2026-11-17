@@ -22,6 +22,7 @@ This page lists every command, what it does, and its flags.
 | `publish` | cold | Deploy module jars to their remote repository. |
 | `outdated [--breaking]` | cold | Pinned vs available versions. |
 | `tree [--alias a]` | cold | Dependency tree for a module. |
+| `audit` | — | Scan the lock for known vulnerabilities (OSV). |
 | `clean` | hot | Remove build-output directories. |
 | `fmt [--check]` | hot | cljfmt on the module, pinned version (no lock needed). |
 | `new <group/name>` | cold | Scaffold a new project. |
@@ -253,6 +254,26 @@ Print the resolved dependency tree for a module (`-p`), one line per
 occurrence with `├─`/`└─` connectors. Rig marks an occurrence that is not
 in the classpath (conflict, exclusion, duplicate) with its reason.
 `--alias <a>` includes the extra-deps of the alias.
+
+### `rig audit`
+
+```
+audit: 2 known vulnerabilities in 2 of 510 pinned artifacts
+
+com.fasterxml.jackson.core/jackson-databind 2.9.0
+  GHSA-… (CVE-2024-…) Deserialization of untrusted data
+    published 2024-… · severity CVSS_V3 9.8 · fixed in 2.17.1
+```
+
+Scan every maven artifact pinned in the workspace lock against the OSV
+vulnerability database (osv.dev), listing each known vulnerability of a
+pinned version — its id, aliases (the CVE ids), summary, severity, and
+fix. Git deps are pinned by commit sha and OSV cannot look them up; they
+are skipped and counted. `audit` reads the lock only: it never re-locks,
+never downloads artifacts, and needs no JVM. It exits 1 when any pinned
+artifact has a known vulnerability, 0 when the lock is clean, 3 when the
+lock is missing. `--offline` refuses — the scan needs the network, so it
+never joins the hermetic gate (see [CI](../workflows/ci.md)).
 
 ### `rig info`
 

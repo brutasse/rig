@@ -14,6 +14,7 @@ rig publish
 | Step | What it proves |
 |---|---|
 | `rig check` | the locked artifacts are byte-identical to the pinned hashes — verified from local sources on a warm cache, fetched and hash-checked on a cold one (the supply-chain gate, exit 4 on a mismatch). The lock still satisfies every manifest (no stale pins, conflicts, drift, floating versions). Every module's namespaces load on the locked classpath. No lock modification. |
+| `rig audit` | every maven artifact pinned in the lock has no known vulnerability in the OSV database (osv.dev) — exit 1 when any is found. It needs the network (OSV is the data source), so it runs alongside the hermetic gate, never inside the `--offline` proof. |
 | `rig test` | the tests pass on the locked classpath; a stale lock fails (exit 3) instead of re-locking. |
 
 A stale lock is a hard error on every gate command: the hot commands exit

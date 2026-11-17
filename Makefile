@@ -102,12 +102,14 @@ check: dev
 # test: full local verification — rig check on this workspace, the kernel
 # suite (rig test: the runner runs the :test alias's exec-fn on the locked
 # test classpath, on the workspace's managed Temurin 8) + Go suite (E2E tests
-# run against the just-built jars). No Clojure CLI, no host JDK: rig runs
-# everything.
+# run against the just-built jars; the cli package runs under the race
+# detector). No Clojure CLI, no host JDK: rig runs everything.
 test: dev check
 	cd resolver && CLOJURE_CLI_ALLOW_HTTP_REPO=1 $(abspath $(BIN)) test
 	cd rig && RIG_TEST_KERNEL_JAR=$(abspath $(JAR)) RIG_TEST_RUNNER_JAR=$(abspath $(RUNNER)) \
-		go test ./...
+		go test -race ./internal/cli/
+	cd rig && RIG_TEST_KERNEL_JAR=$(abspath $(JAR)) RIG_TEST_RUNNER_JAR=$(abspath $(RUNNER)) \
+		go test $(shell cd rig && go list ./... | grep -v 'internal/cli$$')
 
 # test-pier: Pier E2E — rig lock/publish/check against a live OIDC-gated
 # Maven repo. The Pier test env must be running (see the checkout's .scratch:

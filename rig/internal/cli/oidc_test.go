@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -48,6 +49,41 @@ func TestOidcReposNoModules(t *testing.T) {
 	if len(ids) != 0 {
 		t.Errorf("oidcRepos = %v, want empty", ids)
 	}
+}
+
+// TestOidcBearerHooksConcurrent: the fetch client calls BearerFor from its
+// concurrent workers, so the hooks must not race on the shared token map —
+// unguarded, that is a hard crash (concurrent map writes), not a
+// detectable race. Run under -race.
+func TestOidcBearerHooksConcurrent(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	writeFile(t, "deps.edn", "{:mvn/repos {\"pier\" {:url \"https://g.example\" :auth :oidc}}}\n")
+	writeAuthYaml(t, "gates:\n  pier:\n    url: https://g.example\n    well-known: https://idp.example/w\n")
+	t.Setenv("RIG_TOKEN_PIER", "static-tok-123")
+	root, err := workspace.Find(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	o := &opts{}
+	hook := o.bearerFor(context.Background(), root)
+	refresh := o.refreshBearerFor(context.Background(), root)
+	var wg sync.WaitGroup
+	for w := 0; w < 8; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := 0; i < 50; i++ {
+				tok, ok := hook("pier")
+				if !ok || tok != "static-tok-123" {
+					t.Errorf("bearer = %q, ok = %v; want static-tok-123", tok, ok)
+					return
+				}
+				refresh("pier")
+			}
+		}()
+	}
+	wg.Wait()
 }
 
 // writeAuthYaml writes the gate config at the default location under home
