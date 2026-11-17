@@ -4,6 +4,54 @@ Changelog for Rig.
 
 ## Unreleased
 
+## v0.6.0 — 2026-11-17
+
+### Added
+
+#### `rig audit` scans the lock for known vulnerabilities
+
+`rig audit` asks the OSV vulnerability database (osv.dev) about every
+maven artifact pinned in the workspace lock and lists each known
+vulnerability of a pinned version — its id, aliases (the CVE ids),
+summary, severity and fix:
+
+```
+audit: 1 known vulnerability in 1 of 510 pinned artifacts
+
+com.fasterxml.jackson.core/jackson-databind 2.9.0
+  GHSA-… (CVE-2024-…) Deserialization of untrusted data
+    published 2024-… · severity CVSS_V3 9.8 · fixed in 2.17.1
+```
+
+Only the public repositories are scanned: an overridden `central` or
+`clojars` keeps its name and is scanned as the real one, while
+artifacts from the other `:mvn/repos` repositories are private and
+skipped (counted in the report), as are git deps, which are pinned by
+commit sha and OSV cannot look up. `audit` reads the lock only: it
+never re-locks, never downloads artifacts, and needs no JVM. It exits
+1 when any scanned artifact has a known vulnerability, 0 when the lock
+is clean, 3 when the lock is missing, and refuses `--offline` — the
+scan needs the network, so it sits next to `rig check` as a CI gate
+without ever joining the hermetic `--offline` proof. The OSV API is a
+trust boundary like the Maven repositories: Rig reports what OSV
+knows, and pins nothing from it. [Known vulnerabilities:
+`rig audit`](concepts/security.md#known-vulnerabilities-rig-audit).
+
+#### Shared identity tokens across auth gates
+
+A `RIG_TOKEN_<GATE>` environment token now covers every gate that
+shares the same identity — the `well-known`, the audience, the
+client-id and the scopes, the scope set order-insensitive — not just
+the gate it names: when several gates of one identity are configured,
+the token of any one of them covers all of them, the first in
+gate-name order. A machine that fronts several repositories behind one
+IdP sets one env var per identity, not one per gate. The state dir's
+token cache was already keyed by the gate identity: the env override
+now works on the same unit. [Configuration — Resolving a gate's
+token](reference/config.md#resolving-a-gates-token).
+
+## v0.5.1 — 2026-11-12
+
 ### Fixed
 
 #### GitHub Actions discovery URL
