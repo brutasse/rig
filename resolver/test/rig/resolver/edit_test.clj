@@ -391,35 +391,52 @@
                   "manifest untouched on refusal"))))))))
 
 (deftest latest-cooldown-refused
-  (with-ws root-text lib-text app-text
-    (fn [dir]
-      (let [orig (slurp (io/file dir "deps.edn"))
-            resp (edit/edit-dep {:workspace dir
-                                 :args {:module "."
-                                        :coord "org.clojure/core.specs.alpha"
-                                        :requirement "latest"
-                                        :shared false
-                                        :cooldown {:default "99999d"}}})]
-        (is (nil? (get resp "lock")) "no lock on refusal")
-        (is (nil? (get resp "edits")))
-        (is (= 1 (count (get resp "refused"))))
-        (is (= "org.clojure/core.specs.alpha"
-               (str (get-in resp ["refused" 0 :coord]))))
-        (is (= "cooldown" (get-in resp ["refused" 0 :reason])))
-        (is (= "99999d" (get-in resp ["refused" 0 :cooldown])))
-        (is (= orig (slurp (io/file dir "deps.edn"))) "manifest untouched"))
-      (let [resp (edit/edit-dep {:workspace dir
-                                 :args {:module "."
-                                        :coord "org.clojure/core.specs.alpha"
-                                        :requirement "latest"
-                                        :shared false
-                                        :cooldown {:default "99999d"}
-                                        :force true}})]
-        (is (string? (get-in (read-manifest dir "deps.edn")
-                             [:deps 'org.clojure/core.specs.alpha :mvn/version]))
-            "force selects anyway")
-        (is (some #(= "forced" (:reason %)) (get-in resp ["lock" "skipped"]))
-            "forced pick is recorded")))))
+  "Every version inside the cooldown window: the update is refused with
+  nothing written, and the refused entry echoes the request's own
+  :cooldown. force selects the newest anyway and records the forced
+  pick in the lock."
+  (let [now (System/currentTimeMillis)
+        fresh-ws (fn [dir url]
+                   (spit (io/file dir "deps.edn")
+                         (str "{:mvn/repos {\"f\" {:url \"" url "\"}}}\n")))]
+    (vtest/with-file-repo ["com.rig.test" "cooldown" {"1.0.0" (- now 3600 1000)
+                                                      "1.0.1" (- now 7200 1000)}]
+      (fn [url]
+        (let [dir (File. (System/getProperty "java.io.tmpdir")
+                         (str "rig-edit-cooldown-root-" (java.util.UUID/randomUUID)))]
+          (try
+            (do (.mkdirs dir)
+                (io/make-parents (io/file dir "src"))
+                (fresh-ws (str dir) url)
+                (let [orig (slurp (io/file dir "deps.edn"))
+                      resp (edit/edit-dep {:workspace (str dir)
+                                           :args {:module "."
+                                                  :coord "com.rig.test/cooldown"
+                                                  :requirement "latest"
+                                                  :shared false
+                                                  :cooldown {:default "99999d"}}})]
+                  (is (nil? (get resp "lock")) "no lock on refusal")
+                  (is (nil? (get resp "edits")))
+                  (is (= 1 (count (get resp "refused"))))
+                  (is (= "com.rig.test/cooldown"
+                         (str (get-in resp ["refused" 0 :coord]))))
+                  (is (= "cooldown" (get-in resp ["refused" 0 :reason])))
+                  (is (= "99999d" (get-in resp ["refused" 0 :cooldown])))
+                  (is (= orig (slurp (io/file dir "deps.edn")))
+                      "manifest untouched on refusal"))
+                (let [resp (edit/edit-dep {:workspace (str dir)
+                                           :args {:module "."
+                                                  :coord "com.rig.test/cooldown"
+                                                  :requirement "latest"
+                                                  :shared false
+                                                  :cooldown {:default "99999d"}
+                                                  :force true}})]
+                  (is (string? (get-in (read-manifest dir "deps.edn")
+                                       [:deps 'com.rig.test/cooldown :mvn/version]))
+                      "force selects anyway")
+                  (is (some #(= "forced" (:reason %)) (get-in resp ["lock" "skipped"]))
+                      "forced pick is recorded")))
+            (finally (delete-tree (str dir)))))))))
 
 (deftest latest-not-found
   (with-ws root-text lib-text app-text
