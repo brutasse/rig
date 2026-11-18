@@ -116,15 +116,22 @@ Hashing pins the bytes and cooldowns gate the adoption — but neither
 says whether a version you already use has a known vulnerability.
 `rig audit` asks the OSV vulnerability database (osv.dev) about every
 maven artifact pinned in the lock and lists each known vulnerability of
-a pinned version:
+a pinned version, in the scopes it is locked into (modules, and
+`module:alias` for an alias classpath):
 
 ```
 audit: 1 known vulnerability in 1 of 510 pinned artifacts
 
 com.fasterxml.jackson.core/jackson-databind 2.9.0
+  used in ., modules/backend
   GHSA-… (CVE-2024-…) Deserialization of untrusted data
-    published 2024-… · severity CVSS_V3 9.8 · fixed in 2.17.1
+    published 2024-… · severity CVSS_V3 9.8 Critical · fixed in 2.17.1
 ```
+
+Severity is the OSV score when the record carries one, the CVSS base
+score computed from the record's vector string otherwise (CVSS v3 and
+v4, in-process), with its bucket — so the report says how bad, not
+just what.
 
 It exits 1 when anything is found, so `rig audit` sits next to
 `rig check` as a CI gate — with the difference that it needs the

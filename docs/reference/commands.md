@@ -261,23 +261,34 @@ in the classpath (conflict, exclusion, duplicate) with its reason.
 audit: 2 known vulnerabilities in 2 of 510 pinned artifacts
 
 com.fasterxml.jackson.core/jackson-databind 2.9.0
+  used in ., modules/backend, modules/backend:test
   GHSA-… (CVE-2024-…) Deserialization of untrusted data
-    published 2024-… · severity CVSS_V3 9.8 · fixed in 2.17.1
+    published 2024-… · severity CVSS_V3 9.8 Critical · fixed in 2.17.1
 ```
 
 Scan every maven artifact pinned in the workspace lock against the OSV
 vulnerability database (osv.dev), listing each known vulnerability of a
 pinned version — its id, aliases (the CVE ids), summary, severity, and
-fix. Git deps are pinned by commit sha and OSV cannot look them up; they
-are skipped and counted. Artifacts from private repositories (the
-`:mvn/repos` entries other than `central` and `clojars`) are skipped
-and counted the same way; an overridden `central` or `clojars` keeps its
-name and is scanned as the real one. `audit` reads the lock only: it
-never re-locks, never downloads artifacts, and needs no JVM. It exits 1
-when any scanned artifact has a known vulnerability, 0 when the lock is
-clean, 3 when the lock is missing. `--offline` refuses — the scan needs
-the network, so it never joins the hermetic gate (see
-[CI](../workflows/ci.md)).
+fix. Each artifact is shown with the scopes it is locked into: a module
+is its directory, an alias classpath the `module:alias` pair. Severity
+is the OSV score when the record carries a numeric one, the CVSS base
+score computed from the record's vector string otherwise, with its
+bucket (Critical at 9.0, High at 7.0, Medium at 4.0, Low below); a
+vector that cannot be scored leaves the type alone. Git deps are
+pinned by commit sha and OSV cannot look them up; they are skipped and
+counted. Artifacts from private repositories (the `:mvn/repos` entries
+other than `central` and `clojars`) are skipped and counted the same
+way; an overridden `central` or `clojars` keeps its name and is scanned
+as the real one. `audit` reads the lock only: it never re-locks, never
+downloads artifacts, and needs no JVM. It exits 1 when any scanned
+artifact has a known vulnerability, 0 when the lock is clean, 3 when
+the lock is missing. `--offline` refuses — the scan needs the network,
+so it never joins the hermetic gate (see
+[CI](../workflows/ci.md)). `--json` prints the report on stdout as a
+JSON document (the workspace, the scanned and skipped counts, and the
+findings grouped per artifact with their scopes and severity details,
+including the full vector string); the summary stays on stderr, and
+the exit codes are unchanged.
 
 ### `rig info`
 
