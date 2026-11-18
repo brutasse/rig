@@ -6,3 +6,6 @@ rig/dist/
 .cpcache
 site/
 _build
+# The Go suite's seeded maven repo: built at test time from
+# rig/internal/cli/testdata/pins.json (pinned, sha256-verified bytes).
+rig/internal/cli/testdata/.seeded-repo/

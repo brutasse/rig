@@ -1,9 +1,11 @@
 package cli
 
 import (
+	"fmt"
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/brutasse/rig/internal/lockfile"
 )
@@ -31,15 +33,15 @@ func classpathVersion(t *testing.T, lock *lockfile.Document, module, coord strin
 func TestAddExplicit(t *testing.T) {
 	hotSetup(t)
 	cacheDir := t.TempDir()
-	code, out := runCLI(t, "add", "org.clojure/tools.logging", "1.3.1",
+	code, out := runCLI(t, "add", "org.clojure/tools.logging", "1.3.0",
 		"-p", "modules/app", "--cache-dir", cacheDir)
 	if code != 0 {
 		t.Fatalf("add exit = %d, want 0; out: %s", code, out)
 	}
 	for _, want := range []string{
-		`modules/app/deps.edn: set org.clojure/tools.logging "1.3.1"`,
-		`deps.edn: set org.clojure/tools.logging "1.3.1"`,
-		"pinned org.clojure/tools.logging 1.3.1 (explicit)",
+		`modules/app/deps.edn: set org.clojure/tools.logging "1.3.0"`,
+		`deps.edn: set org.clojure/tools.logging "1.3.0"`,
+		"pinned org.clojure/tools.logging 1.3.0 (explicit)",
 		"artifacts, 2 modules",
 	} {
 		if !strings.Contains(out, want) {
@@ -58,8 +60,8 @@ func TestAddExplicit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v := classpathVersion(t, lock, "modules/app", "org.clojure/tools.logging"); v != "1.3.1" {
-		t.Errorf("module classpath version = %s, want 1.3.1", v)
+	if v := classpathVersion(t, lock, "modules/app", "org.clojure/tools.logging"); v != "1.3.0" {
+		t.Errorf("module classpath version = %s, want 1.3.0", v)
 	}
 }
 
@@ -70,7 +72,7 @@ func TestAddRemoveRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	code, out := runCLI(t, "add", "org.clojure/tools.logging", "1.3.1",
+	code, out := runCLI(t, "add", "org.clojure/tools.logging", "1.3.0",
 		"-p", "modules/app", "--cache-dir", cacheDir)
 	if code != 0 {
 		t.Fatalf("add exit = %d, want 0; out: %s", code, out)
@@ -128,40 +130,71 @@ func TestUpdateExplicit(t *testing.T) {
 func TestUpdateLatest(t *testing.T) {
 	hotSetup(t)
 	cacheDir := t.TempDir()
-	code, out := runCLI(t, "add", "org.clojure/tools.logging", "1.2.4",
-		"-p", "modules/app", "--cache-dir", cacheDir)
+	now := time.Now().UnixMilli()
+	hour := time.Hour.Milliseconds()
+	// A per-test file repo serves the coordinate under test, with a
+	// fresh release inside the 48h cooldown: the versionless update must
+	// pick the newest eligible version (1.0.1), not the fresh one.
+	url := fileMavenRepo(t, "com.rig.test", "update-latest", map[string]int64{
+		"1.0.0": now - 100*hour,
+		"1.0.1": now - 49*hour,
+		"1.0.2": now - 2*hour,
+	})
+	// The seeded fixture repo (injected by fixtureSetup) serves the
+	// workspace's other deps; the per-test repo serves this coordinate.
+	// It must be declared in both manifests: update records a shared pool
+	// pin in the root, and the re-lock resolves that override from the
+	// root's own repos.
+	repoEntry := fmt.Sprintf(`{:mvn/repos {"f" {:url %q} "central"`, url)
+	for _, rel := range []string{"deps.edn", "modules/app/deps.edn"} {
+		b, err := os.ReadFile(rel)
+		if err != nil {
+			t.Fatal(err)
+		}
+		injected := strings.Replace(string(b), `{:mvn/repos {"central"`, repoEntry, 1)
+		if injected == string(b) {
+			t.Fatalf("injected repo entry not found in %s: %s", rel, b)
+		}
+		if err := os.WriteFile(rel, []byte(injected), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	const coord = "com.rig.test/update-latest"
+	code, out := runCLI(t, "add", coord, "1.0.0", "-p", "modules/app", "--cache-dir", cacheDir)
 	if code != 0 {
 		t.Fatalf("add exit = %d, want 0; out: %s", code, out)
 	}
-	// No version: bump to the newest eligible one (all old enough for the 48h cooldown).
-	code, out = runCLI(t, "update", "org.clojure/tools.logging", "--cache-dir", cacheDir)
+	// No version: the fresh 1.0.2 is inside the cooldown, so 1.0.1 wins.
+	code, out = runCLI(t, "update", coord, "--cache-dir", cacheDir)
 	if code != 0 {
 		t.Fatalf("update exit = %d, want 0; out: %s", code, out)
+	}
+	if !strings.Contains(out, `set com.rig.test/update-latest "1.0.1"`) {
+		t.Errorf("out missing the 1.0.1 set; out: %s", out)
+	}
+	if !strings.Contains(out, "skipped com.rig.test/update-latest 1.0.2") {
+		t.Errorf("the fresh release was not cooldown-skipped; out: %s", out)
 	}
 	lock, err := lockfile.Load("deps.lock")
 	if err != nil {
 		t.Fatal(err)
 	}
-	v := classpathVersion(t, lock, "modules/app", "org.clojure/tools.logging")
-	if v == "1.2.4" {
-		t.Errorf("update to latest kept the old version; out: %s", out)
-	}
-	if v == "latest" || v == "RELEASE" {
-		t.Errorf("a floating requirement was written, want concrete; got %s", v)
+	if v := classpathVersion(t, lock, "modules/app", coord); v != "1.0.1" {
+		t.Errorf("classpath version = %s, want 1.0.1 (newest eligible, concrete); out: %s", v, out)
 	}
 }
 
 func TestUpdateAlias(t *testing.T) {
 	hotSetup(t)
 	cacheDir := t.TempDir()
-	code, out := runCLI(t, "update", "lambdaisland/kaocha", "1.67.1055",
+	code, out := runCLI(t, "update", "lambdaisland/kaocha", "1.71.1119",
 		"-p", "modules/app", "--alias", "test", "--cache-dir", cacheDir)
 	if code != 0 {
 		t.Fatalf("update exit = %d, want 0; out: %s", code, out)
 	}
 	for _, want := range []string{
-		`modules/app/deps.edn: set lambdaisland/kaocha "1.67.1055"`,
-		`deps.edn: set lambdaisland/kaocha "1.67.1055"`,
+		`modules/app/deps.edn: set lambdaisland/kaocha "1.71.1119"`,
+		`deps.edn: set lambdaisland/kaocha "1.71.1119"`,
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("out missing %q; out: %s", want, out)
@@ -171,7 +204,7 @@ func TestUpdateAlias(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(app), `"1.67.1055"`) {
+	if !strings.Contains(string(app), `"1.71.1119"`) {
 		t.Errorf("alias entry not updated: %s", app)
 	}
 }
@@ -183,12 +216,12 @@ func TestUpdateSharedOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	code, out := runCLI(t, "update", "org.clojure/clojure", "1.12.4",
+	code, out := runCLI(t, "update", "org.clojure/clojure", "1.12.5",
 		"--shared-only", "--cache-dir", cacheDir)
 	if code != 0 {
 		t.Fatalf("update exit = %d, want 0; out: %s", code, out)
 	}
-	if !strings.Contains(out, `deps.edn: set org.clojure/clojure "1.12.4"`) {
+	if !strings.Contains(out, `deps.edn: set org.clojure/clojure "1.12.5"`) {
 		t.Errorf("out missing shared set; out: %s", out)
 	}
 	if strings.Contains(out, "modules/app/deps.edn:") {
@@ -214,7 +247,7 @@ func TestAddLatestRefusedCooldown(t *testing.T) {
 	hotSetup(t)
 	cacheDir := t.TempDir()
 	// A huge workspace cooldown makes every candidate ineligible.
-	writeFile(t, "deps.edn", "{:rig/modules [\"modules/app\"]\n :rig/cooldown \"99999d\"}\n")
+	writeFile(t, "deps.edn", "{:rig/modules [\"modules/app\"]\n :rig/cooldown \"99999d\""+seededRepos()+"}\n")
 	code, out := runCLI(t, "add", "org.clojure/tools.logging", "--cache-dir", cacheDir)
 	if code != 5 {
 		t.Fatalf("exit = %d, want 5 (refused); out: %s", code, out)

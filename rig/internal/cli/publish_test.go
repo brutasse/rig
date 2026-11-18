@@ -69,7 +69,7 @@ func TestPublish(t *testing.T) {
  :rig/uberjar-file "target/app-uber.jar"
  :rig/publish? true
  :rig/publish {:repo "test"}
- :mvn/repos {"test" {:url "`+srv.URL+`"}}
+ `+seededRepos(` "test" {:url "`+srv.URL+`"}`)+`
  :paths ["src"]
  :deps {org.clojure/clojure {:mvn/version "1.11.0"}}
  :aliases
@@ -110,7 +110,7 @@ func TestPublishUnsupportedRepoURL(t *testing.T) {
  :rig/uberjar-file "target/app-uber.jar"
  :rig/publish? true
  :rig/publish {:repo "test"}
- :mvn/repos {"test" {:url "s3p://my-bucket/releases"}}
+ `+seededRepos(` "test" {:url "s3p://my-bucket/releases"}`)+`
  :paths ["src"]
  :deps {org.clojure/clojure {:mvn/version "1.11.0"}}
  :aliases
@@ -157,7 +157,7 @@ func TestPublishBearer(t *testing.T) {
  :rig/uberjar-file "target/app-uber.jar"
  :rig/publish? true
  :rig/publish {:repo "oidc-test"}
- :mvn/repos {"oidc-test" {:url "`+srv.URL+`" :auth :oidc}}
+ `+seededRepos(` "oidc-test" {:url "`+srv.URL+`" :auth :oidc}`)+`
  :paths ["src"]
  :deps {org.clojure/clojure {:mvn/version "1.11.0"}}
  :aliases

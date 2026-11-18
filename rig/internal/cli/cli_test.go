@@ -50,7 +50,9 @@ func TestMain(m *testing.M) {
 	}
 	os.Setenv("RIG_CRAC_DIR", cracDir)
 	defer os.RemoveAll(cracDir)
-	os.Exit(m.Run())
+	code := m.Run()
+	removeSeedDirs()
+	os.Exit(code)
 }
 
 // runCLISubprocess runs the built rig binary as a real subprocess in the
@@ -358,7 +360,7 @@ func TestLockFromResponseOffline(t *testing.T) {
 func TestLockFromResponseRefused(t *testing.T) {
 	resp, _ := json.Marshal(map[string]any{
 		"lock":    lockfile.ForTest("."),
-		"refused": []map[string]any{{"coord": "a/b", "reason": "cooldown"}},
+		"refused": []map[string]any{{"coord": "a/b", "reason": "cooldown", "cooldown": "48h"}},
 	})
 	_, err := lockFromResponse(context.Background(), fetch.New(false), cache.NewAt(t.TempDir()), t.TempDir(), testKernelJar(t), resp)
 	var ee *exitError

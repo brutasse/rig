@@ -111,6 +111,14 @@ test: dev check
 	cd rig && RIG_TEST_KERNEL_JAR=$(abspath $(JAR)) RIG_TEST_RUNNER_JAR=$(abspath $(RUNNER)) \
 		go test $(shell cd rig && go list ./... | grep -v 'internal/cli$$')
 
+# fixture-pins: keep the Go suite's fixture pin set
+# (rig/internal/cli/testdata/pins.json) in sync with upstream — by default
+# it verifies every pinned artifact byte against its sha256, and
+# ADD=group/name:version resolves a new coordinate's closure into the set
+# (run it when a test fixture's pinned versions change).
+fixture-pins:
+	scripts/sync-testdata-pins $(if $(ADD),--add $(ADD))
+
 # test-pier: Pier E2E — rig lock/publish/check against a live OIDC-gated
 # Maven repo. The Pier test env must be running (see the checkout's .scratch:
 # fake OIDC issuer on :8090, pier on :8089, S3 on :9000).
@@ -205,4 +213,4 @@ image: release
 		--build-arg TARGETARCH=$$arch \
 		-t $(IMAGE):local .
 
-.PHONY: dev embed kernel lock-refresh prepare rig check test test-pier run release release-binaries image
+.PHONY: dev embed kernel lock-refresh prepare rig check test test-pier fixture-pins run release release-binaries image
