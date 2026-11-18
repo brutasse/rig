@@ -47,13 +47,26 @@
              {:rig/friendly? true})
     e))
 
-(defn- repos-of
+(defn repos-of
   "The module's repos: the standard repos (any redeclared id replaced by the
   manifest's entry) plus every :mvn/repos entry."
   [data]
   (into (versions/standard-repos-of (get data :mvn/repos {}))
         (for [[id sp] (sort-by key (get data :mvn/repos {}))]
           [id sp])))
+
+(defn basis-project
+  "The manifest map as a tools.deps :project source: :mvn/repos always the
+  manifest's entries plus the standard repos (any redeclared id replaced),
+  the conventional :paths default (declared :paths win), validated and
+  canonicalized — the same construction every rig basis goes through, so
+  the lock and the tree resolve from identical project maps."
+  [data dir]
+  (-> data
+      (assoc :mvn/repos (into {} (repos-of data)))
+      (update :paths (fn [p] (or p ["src"])))
+      (depsedn/validate {:path (str (io/file dir "deps.edn"))})
+      (depsedn/canonicalize {:path (str (io/file dir "deps.edn"))})))
 
 (defn resolve-basis
   "The module's basis. project-config is the manifest map (or nil to read
@@ -82,12 +95,7 @@
                 project-config
                 (depsedn/read-deps (io/file dir (or project-config "deps.edn"))))]
       (td/create-basis {:dir (io/file dir)
-                        :project (when edn
-                                   (-> edn
-                                       (assoc :mvn/repos (into {} (repos-of edn)))
-                                       (update :paths (fn [p] (or p ["src"])))
-                                       (depsedn/validate {:path (str (io/file dir "deps.edn"))})
-                                       (depsedn/canonicalize {:path (str (io/file dir "deps.edn"))})))
+                        :project (when edn (basis-project edn dir))
                         :root nil
                         :user nil
                         :aliases aliases
@@ -135,7 +143,7 @@
                 :when (and (string? v) (not (contains? declared (qualify-sym c))))]
             [(qualify-sym c) {:mvn/version v}]))))
 
-(defn- root-injected-deps
+(defn root-injected-deps
   "The libs tools.deps injects into every :local/root manifest: the local
   extension unconditionally merges (root-deps) into the local manifest, and
   in a plain process root-deps is the deps.edn bundled inside the
@@ -146,7 +154,7 @@
     (vec (keys (get (depsedn/root-deps) :deps {})))
     (catch Exception _ [])))
 
-(defn- with-local-exclusions
+(defn with-local-exclusions
   "data with :exclusions (the root-deps-injected libs) added to every
   :local/root entry of :deps and of each alias's :extra-deps/:replace-deps,
   cutting the injected libs from the basis before resolution. Absent
