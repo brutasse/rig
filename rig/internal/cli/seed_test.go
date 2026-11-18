@@ -19,9 +19,10 @@ import (
 )
 
 // pin is one pinned fixture artifact: its Maven coordinate, the pinned
-// jar's sha256, and the upstream URL the bytes are fetched from on a
-// cold machine. The pins are the integrity gate of the seeded repo: a
-// download that does not hash to the pin fails the suite.
+// bytes' sha256 (the jar's — or the pom's, for a pom-only pin whose
+// upstream ends in .pom), and the upstream URL the bytes are fetched
+// from on a cold machine. The pins are the integrity gate of the seeded
+// repo: a download that does not hash to the pin fails the suite.
 type pin struct {
 	Coord    string `json:"coord"`
 	Version  string `json:"version"`
@@ -120,6 +121,23 @@ func seedRepo() error {
 		byCoord[e.Coord] = append(byCoord[e.Coord], e.Version)
 		vdir := filepath.Join(dir, strings.ReplaceAll(g, ".", "/"), n, e.Version)
 		jar, pom := filepath.Join(vdir, n+"-"+e.Version+".jar"), filepath.Join(vdir, n+"-"+e.Version+".pom")
+		// Pom-only pin (upstream ends in .pom, e.g. a parent pom): the pom
+		// is the artifact and its hash is the gate; no jar, no jar.sha1.
+		if strings.HasSuffix(e.Upstream, ".pom") {
+			if ok, err := hashFileSHA256(pom); err == nil && ok == e.SHA256 {
+				continue
+			}
+			if err := os.MkdirAll(vdir, 0o755); err != nil {
+				return err
+			}
+			if err := fetchPinned(client, e.Upstream, pom, e.SHA256); err != nil {
+				return err
+			}
+			if err := writeSHA1(pom); err != nil {
+				return err
+			}
+			continue
+		}
 		if ok, err := hashFileSHA256(jar); err == nil && ok == e.SHA256 && statOK(pom) {
 			continue
 		}
@@ -174,7 +192,8 @@ func seedRepo() error {
 }
 
 // fetchPinned downloads url to path (atomically) and fails when the
-// bytes do not hash to want.
+// bytes do not hash to want. Central rate-limits (429): back off
+// between retries.
 func fetchPinned(client *http.Client, url, path, want string) error {
 	var last error
 	for i := 0; i < 3; i++ {
@@ -186,6 +205,9 @@ func fetchPinned(client *http.Client, url, path, want string) error {
 		if resp.StatusCode != http.StatusOK {
 			resp.Body.Close()
 			last = fmt.Errorf("%s: status %d", url, resp.StatusCode)
+			if resp.StatusCode == http.StatusTooManyRequests && i < 2 {
+				time.Sleep(time.Duration(5*(i+1)) * time.Second)
+			}
 			continue
 		}
 		tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".*.tmp")
@@ -214,7 +236,8 @@ func fetchPinned(client *http.Client, url, path, want string) error {
 
 // fetchUnpinned downloads url to path (atomically). Pom bytes carry no
 // pin: the jar's hash is the gate, and a pom is only read for
-// resolution, never trusted for behavior.
+// resolution, never trusted for behavior. Central rate-limits (429):
+// back off between retries.
 func fetchUnpinned(client *http.Client, url, path string) error {
 	var last error
 	for i := 0; i < 3; i++ {
@@ -226,6 +249,9 @@ func fetchUnpinned(client *http.Client, url, path string) error {
 		if resp.StatusCode != http.StatusOK {
 			resp.Body.Close()
 			last = fmt.Errorf("%s: status %d", url, resp.StatusCode)
+			if resp.StatusCode == http.StatusTooManyRequests && i < 2 {
+				time.Sleep(time.Duration(5*(i+1)) * time.Second)
+			}
 			continue
 		}
 		tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".*.tmp")

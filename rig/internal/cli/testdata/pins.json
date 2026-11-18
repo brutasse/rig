@@ -239,6 +239,96 @@
    "version": "1.3.0",
    "sha256": "826969b78d9ada327de6b7da0f176457d95614fa38c280326610f31a6b515c91",
    "upstream": "https://repo.maven.apache.org/maven2/org/clojure/tools.logging/1.3.0/tools.logging-1.3.0.jar"
+  },
+  {
+   "coord": "org.clojure/clojure",
+   "version": "1.10.3",
+   "sha256": "7f12472daed8f6b517498aaa2ab13a562475c3edf51478e4581cc761e98979a3",
+   "upstream": "https://repo.maven.apache.org/maven2/org/clojure/clojure/1.10.3/clojure-1.10.3.jar"
+  },
+  {
+   "coord": "org.clojure/core.specs.alpha",
+   "version": "0.2.56",
+   "sha256": "fcf442bde02b04a863f2fcc58ee6a2a30c4cf0c970f7dab85634f0ab711166b6",
+   "upstream": "https://repo.maven.apache.org/maven2/org/clojure/core.specs.alpha/0.2.56/core.specs.alpha-0.2.56.jar"
+  },
+  {
+   "coord": "org.clojure/spec.alpha",
+   "version": "0.2.194",
+   "sha256": "cf6899f985298c64b13ea129946ad9028dee8dadf0eab9ae18e455027d38249c",
+   "upstream": "https://repo.maven.apache.org/maven2/org/clojure/spec.alpha/0.2.194/spec.alpha-0.2.194.jar"
+  },
+  {
+   "coord": "org.clojure/pom.contrib",
+   "version": "0.3.0",
+   "sha256": "7f182b3b2a543e057460bf93ffc5e9cef6ac527df1a1376a7d9922ebe79ef119",
+   "upstream": "https://repo.maven.apache.org/maven2/org/clojure/pom.contrib/0.3.0/pom.contrib-0.3.0.pom"
+  },
+  {
+   "coord": "org.clojure/pom.contrib",
+   "version": "1.1.0",
+   "sha256": "10ece4bb5f9829010dc16561f42ebb83baf2f47605b51f9105b92f3caa089715",
+   "upstream": "https://repo.maven.apache.org/maven2/org/clojure/pom.contrib/1.1.0/pom.contrib-1.1.0.pom"
+  },
+  {
+   "coord": "org.clojure/pom.contrib",
+   "version": "0.2.2",
+   "sha256": "e0ea227c49c5c3e30754cd26fcc57be7e4de973fe43aa5cc6667401ec5c10323",
+   "upstream": "https://repo.maven.apache.org/maven2/org/clojure/pom.contrib/0.2.2/pom.contrib-0.2.2.pom"
+  },
+  {
+   "coord": "org.clojure/pom.contrib",
+   "version": "1.2.0",
+   "sha256": "0916d7a41558b9500a427c886fa29827ace5259206be3ad33e64e296fc1a6111",
+   "upstream": "https://repo.maven.apache.org/maven2/org/clojure/pom.contrib/1.2.0/pom.contrib-1.2.0.pom"
+  },
+  {
+   "coord": "org.slf4j/slf4j-parent",
+   "version": "1.7.30",
+   "sha256": "11647956e48a0c5bfb3ac33f6da7e83f341002b6857efd335a505b687be34b75",
+   "upstream": "https://repo.maven.apache.org/maven2/org/slf4j/slf4j-parent/1.7.30/slf4j-parent-1.7.30.pom"
+  },
+  {
+   "coord": "org.clojure/pom.contrib",
+   "version": "1.0.0",
+   "sha256": "1011faae5c9e496858e4c650ba33713abd469a5d52e00aeb7f5b01a2bcaf47e9",
+   "upstream": "https://repo.maven.apache.org/maven2/org/clojure/pom.contrib/1.0.0/pom.contrib-1.0.0.pom"
+  },
+  {
+   "coord": "org.clojure/clojure",
+   "version": "1.8.0",
+   "sha256": "061a7f1fe4f1a6c68852a1e2f407966e9058feb0d77c870f0725e7606fd360a8",
+   "upstream": "https://repo.maven.apache.org/maven2/org/clojure/clojure/1.8.0/clojure-1.8.0.jar"
+  },
+  {
+   "coord": "org.sonatype.oss/oss-parent",
+   "version": "7",
+   "sha256": "b51f8867c92b6a722499557fc3a1fdea77bdf9ef574722fe90ce436a29559454",
+   "upstream": "https://repo.maven.apache.org/maven2/org/sonatype/oss/oss-parent/7/oss-parent-7.pom"
+  },
+  {
+   "coord": "org.clojure/clojure",
+   "version": "1.4.0",
+   "sha256": "4c5e40c9c61294cad83e7cf67ec6614f60b83dc037ceb54546ee1037c26bd6c8",
+   "upstream": "https://repo.maven.apache.org/maven2/org/clojure/clojure/1.4.0/clojure-1.4.0.jar"
+  },
+  {
+   "coord": "org.sonatype.oss/oss-parent",
+   "version": "5",
+   "sha256": "1678d4120a585d8a630131aeec4c524d928398583b7eab616ee7d5a87f520d3d",
+   "upstream": "https://repo.maven.apache.org/maven2/org/sonatype/oss/oss-parent/5/oss-parent-5.pom"
+  },
+  {
+   "coord": "org.clojure/clojure",
+   "version": "1.6.0",
+   "sha256": "1bfad2104f34e44bfe7998000cc7654b86f9dec345944a7d96d702192593ab07",
+   "upstream": "https://repo.maven.apache.org/maven2/org/clojure/clojure/1.6.0/clojure-1.6.0.jar"
+  },
+  {
+   "coord": "org.clojure/clojure",
+   "version": "1.5.1",
+   "sha256": "04c184f977dea1bfc0646e4863c63b58c34b2396cc7a7017c7fbaa8735cd151d",
+   "upstream": "https://repo.maven.apache.org/maven2/org/clojure/clojure/1.5.1/clojure-1.5.1.jar"
   }
  ]
 }

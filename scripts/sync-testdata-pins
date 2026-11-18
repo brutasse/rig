@@ -15,6 +15,10 @@ script is the maintenance path for that pin set:
       resolve the coordinate's closure with the local kernel (a
       throwaway workspace locked against the real repos) and append the
       artifacts missing from the pin set, rewriting pins.json in place.
+      Every pinned artifact's pom is also scanned for a <parent>: the
+      kernel reads descriptors Maven-2 style (a parent's <dependencies>
+      merge into the child), so parent poms are pinned pom-only, or a
+      resolution silently depends on what a machine's ~/.m2 holds.
 
 Environment: RIG (rig binary, default rig/dist/rig), RIG_KERNEL_JAR and
 RIG_RUNNER_JAR (default the resolver targets at the version in
@@ -25,6 +29,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -42,6 +47,34 @@ def sha256(path: Path) -> str:
 def fetch(url: str, dest: Path) -> None:
     with urllib.request.urlopen(url, timeout=90) as r, open(dest, "wb") as f:
         f.write(r.read())
+
+
+def parent_coord(pom_text: str):
+    """(group, name, version) of a pom's <parent>, or None."""
+    m = re.search(r"<parent>(.*?)</parent>", pom_text, re.S)
+    if not m:
+        return None
+    block = m.group(1)
+
+    def tag(name):
+        t = re.search(r"<%s>\s*([^<]+?)\s*</%s>" % (name, name), block)
+        return t.group(1) if t else None
+
+    g, a, v = tag("groupId"), tag("artifactId"), tag("version")
+    return (g, a, v) if (g and a and v) else None
+
+
+def repo_base(url: str, group: str) -> str:
+    """Repo root of a maven-layout URL <base>/<group-path>/<name>/<version>/<file>."""
+    parts = url.split("/")
+    # last 3 components are <name>/<version>/<file>; before them sit the
+    # group's path components (one per dot).
+    idx = len(parts) - 3 - len(group.split("."))
+    return "/".join(parts[:idx])
+
+
+def pom_url(base: str, group: str, name: str, version: str) -> str:
+    return f"{base}/{group.replace('.', '/')}/{name}/{version}/{name}-{version}.pom"
 
 
 def verify() -> int:
@@ -91,15 +124,58 @@ def add(spec: str) -> int:
     pins = json.loads(PINS.read_text())["entries"]
     have = {(e["coord"], e["version"]) for e in pins}
     added = 0
+
+    def add_pin(coord: str, version: str, sha: str, upstream: str, note: str = "") -> None:
+        nonlocal added
+        pins.append({"coord": coord, "version": version,
+                     "sha256": sha, "upstream": upstream})
+        have.add((coord, version))
+        added += 1
+        suffix = f" ({note})" if note else ""
+        print(f"+ {coord} {version}{suffix}")
+
     for a in sorted(lock["artifacts"], key=lambda a: (a["group"] + "/" + a["name"], a["version"])):
         key = (a["group"] + "/" + a["name"], a["version"])
         if key in have:
             continue
-        pins.append({"coord": key[0], "version": key[1],
-                     "sha256": a["sha256"], "upstream": a["url"]})
-        have.add(key)
-        added += 1
-        print(f"+ {key[0]} {key[1]}")
+        add_pin(key[0], key[1], a["sha256"], a["url"])
+
+    # Parent poms: the kernel reads descriptors Maven-2 style — a parent's
+    # <dependencies> merge into the child's — so every parent in the chain
+    # of every pinned artifact must itself be pinned (pom-only), or a
+    # resolution silently depends on what a machine's ~/.m2 holds. Scan
+    # all pins (not just this lock) so the set stays closed.
+    queue = []  # (key, pom url, repo base)
+    for e in pins:
+        if e["upstream"].endswith(".pom"):
+            continue
+        g, n = e["coord"].split("/", 1)
+        base = repo_base(e["upstream"], g)
+        queue.append(((e["coord"], e["version"]), pom_url(base, g, n, e["version"]), base))
+    for a in lock["artifacts"]:
+        base = repo_base(a["url"], a["group"])
+        queue.append(((a["group"] + "/" + a["name"], a["version"]),
+                      pom_url(base, a["group"], a["name"], a["version"]), base))
+    seen = set()
+    while queue:
+        key, url, base = queue.pop()
+        if key in seen:
+            continue
+        seen.add(key)
+        dest = ws / "poms" / f"{key[0].replace('/', '_')}_{key[1]}.pom"
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        if not dest.exists():
+            fetch(url, dest)
+        pc = parent_coord(dest.read_text())
+        if pc is None or (pc[0] + "/" + pc[1], pc[2]) in have:
+            continue
+        pkey = (pc[0] + "/" + pc[1], pc[2])
+        purl = pom_url(base, *pc)
+        pdest = ws / "poms" / f"{pkey[0].replace('/', '_')}_{pkey[1]}.pom"
+        if not pdest.exists():
+            fetch(purl, pdest)
+        add_pin(pkey[0], pkey[1], sha256(pdest), purl, "parent pom")
+        queue.append((pkey, purl, base))
     if added:
         PINS.write_text(json.dumps({"entries": pins}, indent=1) + "\n")
         print(f"{added} added, {len(pins)} total -> {PINS.relative_to(ROOT)}")
