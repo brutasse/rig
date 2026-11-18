@@ -145,7 +145,7 @@ jobs:
         # so the seed is a one-time ~30 MB download. Cache it keyed on the
         # pin set; a pins.json change falls back to the old seed and the
         # seeder only fetches what is missing or re-pinned.
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: rig/internal/cli/testdata/.seeded-repo
           key: rig-seed-${{ hashFiles('rig/internal/cli/testdata/pins.json') }}
