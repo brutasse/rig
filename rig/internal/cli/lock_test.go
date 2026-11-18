@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/brutasse/rig/internal/digest"
 	"github.com/brutasse/rig/internal/jvm"
@@ -59,13 +58,10 @@ func TestLockVerifyEndToEnd(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
 	cacheDir := t.TempDir()
-	writeFile(t, "deps.edn", "{:rig/lib \"example/fixture\" :paths [\"src\"] :deps {org.clojure/clojure {:mvn/version \"1.12.5\"}}}\n")
+	seedTestRepo(t)
+	writeFile(t, "deps.edn", "{:rig/lib \"example/fixture\" :paths [\"src\"] :deps {org.clojure/clojure {:mvn/version \"1.12.5\"}}"+seededRepos()+"}\n")
 
 	code, out := runCLI(t, "lock", "--cache-dir", cacheDir)
-	if code != 0 && strings.Contains(out, "status 429") {
-		time.Sleep(10 * time.Second)
-		code, out = runCLI(t, "lock", "--cache-dir", cacheDir)
-	}
 	if code != 0 {
 		t.Fatalf("lock exit = %d, want 0; out: %s", code, out)
 	}
@@ -149,13 +145,10 @@ func TestLockNamespacedMapDeps(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
 	cacheDir := t.TempDir()
-	writeFile(t, "deps.edn", "{:rig/lib \"example/fixture\" :paths [\"src\"] :deps {org.clojure/clojure #:mvn{:version \"1.12.5\"}}}\n")
+	seedTestRepo(t)
+	writeFile(t, "deps.edn", "{:rig/lib \"example/fixture\" :paths [\"src\"] :deps {org.clojure/clojure #:mvn{:version \"1.12.5\"}}"+seededRepos()+"}\n")
 
 	code, out := runCLI(t, "lock", "--cache-dir", cacheDir)
-	if code != 0 && strings.Contains(out, "status 429") {
-		time.Sleep(10 * time.Second)
-		code, out = runCLI(t, "lock", "--cache-dir", cacheDir)
-	}
 	if code != 0 {
 		t.Fatalf("lock exit = %d, want 0; out: %s", code, out)
 	}
@@ -182,10 +175,6 @@ func TestLockRecordsJVM(t *testing.T) {
 	writeFile(t, "deps.edn", "{:rig/lib \"example/fixture\" :rig/jvm \"21\"}\n")
 
 	code, out := runCLI(t, "lock", "--cache-dir", cacheDir)
-	if code != 0 && strings.Contains(out, "status 429") {
-		time.Sleep(10 * time.Second)
-		code, out = runCLI(t, "lock", "--cache-dir", cacheDir)
-	}
 	if code != 0 {
 		t.Fatalf("lock exit = %d, want 0; out: %s", code, out)
 	}

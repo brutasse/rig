@@ -168,7 +168,7 @@ func TestLockOidcResolvesViaProxy(t *testing.T) {
 	writeAuthYaml(t, "gates:\n  pier:\n    url: "+srv.URL+"\n    well-known: https://idp.example/w\n")
 	t.Setenv("RIG_TOKEN_PIER", "ci-token-123")
 	// example.oidc/fake exists only in the OIDC repo.
-	writeFile(t, "modules/app/deps.edn", "{:rig/lib example/app\n :rig/version \"0.1.0\"\n :rig/main app.core\n :paths [\"src\"]\n :deps {org.clojure/clojure {:mvn/version \"1.11.0\"}\n        example.oidc/fake {:mvn/version \"1.0.0\"}}\n :mvn/repos {\"oidc\" {:url \""+srv.URL+"\" :auth :oidc}}}\n")
+	writeFile(t, "modules/app/deps.edn", "{:rig/lib example/app\n :rig/version \"0.1.0\"\n :rig/main app.core\n :paths [\"src\"]\n :deps {org.clojure/clojure {:mvn/version \"1.11.0\"}\n        example.oidc/fake {:mvn/version \"1.0.0\"}}"+seededRepos(` "oidc" {:url "`+srv.URL+`" :auth :oidc}`)+"}\n")
 	code, out := runCLI(t, "lock", "--cache-dir", t.TempDir())
 	if code != 0 {
 		t.Fatalf("lock exit = %d, want 0; out: %s", code, out)
@@ -265,9 +265,8 @@ func TestLockOidcMultipleGates(t *testing.T) {
 	writeFile(t, "modules/app/deps.edn", "{:rig/lib example/app\n :rig/version \"0.1.0\"\n :rig/main app.core\n :paths [\"src\"]\n"+
 		" :deps {org.clojure/clojure {:mvn/version \"1.11.0\"}\n"+
 		"        example.a/fake {:mvn/version \"1.0.0\"}\n"+
-		"        example.b/fake {:mvn/version \"1.0.0\"}}\n"+
-		" :mvn/repos {\"repoA\" {:url \""+sa.URL+"\" :auth :oidc}\n"+
-		"               \"repoB\" {:url \""+sb.URL+"\" :auth :oidc}}}\n")
+		"        example.b/fake {:mvn/version \"1.0.0\"}}"+
+		seededRepos(` "repoA" {:url "`+sa.URL+`" :auth :oidc}`, ` "repoB" {:url "`+sb.URL+`" :auth :oidc}`)+"}\n")
 	code, out := runCLI(t, "lock", "--cache-dir", t.TempDir())
 	if code != 0 {
 		t.Fatalf("lock exit = %d, want 0; out: %s", code, out)

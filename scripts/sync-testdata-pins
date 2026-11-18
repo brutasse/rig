@@ -1,0 +1,122 @@
+#!/usr/bin/env python3
+"""Verify (and extend) the Go suite's fixture pins.
+
+The suite's seeded maven repo (rig/internal/cli/testdata/.seeded-repo,
+gitignored) is built from rig/internal/cli/testdata/pins.json on a cold
+machine: every artifact byte is sha256-pinned, the integrity gate. This
+script is the maintenance path for that pin set:
+
+  scripts/sync-testdata-pins
+      verify: download every pinned artifact from its upstream and check
+      the sha256. Fails on any mismatch — these are immutable, so a
+      changed hash is a real incident, not a re-pin.
+
+  scripts/sync-testdata-pins --add group/name:version
+      resolve the coordinate's closure with the local kernel (a
+      throwaway workspace locked against the real repos) and append the
+      artifacts missing from the pin set, rewriting pins.json in place.
+
+Environment: RIG (rig binary, default rig/dist/rig), RIG_KERNEL_JAR and
+RIG_RUNNER_JAR (default the resolver targets at the version in
+resolver/VERSION).
+"""
+
+import argparse
+import hashlib
+import json
+import os
+import subprocess
+import sys
+import tempfile
+import urllib.request
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+PINS = ROOT / "rig" / "internal" / "cli" / "testdata" / "pins.json"
+
+
+def sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def fetch(url: str, dest: Path) -> None:
+    with urllib.request.urlopen(url, timeout=90) as r, open(dest, "wb") as f:
+        f.write(r.read())
+
+
+def verify() -> int:
+    pins = json.loads(PINS.read_text())["entries"]
+    tmp = Path(tempfile.mkdtemp(prefix="rig-pins-verify-"))
+    bad = 0
+    for i, e in enumerate(pins, 1):
+        g, n = e["coord"].split("/")
+        dest = tmp / f"{g}.{n}-{e['version']}.jar"
+        try:
+            fetch(e["upstream"], dest)
+        except Exception as ex:
+            print(f"FAIL {e['coord']} {e['version']}: {ex}", file=sys.stderr)
+            bad += 1
+            continue
+        got = sha256(dest)
+        if got != e["sha256"]:
+            print(f"FAIL {e['coord']} {e['version']}: {got} != {e['sha256']}", file=sys.stderr)
+            bad += 1
+        else:
+            print(f"ok {i:2d}/{len(pins)} {e['coord']} {e['version']}")
+    return 1 if bad else 0
+
+
+def add(spec: str) -> int:
+    parts = spec.split(":")
+    if len(parts) != 2 or "/" not in parts[0] or not parts[1]:
+        print(f"FAIL: bad spec {spec!r}, want group/name:version", file=sys.stderr)
+        return 2
+    coord, version = parts
+    rig = os.environ.get("RIG", str(ROOT / "rig" / "dist" / "rig"))
+    v = (ROOT / "resolver" / "VERSION").read_text().strip()
+    jar = os.environ.get("RIG_KERNEL_JAR", str(ROOT / "resolver" / "target" / f"rig-resolver-{v}.jar"))
+    runner = os.environ.get(
+        "RIG_RUNNER_JAR", str(ROOT / "resolver" / "runner" / "target" / f"rig-runner-{v}.jar"))
+    ws = Path(tempfile.mkdtemp(prefix="rig-pins-ws-"))
+    (ws / "deps.edn").write_text("{:deps {" + coord + ' {:mvn/version "' + version + '"}}}\n')
+    env = dict(os.environ, RIG_KERNEL_JAR=jar, RIG_RUNNER_JAR=runner)
+    proc = subprocess.run(
+        [rig, "lock", "--cache-dir", str(ws / "cache")],
+        cwd=ws, env=env, capture_output=True, text=True)
+    if proc.returncode != 0:
+        sys.stderr.write(proc.stdout + proc.stderr)
+        print(f"FAIL: lock of {coord} {version} failed", file=sys.stderr)
+        return 1
+    lock = json.loads((ws / "deps.lock").read_text())
+    pins = json.loads(PINS.read_text())["entries"]
+    have = {(e["coord"], e["version"]) for e in pins}
+    added = 0
+    for a in sorted(lock["artifacts"], key=lambda a: (a["group"] + "/" + a["name"], a["version"])):
+        key = (a["group"] + "/" + a["name"], a["version"])
+        if key in have:
+            continue
+        pins.append({"coord": key[0], "version": key[1],
+                     "sha256": a["sha256"], "upstream": a["url"]})
+        have.add(key)
+        added += 1
+        print(f"+ {key[0]} {key[1]}")
+    if added:
+        PINS.write_text(json.dumps({"entries": pins}, indent=1) + "\n")
+        print(f"{added} added, {len(pins)} total -> {PINS.relative_to(ROOT)}")
+    else:
+        print("pin set already complete")
+    return 0
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("--add", metavar="GROUP/NAME:VERSION",
+                    help="resolve the coordinate's closure and add missing pins")
+    args = ap.parse_args()
+    if args.add:
+        return add(args.add)
+    return verify()
+
+
+if __name__ == "__main__":
+    sys.exit(main())

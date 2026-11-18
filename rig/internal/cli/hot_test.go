@@ -3,11 +3,14 @@ package cli
 import (
 	"archive/zip"
 	"context"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -59,8 +62,10 @@ func runnerJarPath(t *testing.T) string {
 
 // fixtureSetup overrides the kernel and runner with the locally built
 // jars (the two local overrides always travel together), copies the named
-// testdata fixture workspace into a fresh dir, and chdirs into it. It
-// skips when java or the jars are unavailable.
+// testdata fixture workspace into a fresh dir, and chdirs into it. The
+// copied workspace is pointed at the seeded fixture maven repo (the real
+// Central and Clojars stay out of the suite). It skips when java, the
+// jars, or the seed are unavailable.
 func fixtureSetup(t *testing.T, fixture string) {
 	t.Helper()
 	jar := kernelJarPath(t)
@@ -73,11 +78,118 @@ func fixtureSetup(t *testing.T, fixture string) {
 		os.Unsetenv("RIG_KERNEL_JAR")
 		os.Unsetenv("RIG_RUNNER_JAR")
 	})
+	seedTestRepo(t)
+	src := fixture
+	if fixture == "testdata/hot" {
+		p, err := hotPrimal(t)
+		if err != nil {
+			t.Skipf("hot primal: %v", err)
+		}
+		src = p
+	}
 	dst := t.TempDir()
-	if err := copyTree(fixture, dst); err != nil {
+	if err := copyTree(src, dst); err != nil {
 		t.Fatal(err)
 	}
+	if fixture != "testdata/hot" {
+		// The hot fixture's manifests are injected (and locked) once in
+		// buildHotPrimal; every other fixture injects into its own copy.
+		injectFixtureRepos(t, dst)
+	}
 	t.Chdir(dst)
+}
+
+// injectFixtureRepos points every manifest in a copied fixture (the root
+// and each module's) at the seeded fixture repo.
+func injectFixtureRepos(t *testing.T, dir string) {
+	t.Helper()
+	manifests := []string{filepath.Join(dir, "deps.edn")}
+	mods, err := filepath.Glob(filepath.Join(dir, "modules", "*", "deps.edn"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifests = append(manifests, mods...)
+	for _, p := range manifests {
+		b, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(injectRepos(string(b), testRepoURL)), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+var (
+	primalOnce sync.Once
+	primalDir  string
+	primalErr  error
+)
+
+// hotPrimal returns the shared pre-locked hot fixture, built once per
+// suite: the fixture copied with the seeded repo injected and locked
+// with the locally built kernel. Every hot test copies this instead of
+// re-locking: the injected manifests are byte-identical in every copy,
+// so the lock is current in all of them.
+func hotPrimal(t *testing.T) (string, error) {
+	t.Helper()
+	primalOnce.Do(func() {
+		primalDir, primalErr = buildHotPrimal()
+	})
+	if primalErr != nil {
+		return "", primalErr
+	}
+	return primalDir, nil
+}
+
+func buildHotPrimal() (string, error) {
+	dir, err := os.MkdirTemp("", "rig-hot-primal-")
+	if err != nil {
+		return "", err
+	}
+	registerSeedDir(dir)
+	if err := copyTree(filepath.Join("testdata", "hot"), dir); err != nil {
+		os.RemoveAll(dir)
+		return "", err
+	}
+	for _, rel := range []string{"deps.edn", filepath.Join("modules", "app", "deps.edn")} {
+		p := filepath.Join(dir, rel)
+		b, err := os.ReadFile(p)
+		if err != nil {
+			os.RemoveAll(dir)
+			return "", err
+		}
+		if err := os.WriteFile(p, []byte(injectRepos(string(b), testRepoURL)), 0o644); err != nil {
+			os.RemoveAll(dir)
+			return "", err
+		}
+	}
+	cache, err := os.MkdirTemp("", "rig-hot-primal-cache-")
+	if err != nil {
+		os.RemoveAll(dir)
+		return "", err
+	}
+	registerSeedDir(cache)
+	cmd := exec.Command(rigTestBin, "lock", "--cache-dir", cache)
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		os.RemoveAll(dir)
+		return "", fmt.Errorf("%v; out: %s", err, out)
+	}
+	return dir, nil
+}
+
+// injectRepos returns the manifest content with a :mvn/repos entry as
+// its first entry, both standard repo ids pointed at the seeded fixture
+// repo — for a copied fixture, resolution, metadata and lock never
+// reach the real Central or Clojars.
+func injectRepos(content, repoURL string) string {
+	i := strings.Index(content, "{")
+	if i < 0 {
+		panic("injectRepos: no map in manifest: " + content)
+	}
+	entry := `:mvn/repos {"central" {:url "` + repoURL + `"} "clojars" {:url "` + repoURL + `"}} `
+	return content[:i+1] + entry + content[i+1:]
 }
 
 func hotSetup(t *testing.T) {

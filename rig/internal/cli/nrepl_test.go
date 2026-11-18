@@ -63,12 +63,11 @@ func TestNreplClojureFloor(t *testing.T) {
 	}
 	os.Setenv("RIG_KERNEL_JAR", jar)
 	t.Cleanup(func() { os.Unsetenv("RIG_KERNEL_JAR") })
+	seedTestRepo(t)
 	t.Chdir(t.TempDir())
-	writeFile(t, "deps.edn", "{:rig/lib \"example/floor\" :paths [\"src\"] :deps {org.clojure/clojure {:mvn/version \"1.9.0\"}}}\n")
+	writeFile(t, "deps.edn", "{:rig/lib \"example/floor\" :paths [\"src\"]\n"+
+		" :deps {org.clojure/clojure {:mvn/version \"1.9.0\"}}"+seededRepos()+"}\n")
 	code, out := runCLI(t, "lock", "--cache-dir", t.TempDir())
-	if code != 0 && strings.Contains(out, "status 429") {
-		code, out = runCLI(t, "lock", "--cache-dir", t.TempDir())
-	}
 	if code != 0 {
 		t.Fatalf("lock exit = %d, want 0; out: %s", code, out)
 	}

@@ -7,7 +7,6 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/brutasse/rig/internal/digest"
 	"github.com/brutasse/rig/internal/jvm"
@@ -346,11 +345,13 @@ func TestBuildPrepEndToEnd(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
 	cacheDir := t.TempDir()
+	seedTestRepo(t)
 	writeFile(t, "VERSION", "0.0.1\n")
 	writeFile(t, "deps.edn",
 		`{:rig/lib "example/root"
 	    :rig/main "root"
 	    :rig/modules ["a" "b" "c" "d"]
+`+seededRepos()+`
 	    :deps {org.clojure/clojure {:mvn/version "1.12.5"}
 	            example/a {:local/root "a"}
 	            example/b {:local/root "b"}
@@ -362,21 +363,21 @@ func TestBuildPrepEndToEnd(t *testing.T) {
 	writeFile(t, "src/test_exec.clj", "(ns test-exec\n  (:require [clojure.test :as t]))\n\n(defn exec [opts]\n  (let [ns (symbol (or (:ns opts) \"root-test\"))]\n    (require ns)\n    (let [summary (t/run-tests ns)]\n      (and (zero? (:fail summary 0)) (zero? (:error summary 0))))))\n")
 	writeFile(t, "test/root_test.clj", "(ns root-test\n  (:require [clojure.test :refer :all] [root :as r]))\n(deftest main-works (is (= (r/hello) \"c-java/d-java\")))\n")
 	writeFile(t, "a/deps.edn",
-		"{:rig/lib \"example/a\"\n :deps {org.clojure/clojure {:mvn/version \"1.12.5\"}}\n :deps/prep-lib {:ensure \"target/classes\" :alias :prep :fn prep}\n :aliases {:prep {:extra-paths [\"build\"] :ns-default build}}}\n")
+		"{:rig/lib \"example/a\""+seededRepos()+"\n :deps {org.clojure/clojure {:mvn/version \"1.12.5\"}}\n :deps/prep-lib {:ensure \"target/classes\" :alias :prep :fn prep}\n :aliases {:prep {:extra-paths [\"build\"] :ns-default build}}}\n")
 	// strict single-arg prep fn: a 0-arg invocation fails with an
 	// ArityException and the build errors out
 	writeFile(t, "a/build/build.clj",
 		"(ns build)\n\n(defn prep [_]\n  (clojure.java.io/make-parents (clojure.java.io/file \"target\" \"classes\" \"marker.txt\"))\n  (spit \"target/classes/marker.txt\" \"a\")\n  (spit \"../prep-log\" \"a\\n\" :append true))\n")
 	writeFile(t, "a/src/a.clj", "(ns a)\n")
 	writeFile(t, "b/deps.edn",
-		"{:rig/lib \"example/b\"\n :deps {org.clojure/clojure {:mvn/version \"1.12.5\"}\n        example/a {:local/root \"../a\"}}\n :deps/prep-lib {:ensure \"target/classes\" :alias :prep :fn prep}\n :aliases {:prep {:extra-paths [\"build\"] :ns-default build}}}\n")
+		"{:rig/lib \"example/b\""+seededRepos()+"\n :deps {org.clojure/clojure {:mvn/version \"1.12.5\"}\n        example/a {:local/root \"../a\"}}\n :deps/prep-lib {:ensure \"target/classes\" :alias :prep :fn prep}\n :aliases {:prep {:extra-paths [\"build\"] :ns-default build}}}\n")
 	writeFile(t, "b/build/build.clj",
 		"(ns build)\n\n(defn prep [_]\n  (clojure.java.io/make-parents (clojure.java.io/file \"target\" \"classes\" \"marker.txt\"))\n  (spit \"target/classes/marker.txt\" \"b\")\n  (spit \"../prep-log\" \"b\\n\" :append true))\n")
 	writeFile(t, "b/src/b.clj", "(ns b)\n")
 	// c: declared java sources, no prep-lib — rig javacs it natively.
 	// target/classes flows to the dependents' classpath via :paths.
 	writeFile(t, "c/deps.edn",
-		"{:rig/lib \"example/c\"\n :paths [\"target/classes\"]\n :deps {org.clojure/clojure {:mvn/version \"1.12.5\"}}\n :rig/java-src-dirs [\"java\"]}\n")
+		"{:rig/lib \"example/c\""+seededRepos()+"\n :paths [\"target/classes\"]\n :deps {org.clojure/clojure {:mvn/version \"1.12.5\"}}\n :rig/java-src-dirs [\"java\"]}\n")
 	writeFile(t, "c/java/c/Thing.java", "package c;\n\npublic class Thing {\n  public static String hi() {\n    return \"c-java\";\n  }\n}\n")
 	// d: declared java sources AND a prep fn — the javac runs first, and
 	// the fn asserts the javac'd class is already in place.
@@ -387,10 +388,6 @@ func TestBuildPrepEndToEnd(t *testing.T) {
 	writeFile(t, "d/java/d/Thing.java", "package d;\n\npublic class Thing {\n  public static String hi() {\n    return \"d-java\";\n  }\n}\n")
 
 	code, out := runCLI(t, "lock", "--cache-dir", cacheDir)
-	if code != 0 && strings.Contains(out, "status 429") {
-		time.Sleep(10 * time.Second)
-		code, out = runCLI(t, "lock", "--cache-dir", cacheDir)
-	}
 	if code != 0 {
 		t.Fatalf("lock exit = %d, want 0; out: %s", code, out)
 	}
@@ -554,10 +551,12 @@ func TestCompiledJavaVisibleToCheckTestRun(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
 	cacheDir := t.TempDir()
+	seedTestRepo(t)
 	writeFile(t, "VERSION", "0.0.1\n")
 	writeFile(t, "deps.edn",
 		`{:rig/lib "probe/probe"
 		  :rig/main "probe"
+`+seededRepos()+`
 		  :deps {org.clojure/clojure {:mvn/version "1.12.5"}}
 		  :rig/java-src-dirs ["java"]
 		  :aliases {:test {:extra-paths ["test"] :exec-fn test-exec/exec}}}`+"\n")
@@ -567,10 +566,6 @@ func TestCompiledJavaVisibleToCheckTestRun(t *testing.T) {
 	writeFile(t, "test/probe_test.clj", "(ns probe-test\n  (:require [clojure.test :refer :all] [probe :as p]))\n(deftest hi-works (is (= (p/hi) \"java-hi\")))\n")
 
 	code, out := runCLI(t, "lock", "--cache-dir", cacheDir)
-	if code != 0 && strings.Contains(out, "status 429") {
-		time.Sleep(10 * time.Second)
-		code, out = runCLI(t, "lock", "--cache-dir", cacheDir)
-	}
 	if code != 0 {
 		t.Fatalf("lock exit = %d, want 0; out: %s", code, out)
 	}

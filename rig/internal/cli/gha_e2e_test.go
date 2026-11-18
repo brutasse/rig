@@ -234,11 +234,12 @@ func TestGhaRenegotiatesExpiredToken(t *testing.T) {
 	t.Setenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN", fi.reqTok)
 	t.Setenv("RIG_TOKEN_PIER", "")
 
+	seedTestRepo(t)
 	writeFile(t, "deps.edn",
 		"{:rig/lib \"example/gha-consumer\"\n"+
 			" :deps {org.clojure/clojure {:mvn/version \"1.11.0\"}\n"+
-			"        org.example/gha-e2e {:mvn/version \"RELEASE\"}}\n"+
-			fmt.Sprintf(" :mvn/repos {\"pier\" {:url %q :auth :oidc}}}", repo.ts.URL))
+			"        org.example/gha-e2e {:mvn/version \"RELEASE\"}}"+
+			seededRepos(` "pier" {:url "`+repo.ts.URL+`" :auth :oidc}`)+"}\n")
 	cacheDir := t.TempDir()
 
 	// First lock: rig negotiates the GHA id token from the runner's

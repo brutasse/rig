@@ -138,6 +138,20 @@ jobs:
           make embed
           cd rig && go vet ./...
 
+      - name: Fixture repo seed (cache)
+        # The Go suite seeds rig/internal/cli/testdata/.seeded-repo on a
+        # cold run: the artifact bytes are pinned in
+        # rig/internal/cli/testdata/pins.json (sha256-verified, immutable),
+        # so the seed is a one-time ~30 MB download. Cache it keyed on the
+        # pin set; a pins.json change falls back to the old seed and the
+        # seeder only fetches what is missing or re-pinned.
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: rig/internal/cli/testdata/.seeded-repo
+          key: rig-seed-${{ hashFiles('rig/internal/cli/testdata/pins.json') }}
+          restore-keys: |
+            rig-seed-
+
       - name: Test
         run: make test
 
