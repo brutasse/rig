@@ -251,9 +251,11 @@ when it finds none.
 ### `rig tree`
 
 Print the resolved dependency tree for a module (`-p`), one line per
-occurrence with `├─`/`└─` connectors. Rig marks an occurrence that is not
-in the classpath (conflict, exclusion, duplicate) with its reason.
-`--alias <a>` includes the extra-deps of the alias.
+artifact with `├─`/`└─` connectors. Each line is a locked artifact in the
+module's classpath, and each edge is a POM edge between classpath
+artifacts. The tree shows only selected versions: a version that loses a
+conflict does not appear, and a selected version appears once for each
+chain that carries it. `--alias <a>` includes the extra-deps of the alias.
 
 ### `rig audit`
 

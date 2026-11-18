@@ -155,6 +155,7 @@ com.example/orchestrator:1.0.0-SNAPSHOT
 ```
 
 `rig tree` prints the resolved dependency tree of a module, one line per
-occurrence. Rig marks an occurrence that is not in the classpath (conflict,
-exclusion, duplicate) with its reason. `--alias test` includes the
+locked artifact in its classpath. The tree shows only selected versions: a
+version that loses a conflict does not appear, and a selected version
+appears once for each chain that carries it. `--alias test` includes the
 extra-deps of the test alias.

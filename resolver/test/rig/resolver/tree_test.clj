@@ -1,5 +1,6 @@
 (ns rig.resolver.tree-test
-  (:require [clojure.string :as str]
+  (:require [clojure.java.io :as io]
+            [clojure.string :as str]
             [clojure.test :refer :all]
             [rig.resolver.test-util :refer [delete-tree with-ws start-serving repo-metadata! repo-artifacts! m2-dir-of]]
             [rig.resolver.tree :as tree]
@@ -19,10 +20,102 @@
             "last top-level dep")
         (is (some #(= % "│   ├── org.clojure/spec.alpha:0.5.238") lines)
             "transitive dep under clojure")
-        (is (some #(= % "    │   └── com.fasterxml.jackson.core/jackson-core:2.12.4 (same-version)") lines)
-            "a shared dep is shown under each parent, marked, not expanded")
-        (is (= 2 (count (filter #(re-find #"\(same-version\)$" %) lines)))
-            "…once per parent")))))
+        (is (= 3 (count (filter #(str/ends-with? % "com.fasterxml.jackson.core/jackson-core:2.12.4") lines)))
+            "a shared dep is shown under each chain that carries it")
+        (is (every? #(not (str/includes? % "(")) lines)
+            "every occurrence is on the classpath: no reason annotations")))))
+
+;; --- Classpath consistency: the tree draws exactly the module's classpath
+;; --- as the lock pins it — selected versions only, under every chain that
+;; --- carries them; conflict losers and non-module manifests stay out.
+
+(defn- dep-pom
+  "A maven-layout pom under root for group/name version, one dependency
+   per [name version] entry (group-scoped), plus an empty jar."
+  [root group name version deps]
+  (let [d (io/file root (str/replace group "." "/") name version)]
+    (.mkdirs d)
+    (spit (io/file d (str name "-" version ".pom"))
+          (str "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+               "<project xmlns=\"http://maven.apache.org/POM/4.0.0\">\n"
+               "  <modelVersion>4.0.0</modelVersion>\n"
+               "  <groupId>" group "</groupId>\n"
+               "  <artifactId>" name "</artifactId>\n"
+               "  <version>" version "</version>\n"
+               (when (seq deps)
+                 (str "  <dependencies>\n"
+                      (apply str (for [[dn dv] deps]
+                                   (str "    <dependency>\n"
+                                        "      <groupId>" group "</groupId>\n"
+                                        "      <artifactId>" dn "</artifactId>\n"
+                                        "      <version>" dv "</version>\n"
+                                        "    </dependency>\n")))
+                      "  </dependencies>\n"))
+               "</project>\n"))
+    (spit (io/file d (str name "-" version ".jar")) "")))
+
+(deftest tree-loser-version-not-rendered
+  "A loser version of a conflict does not enter the tree: the tree is the
+   lock's per-module classpath, not the full trace, so no occurrence
+   carries a reason annotation."
+  (let [group "rig.ktest.loser"
+        root (doto (File. (str (System/getProperty "java.io.tmpdir") "/"
+                               (str "rig-tree-loser-" (java.util.UUID/randomUUID))))
+               (.mkdirs) (.deleteOnExit))
+        [base seen srv] (start-serving (str root) nil)
+        m2 (io/file (System/getProperty "user.home") ".m2" "repository"
+                    "rig" "ktest" "loser")]
+    (delete-tree (str m2))
+    (try
+      (do
+        (dep-pom root group "a" "1.0.0" [["shared" "1.0.0"]])
+        (dep-pom root group "b" "1.0.0" [["shared" "2.0.0"]])
+        (dep-pom root group "shared" "1.0.0" [])
+        (dep-pom root group "shared" "2.0.0" [])
+        (with-ws [["deps.edn" (str "{:mvn/repos {\"central\" {:url \"" base "\"} \"clojars\" {:url \"" base "\"}} "
+                                   ":deps {" group "/a {:mvn/version \"1.0.0\"} "
+                                   group "/b {:mvn/version \"1.0.0\"}}}")]]
+          (fn [dir]
+            (let [lines (-> (tree/tree {:workspace dir}) (get "tree") str/split-lines)]
+              (is (some #(str/ends-with? % (str group "/shared:2.0.0")) lines)
+                  "the winning version is rendered")
+              (is (empty? (filter #(str/includes? % (str group "/shared:1.0.0")) lines))
+                  "the loser version does not enter the tree")
+              (is (every? #(not (str/includes? % "(")) lines)
+                  "no occurrence carries a reason annotation")))))
+      (finally
+        (delete-tree (str m2))
+        (delete-tree (str root))
+        (.stop srv 0)))))
+
+(deftest tree-resolves-the-module-alone
+  "The module's manifest alone forms the basis: the root manifest
+   tools.deps ships inside its jar (org.clojure/clojure in its :deps) and
+   the machine's ~/.clojure/deps.edn do not leak into the tree — the
+   lock's per-module classpath carries neither."
+  (let [group "rig.ktest.solo"
+        root (doto (File. (str (System/getProperty "java.io.tmpdir") "/"
+                               (str "rig-tree-solo-" (java.util.UUID/randomUUID))))
+               (.mkdirs) (.deleteOnExit))
+        [base seen srv] (start-serving (str root) nil)
+        _ (repo-artifacts! (str root) group "solo" "1.0.0")
+        m2 (io/file (System/getProperty "user.home") ".m2" "repository"
+                    "rig" "ktest")]
+    (delete-tree (str m2))
+    (try
+      (with-ws [["deps.edn" (str "{:mvn/repos {\"central\" {:url \"" base "\"} \"clojars\" {:url \"" base "\"}} "
+                                 ":deps {" group "/solo {:mvn/version \"1.0.0\"}}}")]]
+        (fn [dir]
+          (let [lines (-> (tree/tree {:workspace dir}) (get "tree") str/split-lines)]
+            (is (= (count lines) 2) "the module's dep and nothing else")
+            (is (some #(str/ends-with? % (str group "/solo:1.0.0")) lines)
+                "the declared dep")
+            (is (not (some #(str/includes? % "org.clojure") lines))
+                "no root-manifest or user-manifest injection")))
+)      (finally
+        (delete-tree (str m2))
+        (delete-tree (str root))
+        (.stop srv 0)))))
 
 (deftest tree-alias
   (with-ws [["deps.edn" "{:deps {org.clojure/clojure {:mvn/version \"1.12.5\"}}
