@@ -264,8 +264,11 @@ audit: 2 known vulnerabilities in 2 of 510 pinned artifacts
 
 com.fasterxml.jackson.core/jackson-databind 2.9.0
   used in ., modules/backend, modules/backend:test
+  pulled in:
+    .: com.fasterxml.jackson.dataformat/jackson-dataformat-xml:2.9.0 → com.fasterxml.jackson.core/jackson-databind:2.9.0
+    modules/backend: modules/backend/lib:0.1.0 → com.fasterxml.jackson.core/jackson-databind:2.9.0
   GHSA-… (CVE-2024-…) Deserialization of untrusted data
-    published 2024-… · severity CVSS_V3 9.8 Critical · fixed in 2.17.1
+    published 2024-… · severity CVSS_V3 9.8 Critical · fixed in 2.17.1 · other series: 2.21.4
 ```
 
 Scan every maven artifact pinned in the workspace lock against the OSV
@@ -276,20 +279,46 @@ is its directory, an alias classpath the `module:alias` pair. Severity
 is the OSV score when the record carries a numeric one, the CVSS base
 score computed from the record's vector string otherwise, with its
 bucket (Critical at 9.0, High at 7.0, Medium at 4.0, Low below); a
-vector that cannot be scored leaves the type alone. Git deps are
+vector that cannot be scored leaves the type alone. Fix versions are
+shown per series: the fixes in the locked version's own
+`major.minor` series first, the other series' fixes marked as
+`other series`. Git deps are
 pinned by commit sha and OSV cannot look them up; they are skipped and
 counted. Artifacts from private repositories (the `:mvn/repos` entries
 other than `central` and `clojars`) are skipped and counted the same
 way; an overridden `central` or `clojars` keeps its name and is scanned
 as the real one. `audit` reads the lock only: it never re-locks, never
-downloads artifacts, and needs no JVM. It exits 1 when any scanned
-artifact has a known vulnerability, 0 when the lock is clean, 3 when
-the lock is missing. `--offline` refuses — the scan needs the network,
+downloads artifacts, and needs no JVM.
+
+Transient OSV failures (a network error, a 5xx, a 429) are retried a
+few times. A scan that still fails exits 4 (`audit: scan failed: …`),
+distinct from "has findings"; a vulnerability record that cannot be
+fetched is skipped — the affected artifact is counted in the summary
+(`…; N artifact record(s) could not be fetched`), the reason is printed
+to stderr, and the rest of the report stands. With findings the exit
+stays 1; with none, an incomplete scan exits 4
+(`audit: scan incomplete: …`). It exits 1 when any scanned artifact
+has a known vulnerability, 0 when the lock is clean, 3 when the lock
+is missing. `--offline` refuses — the scan needs the network,
 so it never joins the hermetic gate (see
-[CI](../workflows/ci.md)). `--json` prints the report on stdout as a
-JSON document (the workspace, the scanned and skipped counts, and the
-findings grouped per artifact with their scopes and severity details,
-including the full vector string); the summary stays on stderr, and
+[CI](../workflows/ci.md)).
+
+`--explain` adds each finding's puller chains: which direct dep pulled
+the artifact in, per scope, walked from the module's dependency trace
+(the same basis as [tree](#rig-tree)) — `pulled in: <scope>: a → b →
+artifact`, one line per chain (a shared dep carries one chain per chain
+that pulls it). The chains need the kernel, a JVM, and the locked
+artifacts in the local maven repository; a scope the kernel cannot walk
+prints a note on stderr and its findings render without chains, and the
+exit code is the scan's, unchanged.
+
+`--json` prints the report on stdout as a
+JSON document (the workspace, the scanned and skipped counts, the
+`failed` count of artifacts a record could not be fetched for, and the
+findings grouped per artifact with their scopes, severity details
+(including the full vector string), the `fixed` versions per series
+(`fixedSeries`: the ones in the locked version's own series), and the
+`chains` of `--explain`); the summary stays on stderr, and
 the exit codes are unchanged.
 
 ### `rig info`
@@ -716,7 +745,7 @@ rig --autocomplete | Invoke-Expression  # PowerShell
 | 1 | failure — build/test/publish/resolve error, or a `check` error |
 | 2 | usage error — bad flag, missing main, module not in the lock, … |
 | 3 | lock problem — missing or stale lock on a command that does not write it |
-| 4 | security failure — artifact hash mismatch / not in the lock |
+| 4 | security failure — artifact hash mismatch / not in the lock; or an `audit` scan that failed or could not complete (OSV unreachable after retries, a record that cannot be fetched) |
 | 5 | cooldown refused — retry with `--force` |
 
 Commands that launch a child process (`run`, `nrepl`, `exec`, `fmt`)

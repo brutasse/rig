@@ -111,11 +111,10 @@
             (is (some #(str/ends-with? % (str group "/solo:1.0.0")) lines)
                 "the declared dep")
             (is (not (some #(str/includes? % "org.clojure") lines))
-                "no root-manifest or user-manifest injection")))
-)      (finally
-        (delete-tree (str m2))
-        (delete-tree (str root))
-        (.stop srv 0)))))
+                "no root-manifest or user-manifest injection"))))      (finally
+                                                                         (delete-tree (str m2))
+                                                                         (delete-tree (str root))
+                                                                         (.stop srv 0)))))
 
 (deftest tree-alias
   (with-ws [["deps.edn" "{:deps {org.clojure/clojure {:mvn/version \"1.12.5\"}}
@@ -188,3 +187,103 @@
         (delete-tree (str m2))
         (delete-tree (str orig-root))
         (delete-tree (str proxy-root))))))
+
+;; --- Explain: the puller chains of requested artifacts, per op ---
+
+(deftest explain-transitive
+  "A target on the classpath reports its chains: the ordered display ids
+   from a direct dep down to it, one per occurrence."
+  (with-ws [["deps.edn" "{:deps {org.clojure/clojure {:mvn/version \"1.12.5\"}}}"]]
+    (fn [dir]
+      (let [target "org.clojure/spec.alpha:0.5.238"
+            chains (get-in (tree/explain {:workspace dir :args {:targets [target]}})
+                           ["chains" target])]
+        (is (some #(= % ["org.clojure/clojure:1.12.5" target]) chains)
+            "the direct dep's own chain, down to the target")
+        (is (every? #(= target (last %)) chains)
+            "every chain ends at the target")
+        (is (every? #(= "org.clojure/clojure:1.12.5" (first %)) chains)
+            "every chain starts at the module's only direct dep")
+        (is (nil? (get-in (tree/explain {:workspace dir
+                                         :args {:targets ["nope/nope:0.0.0"]}})
+                          ["chains" "nope/nope:0.0.0"]))
+            "a target not on the classpath has no chains")))))
+
+(deftest explain-shared-dep-one-chain-per-puller
+  "A dep pulled through several chains carries one chain per chain:
+   a -> shared, a -> mid -> shared, b -> shared."
+  (let [group "rig.ktest.explain"
+        root (doto (File. (str (System/getProperty "java.io.tmpdir") "/"
+                               (str "rig-tree-explain-" (java.util.UUID/randomUUID))))
+               (.mkdirs) (.deleteOnExit))
+        [base _ srv] (start-serving (str root) nil)
+        m2 (io/file (System/getProperty "user.home") ".m2" "repository"
+                    "rig" "ktest" "explain")]
+    (delete-tree (str m2))
+    (try
+      (do
+        (dep-pom root group "a" "1.0.0" [["mid" "1.0.0"] ["shared" "1.0.0"]])
+        (dep-pom root group "b" "1.0.0" [["shared" "1.0.0"]])
+        (dep-pom root group "mid" "1.0.0" [["shared" "1.0.0"]])
+        (dep-pom root group "shared" "1.0.0" [])
+        (with-ws [["deps.edn" (str "{:mvn/repos {\"central\" {:url \"" base "\"} \"clojars\" {:url \"" base "\"}} "
+                                   ":deps {" group "/a {:mvn/version \"1.0.0\"} "
+                                   group "/b {:mvn/version \"1.0.0\"}}}")]]
+          (fn [dir]
+            (let [target (str group "/shared:1.0.0")
+                  chains (-> (tree/explain {:workspace dir :args {:targets [target]}})
+                             (get "chains")
+                             (get target))
+                  id (fn [n] (str group "/" n ":1.0.0"))]
+              (is (= 3 (count chains)) "one chain per chain that pulls shared")
+              (is (some #(= % [(id "a") (id "mid") (id "shared")]) chains)
+                  "the two-step chain through mid")
+              (is (some #(= % [(id "a") (id "shared")]) chains)
+                  "the direct a -> shared chain")
+              (is (some #(= % [(id "b") (id "shared")]) chains)
+                  "the b -> shared chain")))))
+      (finally
+        (delete-tree (str m2))
+        (delete-tree (str root))
+        (.stop srv 0)))))
+
+(deftest explain-alias
+  "An alias extra-dep is a target only with the alias: without it the
+   classpath does not carry the dep, with it the extra-dep is a direct
+   dep (a one-step chain)."
+  (with-ws [["deps.edn" "{:deps {org.clojure/clojure {:mvn/version \"1.12.5\"}}
+                         :aliases {:extra {:extra-deps {cheshire/cheshire {:mvn/version \"5.10.2\"}}}}}"]]
+    (fn [dir]
+      (let [target "cheshire/cheshire:5.10.2"]
+        (is (nil? (get-in (tree/explain {:workspace dir :args {:targets [target]}})
+                          ["chains" target]))
+            "alias dep not on the classpath without the alias")
+        (is (= [[target]] (get-in (tree/explain {:workspace dir
+                                                 :args {:alias "extra" :targets [target]}})
+                                  ["chains" target]))
+            "with the alias, the one-step extra-dep chain")))))
+
+(deftest explain-refuses-floating
+  "Like tree, explain cannot report on a classpath the lock does not
+   pin: a floating version whose only candidate is younger than the
+   cooldown is refused, named, with a pointer at `rig lock`."
+  (let [group "rig.ktest.refuse"
+        root (doto (File. (str (System/getProperty "java.io.tmpdir") "/"
+                               (str "rig-tree-refuse-" (java.util.UUID/randomUUID))))
+               (.mkdirs) (.deleteOnExit))
+        [base _ srv] (start-serving (str root) nil)
+        _ (repo-artifacts! (str root) group "float" "1.0.0")
+        _ (repo-metadata! (str root) group "float" "1.0.0" (System/currentTimeMillis))
+        m2 (m2-dir-of group "float")]
+    (delete-tree (str m2))
+    (try
+      (with-ws [["deps.edn" (str "{:mvn/repos {\"central\" {:url \"" base "\"} \"clojars\" {:url \"" base "\"}} "
+                                 ":deps {" group "/float {:mvn/version \"RELEASE\"}}}")]]
+        (fn [dir]
+          (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                                #"(?s).*cannot resolve floating version.*rig lock.*"
+                                (tree/explain {:workspace dir :args {:targets []}})))))
+      (finally
+        (delete-tree (str m2))
+        (delete-tree (str root))
+        (.stop srv 0)))))

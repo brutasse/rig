@@ -83,6 +83,7 @@
                 :aot-plan #(aot/aot-plan request)
                 :migrate #(migrate/migrate request)
                 :tree #(tree/tree request)
+                :explain #(tree/explain request)
                 :outdated #(outdated/outdated request)
                 :latest #(latest/latest request)
                 :git-procure #(git-sync/procure (get-in request [:args :url])

@@ -65,7 +65,13 @@
                                     vmap))))
             (map-indexed vector kids))))
 
-(defn tree
+(defn- trace-for
+  "The module's dependency trace, with the basis built exactly as the
+  lock builds it (see the ns doc): no root/user manifest, the module's
+  repos, the :rig/deps pool pins, floating requirements pinned to the
+  lock's versions. Returns the calc-trace result plus the manifest and
+  the refused floating versions (an empty seq when the lock covers
+  everything)."
   [request]
   (let [ws (str (:workspace request))
         args (or (:args request) {})
@@ -94,11 +100,6 @@
                  (versions/with-proxy-repos)
                  (resolve/with-local-exclusions (resolve/root-injected-deps))
                  (resolve/basis-project mdir))
-        root (let [lib (manifest/lib data)]
-               (if lib
-                 (str lib (when-let [v (manifest/read-version data mdir ws)]
-                            (str ":" v)))
-                 module))
         trace (do
                 ;; A git dep is a commit pin; refuse the wrong forms before
                 ;; tools.deps' trace sees the manifest (its errors have no
@@ -113,9 +114,57 @@
                                      :user nil
                                      :aliases (when (seq alias) [(keyword alias)])
                                      :args (when (seq pool-ov) {:override-deps pool-ov})}))]
-    (if (seq refused)
-      (throw (ex-info (str "tree: cannot resolve floating version(s): "
-                           (str/join ", " (map (comp str :coord) refused))
-                           " — run `rig lock` (online) to pin them first") {}))
-      (let [t (td-tree/trace->tree trace)]
-        {"tree" (str/join \newline (into [root] (render-lines t "" ws (:vmap trace))))}))))
+    {:ws ws :mdir mdir :module module :data data :trace trace :refused refused}))
+
+(defn- refuse-floating
+  "An op cannot report on a classpath the lock does not pin: name the
+  floating versions and point at `rig lock`."
+  [refused]
+  (when (seq refused)
+    (throw (ex-info (str "cannot resolve floating version(s): "
+                         (str/join ", " (map (comp str :coord) refused))
+                         " — run `rig lock` (online) to pin them first")
+                    {:rig/friendly? true}))))
+
+(defn tree
+  [request]
+  (let [{:keys [ws mdir module data trace refused]} (trace-for request)]
+    (refuse-floating refused)
+    (let [t (td-tree/trace->tree trace)
+          root (let [lib (manifest/lib data)]
+                 (if lib
+                   (str lib (when-let [v (manifest/read-version data mdir ws)]
+                              (str ":" v)))
+                   module))]
+      {"tree" (str/join \newline (into [root] (render-lines t "" ws (:vmap trace))))})))
+
+(defn- walk-chains
+  "Extend `path` (the display ids from a direct dep down to `node`)
+  through `node`'s children, in trace order, keeping only the
+  classpath's occurrences (the render-lines filter): a child whose id
+  is one of `goal` records its chain in `acc`, and is expanded like any
+  other — a shared dep carries one chain per chain that pulls it."
+  [node path ws vmap goal acc]
+  (let [kids (into [] (filter (fn [kid] (on-classpath? vmap (:lib kid) (:coord-id kid) (:reason kid)))
+                              (sort-by :step (vals (:children node)))))]
+    (reduce (fn [acc kid]
+              (let [id (node-id (:lib kid) (:coord kid) ws)
+                    path (conj path id)
+                    acc (if (contains? goal id) (update acc id (fnil conj []) path) acc)]
+                (walk-chains kid path ws vmap goal acc)))
+            acc
+            kids)))
+
+(defn explain
+  "The puller chains of the requested artifacts for one module (and
+  alias): target display id (group/name:version) -> the ordered chains
+  from the module's direct deps down to it, per walk-chains. The same
+  basis as tree — so the chains are one of the lock's per-module
+  (module+alias) classpaths."
+  [request]
+  (let [{:keys [ws trace refused]} (trace-for request)
+        targets (get-in request [:args :targets])]
+    (refuse-floating refused)
+    {"chains" (walk-chains (td-tree/trace->tree trace) [] ws (:vmap trace)
+                           (set (or targets []))
+                           {})}))

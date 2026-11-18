@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -14,6 +15,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/brutasse/rig/internal/cvss"
+	"github.com/brutasse/rig/internal/kernel"
 	"github.com/brutasse/rig/internal/lockfile"
 	"github.com/brutasse/rig/internal/osv"
 	"github.com/brutasse/rig/internal/workspace"
@@ -105,7 +107,7 @@ func scopesOf(ids []string, idx map[string][]string) []string {
 }
 
 func newAuditCmd(o *opts) *cobra.Command {
-	var jsonOut bool
+	var jsonOut, explain bool
 	cmd := &cobra.Command{
 		Use:   "audit",
 		Short: "Scan the lock for known vulnerabilities (OSV)",
@@ -120,30 +122,46 @@ keeps its name and is scanned as the real one.
 
 Severity is the OSV score when the record carries one, the CVSS base
 score computed from the record's vector string otherwise, with its
-bucket (Critical / High / Medium / Low).
+bucket (Critical / High / Medium / Low). Fix versions are shown per
+series: the fixes in the locked version's own series first, the other
+series' fixes marked as such.
 
 audit reads the lock only: it never re-locks, never downloads artifacts,
-and needs no JVM. It exits 1 when any scanned artifact has a known
-vulnerability, 0 when the lock is clean. --offline refuses (the scan
-needs the network). --json prints the report as a JSON document on
-stdout instead of the human-readable report.`,
+and needs no JVM. Transient OSV failures (a network error, a 5xx or
+429) are retried a few times; a scan that still fails exits 4, and a
+vulnerability record that cannot be fetched is noted, its artifact
+counted, and the rest of the report stands. --explain adds each
+finding's puller chains (which direct dep pulled the artifact in, per
+scope); the chains come from the kernel, which needs a JVM and the
+locked artifacts in the local maven repository, and its failures never
+change the scan's exit code.
+
+Exit codes: 0 the lock is clean; 1 known vulnerabilities; 2 usage;
+3 no lock; 4 the scan failed or could not complete. --offline refuses
+(the scan needs the network). --json prints the report as a JSON
+document on stdout instead of the human-readable report.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runAudit(cmd.Context(), o, jsonOut)
+			return runAudit(cmd.Context(), o, jsonOut, explain)
 		},
 	}
 	cmd.Flags().BoolVar(&jsonOut, "json", false,
 		"print the report as a JSON document (stdout), the human-readable report is suppressed")
+	cmd.Flags().BoolVar(&explain, "explain", false,
+		"for each finding, list the chains of direct deps that pull the artifact in (needs the kernel)")
 	return cmd
 }
 
 // auditReport is the --json document: the scanned coordinates, the
-// skipped ones, and the findings grouped per artifact.
+// skipped ones, the findings grouped per artifact, and the count of
+// artifacts a vulnerability record could not be fetched for (absent
+// when the scan completed).
 type auditReport struct {
 	Workspace string          `json:"workspace"`
 	Scanned   int             `json:"scanned"`
 	Skipped   auditSkipped    `json:"skipped"`
 	Findings  []auditArtifact `json:"findings"`
+	Failed    int             `json:"failed,omitempty"`
 }
 
 type auditSkipped struct {
@@ -156,15 +174,25 @@ type auditArtifact struct {
 	Version    string         `json:"version"`
 	Scopes     []string       `json:"scopes"`
 	Vulns      []auditVulnRow `json:"vulnerabilities"`
+	Chains     []auditChain   `json:"chains,omitempty"`
+}
+
+// auditChain is one puller chain of a finding (--explain): the scope
+// (module or module:alias) and the ordered display ids from a direct
+// dep down to the artifact.
+type auditChain struct {
+	Scope string   `json:"scope"`
+	Path  []string `json:"path"`
 }
 
 type auditVulnRow struct {
-	ID        string         `json:"id"`
-	Aliases   []string       `json:"aliases"`
-	Summary   string         `json:"summary"`
-	Published string         `json:"published"`
-	Severity  *auditSeverity `json:"severity"`
-	Fixed     []string       `json:"fixed"`
+	ID          string         `json:"id"`
+	Aliases     []string       `json:"aliases"`
+	Summary     string         `json:"summary"`
+	Published   string         `json:"published"`
+	Severity    *auditSeverity `json:"severity"`
+	Fixed       []string       `json:"fixed"`
+	FixedSeries []string       `json:"fixedSeries,omitempty"`
 }
 
 // auditSeverity is the vuln's severity: the OSV score when the record
@@ -196,7 +224,50 @@ func severityRow(s osv.Severity) *auditSeverity {
 	return out
 }
 
-func runAudit(ctx context.Context, o *opts, jsonOut bool) error {
+// auditBackoffs is the wait between audit attempts: a transient OSV
+// failure (see auditTransient) is retried once per entry, so a scan
+// makes 1+len(auditBackoffs) attempts. Tests zero it.
+var auditBackoffs = []time.Duration{time.Second, 2 * time.Second}
+
+// auditTransient reports whether an OSV error is worth a retry: a
+// network error (no status came back) or a server-side one (5xx, 429).
+// The other statuses are permanent: a 404 is an id the API does not
+// know, and no retry changes it.
+func auditTransient(err error) bool {
+	var se *osv.StatusError
+	if errors.As(err, &se) {
+		return se.Status == http.StatusTooManyRequests || se.Status >= 500
+	}
+	return true
+}
+
+// auditRetry runs fn until it succeeds, a permanent error comes back,
+// or the attempts are spent; transient errors are followed by a wait
+// from auditBackoffs. The last error is returned when all attempts
+// fail.
+func auditRetry(ctx context.Context, fn func() error) error {
+	var err error
+	for i := 0; ; i++ {
+		if i > 0 {
+			select {
+			case <-time.After(auditBackoffs[i-1]):
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+		if err = fn(); err == nil {
+			return nil
+		}
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return err
+		}
+		if !auditTransient(err) || i == len(auditBackoffs) {
+			return err
+		}
+	}
+}
+
+func runAudit(ctx context.Context, o *opts, jsonOut, explain bool) error {
 	root, err := workspace.Find(".")
 	if err != nil {
 		return err
@@ -264,24 +335,49 @@ func runAudit(ctx context.Context, o *opts, jsonOut bool) error {
 		queries[i] = osv.Query{Package: osv.Pkg{Name: strings.ReplaceAll(c.name, "/", ":"), Ecosystem: "Maven"}, Version: c.version}
 	}
 	client := &http.Client{Timeout: 2 * time.Minute}
-	perQuery, err := osv.QueryBatch(ctx, client, osvAPI(), queries)
-	if err != nil {
-		return exitf(1, "audit: %v", err)
+	// The batch is the scan: when it fails after the retries, the scan
+	// failed, full stop (exit 4, distinct from "has findings").
+	var perQuery [][]string
+	if err := auditRetry(ctx, func() error {
+		var e error
+		perQuery, e = osv.QueryBatch(ctx, client, osvAPI(), queries)
+		return e
+	}); err != nil {
+		return exitf(4, "audit: scan failed: %v", err)
 	}
 
 	// The batch carries ids only: fetch each distinct id's full record
-	// once, whatever artifacts it affects.
+	// once, whatever artifacts it affects. A record that cannot be
+	// fetched (permanent error, or a transient one that outlived the
+	// retries) is skipped: the affected artifact is counted, the reason
+	// noted on stderr, and the rest of the report stands.
 	records := make(map[string]*osv.Vulnerability)
+	failedIDs := make(map[string]bool)
+	failedArtifacts := make(map[coord]bool)
+	var failedNotes []string
 	var findings []auditFinding
 	for i, ids := range perQuery {
 		for _, id := range ids {
+			if failedIDs[id] {
+				failedArtifacts[coords[i]] = true
+				continue
+			}
 			v, ok := records[id]
 			if !ok {
-				v, err = osv.Get(ctx, client, osvAPI(), id)
+				var rec *osv.Vulnerability
+				err := auditRetry(ctx, func() error {
+					var e error
+					rec, e = osv.Get(ctx, client, osvAPI(), id)
+					return e
+				})
 				if err != nil {
-					return exitf(1, "audit: %v", err)
+					failedIDs[id] = true
+					failedArtifacts[coords[i]] = true
+					failedNotes = append(failedNotes, fmt.Sprintf("audit: %s: %v", id, err))
+					continue
 				}
-				records[id] = v
+				records[id] = rec
+				v = rec
 			}
 			c := coords[i]
 			findings = append(findings, auditFinding{
@@ -292,7 +388,22 @@ func runAudit(ctx context.Context, o *opts, jsonOut bool) error {
 			})
 		}
 	}
+	if len(failedNotes) > 0 {
+		for _, n := range failedNotes {
+			fmt.Fprintln(os.Stderr, n)
+		}
+	}
+	failedN := len(failedArtifacts)
 	if len(findings) == 0 {
+		if failedN > 0 {
+			report.Failed = failedN
+			if jsonOut {
+				if err := printReport(&report); err != nil {
+					return err
+				}
+			}
+			return exitf(4, "audit: scan incomplete: %d artifact record(s) could not be fetched", failedN)
+		}
 		if jsonOut {
 			return printReport(&report)
 		}
@@ -319,6 +430,12 @@ func runAudit(ctx context.Context, o *opts, jsonOut bool) error {
 	for _, f := range findings {
 		affected[f.coord+"/"+f.version] = true
 	}
+	// The puller chains, one kernel call per scope the findings sit in;
+	// best effort, its failures only cost the "pulled in" lines.
+	var chainsByScope map[string]map[string][][]string
+	if explain {
+		chainsByScope = o.explainFindings(ctx, root, findings)
+	}
 	if !jsonOut {
 		fmt.Printf("audit: %d known vulnerabilities in %d of %d pinned artifacts\n\n",
 			len(findings), len(affected), len(coords))
@@ -335,10 +452,11 @@ func runAudit(ctx context.Context, o *opts, jsonOut bool) error {
 					Version:    f.version,
 					Scopes:     f.scopes,
 					Vulns:      []auditVulnRow{},
+					Chains:     chainsFor(f.coord, f.version, f.scopes, chainsByScope),
 				})
 			}
 			last := &report.Findings[len(report.Findings)-1]
-			last.Vulns = append(last.Vulns, vulnRow(f.vuln))
+			last.Vulns = append(last.Vulns, vulnRow(f.version, f.vuln))
 			continue
 		}
 		// The artifact line and its scopes print once per artifact,
@@ -349,20 +467,31 @@ func runAudit(ctx context.Context, o *opts, jsonOut bool) error {
 			if len(f.scopes) > 0 {
 				fmt.Printf("  used in %s\n", strings.Join(f.scopes, ", "))
 			}
+			if lines := pulledInLines(f.coord, f.version, f.scopes, chainsByScope); len(lines) > 0 {
+				fmt.Println("  pulled in:")
+				for _, l := range lines {
+					fmt.Printf("    %s\n", l)
+				}
+			}
 		}
 		fmt.Printf("  %s%s — %s\n", f.vuln.ID, aliasesOf(f.vuln), f.vuln.Summary)
-		fmt.Printf("    %s\n", metaOf(f.vuln))
+		fmt.Printf("    %s\n", metaOf(f.version, f.vuln))
 	}
 	if jsonOut {
+		report.Failed = failedN
 		if err := printReport(&report); err != nil {
 			return err
 		}
 	}
-	return exitf(1, "audit: %d known vulnerabilities in %d artifact(s)", len(findings), len(affected))
+	note := ""
+	if failedN > 0 {
+		note = fmt.Sprintf("; %d artifact record(s) could not be fetched", failedN)
+	}
+	return exitf(1, "audit: %d known vulnerabilities in %d artifact(s)%s", len(findings), len(affected), note)
 }
 
 // vulnRow is one finding's --json vulnerability entry.
-func vulnRow(v *osv.Vulnerability) auditVulnRow {
+func vulnRow(version string, v *osv.Vulnerability) auditVulnRow {
 	row := auditVulnRow{
 		ID:        v.ID,
 		Aliases:   []string{},
@@ -376,6 +505,7 @@ func vulnRow(v *osv.Vulnerability) auditVulnRow {
 		row.Severity = severityRow(v.Severity[0])
 	}
 	row.Fixed = append(row.Fixed, osv.FixedVersions(v)...)
+	row.FixedSeries = fixedInSeries(version, row.Fixed)
 	return row
 }
 
@@ -396,7 +526,7 @@ func aliasesOf(v *osv.Vulnerability) string {
 
 // metaOf renders the one-line fact row of a finding: publication date,
 // severity, and the fix (or its absence).
-func metaOf(v *osv.Vulnerability) string {
+func metaOf(version string, v *osv.Vulnerability) string {
 	var parts []string
 	if d := publishedDate(v.Published); d != "" {
 		parts = append(parts, "published "+d)
@@ -404,15 +534,196 @@ func metaOf(v *osv.Vulnerability) string {
 	if s := severityOf(v); s != "" {
 		parts = append(parts, s)
 	}
-	switch fixed := osv.FixedVersions(v); len(fixed) {
-	case 0:
-		parts = append(parts, "no fix listed")
-	case 1:
-		parts = append(parts, "fixed in "+fixed[0])
-	default:
-		parts = append(parts, "fixed in "+strings.Join(fixed, ", "))
-	}
+	parts = append(parts, fixText(version, v))
 	return strings.Join(parts, " · ")
+}
+
+// seriesOf is a version's series: its first two dot components
+// ("2.18.6" -> "2.18", "0.2.62" -> "0.2"); a one-component version is
+// its own series.
+func seriesOf(v string) string {
+	parts := strings.SplitN(v, ".", 3)
+	if len(parts) == 1 {
+		return v
+	}
+	return parts[0] + "." + parts[1]
+}
+
+// fixedInSeries keeps the fixed versions in the locked version's
+// series: the upgrades an in-series bump can reach.
+func fixedInSeries(version string, fixed []string) []string {
+	s := seriesOf(version)
+	var out []string
+	for _, f := range fixed {
+		if seriesOf(f) == s {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// fixText renders the fix fact: the fixes in the locked version's own
+// series first, the other series' fixes marked as such.
+func fixText(version string, v *osv.Vulnerability) string {
+	fixed := osv.FixedVersions(v)
+	if len(fixed) == 0 {
+		return "no fix listed"
+	}
+	own := fixedInSeries(version, fixed)
+	var others []string
+	for _, f := range fixed {
+		if !inList(own, f) {
+			others = append(others, f)
+		}
+	}
+	switch {
+	case len(others) == 0:
+		return "fixed in " + strings.Join(own, ", ")
+	case len(own) == 0:
+		return "fixed in " + strings.Join(others, ", ") + " (other series)"
+	default:
+		return "fixed in " + strings.Join(own, ", ") + " · other series: " + strings.Join(others, ", ")
+	}
+}
+
+func inList(list []string, x string) bool {
+	for _, v := range list {
+		if v == x {
+			return true
+		}
+	}
+	return false
+}
+
+// explainFindings asks the kernel for the puller chains of the
+// findings' artifacts, one call per scope the findings sit in (the
+// targets sorted for determinism). Best effort: a scope the kernel
+// cannot walk prints a note on stderr and its findings render without
+// chains.
+func (o *opts) explainFindings(ctx context.Context, root *workspace.Root, findings []auditFinding) map[string]map[string][][]string {
+	// scope -> the artifact display ids (group/name:version) to explain.
+	byScope := make(map[string]map[string]bool)
+	for _, f := range findings {
+		id := f.coord + ":" + f.version
+		for _, s := range f.scopes {
+			m := byScope[s]
+			if m == nil {
+				m = make(map[string]bool)
+				byScope[s] = m
+			}
+			m[id] = true
+		}
+	}
+	if len(byScope) == 0 {
+		return nil
+	}
+	store, err := o.store()
+	if err != nil {
+		return o.noteExplain(err)
+	}
+	jar, err := kernel.Kernel(store)
+	if err != nil {
+		return o.noteExplain(err)
+	}
+	java, _, err := o.pickJava(ctx, store, root)
+	if err != nil {
+		return o.noteExplain(err)
+	}
+	env, err := o.kernelEnv(ctx, root)
+	if err != nil {
+		return o.noteExplain(err)
+	}
+	penv, err := o.kernelProxy(ctx, root)
+	if err != nil {
+		return o.noteExplain(err)
+	}
+	defer o.closeProxy()
+	out := make(map[string]map[string][][]string)
+	scopes := make([]string, 0, len(byScope))
+	for s := range byScope {
+		scopes = append(scopes, s)
+	}
+	sort.Strings(scopes)
+	for _, scope := range scopes {
+		targets := make([]string, 0, len(byScope[scope]))
+		for id := range byScope[scope] {
+			targets = append(targets, id)
+		}
+		sort.Strings(targets)
+		module, alias := splitScope(scope)
+		chains, err := o.kernelExplain(ctx, root, jar, java, module, alias, targets, env, penv)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "audit: explain: %v (scope %s)\n", err, scope)
+			continue
+		}
+		if len(chains) > 0 {
+			out[scope] = chains
+		}
+	}
+	return out
+}
+
+// noteExplain reports a plumbing failure of --explain (best effort, the
+// scan's exit code is untouched).
+func (o *opts) noteExplain(err error) map[string]map[string][][]string {
+	fmt.Fprintf(os.Stderr, "audit: explain: %v\n", err)
+	return nil
+}
+
+// kernelExplain is one kernel explain call: the puller chains of
+// `targets` (display ids, group/name:version) in one scope, module or
+// module:alias. The plumbing (store, jar, java, env) is done by the
+// caller, which serves every scope with one kernel setup and one proxy.
+func (o *opts) kernelExplain(ctx context.Context, root *workspace.Root, jar, java, module, alias string, targets []string, env, penv []string) (map[string][][]string, error) {
+	out, err := kernel.Call(ctx, jar, java, kernel.Request{
+		Op:        "explain",
+		Workspace: root.Dir,
+		Lock:      "deps.lock",
+		Args:      map[string]any{"module": module, "alias": alias, "targets": targets, "offline": o.offline},
+	}, append(env, penv...)...)
+	if err != nil {
+		return nil, err
+	}
+	var parsed struct {
+		Chains map[string][][]string `json:"chains"`
+	}
+	if err := json.Unmarshal(out, &parsed); err != nil {
+		return nil, fmt.Errorf("bad kernel response: %w", err)
+	}
+	return parsed.Chains, nil
+}
+
+// splitScope splits a scope into its module and alias parts (a bare
+// module has an empty alias).
+func splitScope(scope string) (string, string) {
+	m, a, _ := strings.Cut(scope, ":")
+	return m, a
+}
+
+// pulledInLines is an artifact's "pulled in" lines, one per chain,
+// "<scope>: a → b → artifact", the scopes in the finding's order.
+func pulledInLines(coord, version string, scopes []string, byScope map[string]map[string][][]string) []string {
+	id := coord + ":" + version
+	var out []string
+	for _, s := range scopes {
+		for _, c := range byScope[s][id] {
+			out = append(out, s+": "+strings.Join(c, " → "))
+		}
+	}
+	return out
+}
+
+// chainsFor is an artifact's auditChains, one per chain per scope it
+// sits in (only the scopes the kernel answered).
+func chainsFor(coord, version string, scopes []string, byScope map[string]map[string][][]string) []auditChain {
+	id := coord + ":" + version
+	var out []auditChain
+	for _, s := range scopes {
+		for _, c := range byScope[s][id] {
+			out = append(out, auditChain{Scope: s, Path: c})
+		}
+	}
+	return out
 }
 
 // severityOf renders the vuln's severity as "severity <type> <score>
