@@ -29,6 +29,16 @@
       (fn [dir]
         (is (= 4 (main/dispatch {:op "tree" :workspace dir})))))))
 
+(deftest dispatch-audit-fix
+  "audit-fix over dispatch with no targets: 0 with the empty plan document."
+  (with-ws [["deps.edn" "{}"]]
+    (fn [dir]
+      (let [out (with-out-str
+                  (is (= 0 (main/dispatch {:op "audit-fix" :workspace dir}))))
+            result (json/parse-string out false)]
+        (is (= [] (get result "plan")))
+        (is (= [] (get result "applied")))))))
+
 (deftest git-procure-dispatch-codes
   "git-procure over dispatch: a malformed request is 2, a provisionable
   commit is 0 with the ok document, an unknown commit is 1 with the

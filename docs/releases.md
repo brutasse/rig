@@ -4,6 +4,40 @@ Changelog for Rig.
 
 ## Unreleased
 
+### Added
+
+#### `rig audit --fix` applies the fixable findings' fixes
+
+`rig audit --fix` picks each vulnerable coordinate's fix target from
+the fix versions the records list: the newest fix at or above the
+locked version, in the locked version's own major, a fix in a higher
+major only with `--breaking`. It updates in place the pins a manifest
+already carries — a `:deps` entry or a `:rig/deps` pool entry at the
+vulnerable version. A fix only a new `:rig/deps` pool entry would carry
+stands without `--transitive`: the edits in the manifests apply, the
+entry is not written, and the coordinate stands `unfixable`; with
+`--transitive` the entry is written and the re-lock force-pins every
+module. A coordinate a manifest already pins at a clean version stands
+`stale-lock` — its remedy is the re-lock that picks the pin up, not an
+edit. It re-locks once, and verifies the result by re-querying OSV for
+every version the new lock carries of the original findings'
+coordinates. It exits 0 when every finding is fixed and
+verified, 1 when findings remain, 3 when the lock is missing, 4 when
+the scan or the verification is incomplete, and 5 when the re-lock
+refuses a requirement (every edited manifest is restored byte for
+byte). A coordinate with no fix listed, with only a higher-major fix
+without `--breaking`, with only a fix below the locked version, or
+with a fix version the workspace's repositories do not serve
+stands, named `unfixable` with the reason. Findings also carry a
+`note` line where the report can see the pin: a pool entry at the
+vulnerable version (bump it), one at a clean version the lock has not
+picked up (a re-lock), or a coordinate one module pins while another
+pulls it undeclared (only a pool pin reaches the pull). CI keeps the
+bare `rig
+audit`: `--fix` edits manifests and re-locks, so its changes belong
+to a commit you review. [Commands — `rig
+audit`](reference/commands.md#rig-audit).
+
 ## v0.6.0 — 2026-11-17
 
 ### Added

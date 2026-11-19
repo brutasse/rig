@@ -267,6 +267,7 @@ com.fasterxml.jackson.core/jackson-databind 2.9.0
   pulled in:
     .: com.fasterxml.jackson.dataformat/jackson-dataformat-xml:2.9.0 → com.fasterxml.jackson.core/jackson-databind:2.9.0
     modules/backend: modules/backend/lib:0.1.0 → com.fasterxml.jackson.core/jackson-databind:2.9.0
+  note: the :rig/deps pool pins 2.17.1; the lock still carries 2.9.0 — rig lock picks up the pool pin
   GHSA-… (CVE-2024-…) Deserialization of untrusted data
     published 2024-… · severity CVSS_V3 9.8 Critical · fixed in 2.17.1 · other series: 2.21.4
 ```
@@ -287,8 +288,14 @@ pinned by commit sha and OSV cannot look them up; they are skipped and
 counted. Artifacts from private repositories (the `:mvn/repos` entries
 other than `central` and `clojars`) are skipped and counted the same
 way; an overridden `central` or `clojars` keeps its name and is scanned
-as the real one. `audit` reads the lock only: it never re-locks, never
-downloads artifacts, and needs no JVM.
+as the real one. A finding whose pin the report can see carries a
+`note:` line: a `:rig/deps` pool entry at the vulnerable version (bump
+the entry), a pool entry at a clean version the lock has not picked up
+(a plain re-lock), or a coordinate some module pins while another pulls
+it undeclared — the pull only a `:rig/deps` pool pin reaches
+(`--fix --transitive`, or the entry and a re-lock). `audit` reads the
+lock and the manifests only: it never re-locks, never downloads
+artifacts, and needs no JVM.
 
 Transient OSV failures (a network error, a 5xx, a 429) are retried a
 few times. A scan that still fails exits 4 (`audit: scan failed: …`),
@@ -320,6 +327,52 @@ findings grouped per artifact with their scopes, severity details
 (`fixedSeries`: the ones in the locked version's own series), and the
 `chains` of `--explain`); the summary stays on stderr, and
 the exit codes are unchanged.
+
+`--fix` applies the fixable findings' fixes. Rig picks each vulnerable
+coordinate's target from the fix versions the records list: the newest
+fix at or above the locked version, in the locked version's own
+major. A fix in a higher major is a candidate only with `--breaking`;
+SNAPSHOT fixes are never candidates. A pin a manifest already carries —
+a `:deps` entry or a `:rig/deps` pool entry at the vulnerable version —
+is updated in place. A fix only a new `:rig/deps` pool entry would
+carry (the force-pin that reaches a module which pulls the coordinate
+undeclared) stands without `--transitive`: the edits in the manifests
+apply, the pool entry is not written, and the coordinate stands
+`unfixable` with the reason; with `--transitive` the entry is written
+and the re-lock force-pins every module. A coordinate a manifest
+already pins at a clean version stands `stale-lock` — its remedy is the
+re-lock that picks the pin up, not an edit. A coordinate with no fix
+listed, with only a higher-major fix without `--breaking`, with only a
+fix below the locked version, or with a fix version the workspace's
+repositories do not serve stands the same way: the report names it
+`unfixable` with the reason. Rig then re-locks once. The verification
+re-queries OSV for every version the new lock carries of the original
+findings' coordinates. The report lists the vuln ids the re-query no
+longer returns (`fixed`) and the ones it still returns (`remaining`),
+with the note the re-locked state derives for each.
+
+```
+fix: org.clojure/clojure 1.11.0 → 1.12.5
+  used in modules/app, modules/app:test
+  modules/app/deps.edn: set org.clojure/clojure "1.12.5" (deps)
+  fixes: GHSA-… (CVE-…)
+wrote deps.lock: 26 artifacts, 2 modules
+verified: 1 fixed, 0 remaining
+```
+
+The exit is 0 when every finding is fixed and verified, and 1 when
+findings remain after the fix (or when nothing is fixable). It is 3
+when the lock is missing, 4 when the scan is incomplete or the
+verification fails, and 5 when the re-lock refuses a requirement. An
+incomplete scan does not attempt the fix. A refusal is another
+requirement's: `--fix`'s own pins are exempt from the cooldowns. Rig
+restores every manifest it edited, byte for byte. `--fix` needs the
+kernel and a JVM (the re-lock) and the network (OSV). It composes
+with `--explain` and `--json`; the report gains a `fix` section: the
+plan rows, the applied fixes with their edit sites and pool pins, and
+the verification. Keep `rig audit` bare in CI: `--fix` edits
+manifests and re-locks, so its changes belong to a commit you review,
+not to a pipeline step ([CI](../workflows/ci.md)).
 
 ### `rig info`
 

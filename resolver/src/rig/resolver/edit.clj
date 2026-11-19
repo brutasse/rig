@@ -91,20 +91,58 @@
           :else
           rdm)))))
 
-(defn- edit-module-section
-  [ztop coord req alias]
-  (if (nil? alias)
-    (let [dm (or (s/get ztop :deps)
-                 (when req (create-section ztop :deps {coord {:mvn/version req}})))]
-      (when dm (edit-deps-section dm coord req)))
-    (let [am (some-> (s/get ztop :aliases) (s/get (keyword alias)))]
-      (if (nil? am)
-        (throw (ex-info (str "alias :" (str alias) " not found") {}))
-        (let [xdm (or (s/get am :extra-deps)
-                      (when req (create-section am :extra-deps {coord {:mvn/version req}})))]
-          (when xdm (edit-deps-section xdm coord req)))))))
+(defn- edit-section
+  "Edits the coord's requirement in the named section of a manifest node:
+  \"pool\" the root's :rig/deps (string or map entries), else a deps
+  section — \"deps\" (the module's :deps) or an alias section (\"alias-deps\",
+  \"extra-deps\" or \"replace-deps\" under :aliases/<alias>/, which needs
+  the alias). req nil removes the entry. Returns the edited node, or nil
+  when nothing was edited."
+  [zt section alias coord req]
+  (case section
+    "pool"
+    (edit-rig-deps zt coord req)
+
+    (let [owner (if (nil? alias)
+                  zt
+                  (or (some-> (s/get zt :aliases) (s/get (keyword alias)))
+                      (throw (ex-info (str "alias :" (str alias) " not found") {}))))
+          key (case section
+                "deps" :deps
+                "alias-deps" :deps
+                "replace-deps" :replace-deps
+                :extra-deps)
+          dm (or (s/get owner key)
+                 (when req (create-section owner key {coord {:mvn/version req}})))]
+      (when dm (edit-deps-section dm coord req)))))
 
 (defn- rel-deps [m] (if (= m ".") "deps.edn" (str m "/deps.edn")))
+
+(defn apply-edits
+  "Applies [{:file f :coord c :requirement req :section s :alias a} …] to
+  the workspace's manifests (file workspace-relative, section as
+  edit-section) and returns the edit records the edit-dep response
+  carries, one per file actually changed. req nil removes the entry.
+  The audit-fix op uses it for a batch of edits across several files in
+  one call, ahead of its single re-lock."
+  [ws edits]
+  (reduce (fn [records e]
+            (let [f (io/file ws (get e :file))
+                  changed? (edit-file (str f)
+                                      (fn [zt]
+                                        (or (edit-section zt (get e :section)
+                                                          (get e :alias)
+                                                          (symbol (get e :coord))
+                                                          (get e :requirement))
+                                            zt)))]
+              (if changed?
+                (conj records {"file" (get e :file)
+                               "action" (if (nil? (get e :requirement)) "remove" "set")
+                               "coord" (get e :coord)
+                               "requirement" (get e :requirement)})
+                records)))
+          []
+          edits))
 
 (defn- apply-edit
   [request extra-skipped]
@@ -127,7 +165,9 @@
         edits (-> []
                   ;; module manifest (skipped for shared-only edits)
                   (cond-> (and (not shared-only)
-                               (edit-file mod-file (fn [zt] (or (edit-module-section zt coord req alias) zt))))
+                               (edit-file mod-file (fn [zt] (or (edit-section zt (if (nil? alias) "deps" "extra-deps")
+                                                                              alias coord req)
+                                                                zt))))
                     (conj {"file" (rel-deps module)
                            "action" action
                            "coord" coord-str

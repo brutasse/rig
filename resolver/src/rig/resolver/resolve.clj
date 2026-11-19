@@ -313,7 +313,7 @@
       (let [abs (some-> (io/file mdir r) (.getCanonicalPath) str)]
         [(rel abs) abs]))))
 
-(defn- local-modules
+(defn local-modules
   "Every :local/root dir referenced by the module manifests that is not
   itself a workspace module and holds a manifest, as
   {workspace-relative-dir canonical-abs}. Nested references are followed; the

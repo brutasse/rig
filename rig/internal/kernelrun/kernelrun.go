@@ -115,6 +115,7 @@ const (
 var restoreOps = map[string]bool{
 	"resolve": true, "check": true, "tree": true, "explain": true,
 	"outdated": true, "latest": true, "aot-plan": true, "edit-dep": true,
+	"audit-fix": true,
 	"migrate": true, "git-procure": true,
 }
 

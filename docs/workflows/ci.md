@@ -145,4 +145,7 @@ always workspace-wide. `-p` only narrows the namespace-loading stage 3.
   refreshed under your feet; fixing it belongs to the PR that changed the
   requirements;
 - commit `deps.lock` changes from CI — lockfile changes belong to the PR
-  that changed the requirements, where you review them.
+  that changed the requirements, where you review them;
+- run `rig audit --fix` in CI — the fix edits manifests and re-locks;
+  run it in the PR that acts on the findings, and keep the gate the
+  bare `rig audit`.

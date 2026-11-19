@@ -4,12 +4,14 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/brutasse/rig/internal/lockfile"
+	"github.com/brutasse/rig/internal/workspace"
 )
 
 // osvFixture feeds a fake OSV API: batch maps "group:name@version" to the
@@ -774,5 +776,115 @@ func TestAuditPrivateNotCounted(t *testing.T) {
 		if strings.Contains(out, absent) {
 			t.Errorf("out should not contain %q; out: %s", absent, out)
 		}
+	}
+}
+
+// TestAuditPinNote derives the remediation notes of findings from the
+// workspace's manifests and lock: the pool entry pinning the vulnerable
+// version, the pool entry pinning a clean version (the stale lock), a
+// coordinate some module pins while others pull it undeclared — and no
+// note in the plain cases (every locking module declares it, or none
+// does).
+func TestAuditPinNote(t *testing.T) {
+	cases := []struct {
+		name string
+		root string
+		app  string
+		want string
+	}{
+		{
+			name: "pool pins the vulnerable version",
+			root: `{ :rig/modules ["modules/app"] :rig/deps {org.clojure/clojure "1.11.0"} }`,
+			app:  `{ :deps {} }`,
+			want: "bump the pool entry",
+		},
+		{
+			name: "pool pins a clean version",
+			root: `{ :rig/modules ["modules/app"] :rig/deps {org.clojure/clojure "1.12.0"} }`,
+			app:  `{ :deps {} }`,
+			want: "the :rig/deps pool pins 1.12.0; the lock still carries 1.11.0 — rig lock picks up the pool pin",
+		},
+		{
+			name: "declared in one module, pulled undeclared in the other",
+			root: `{ :rig/modules ["modules/app"] }`,
+			app:  `{ :deps {org.clojure/clojure "1.11.0"} }`,
+			want: "a :rig/deps pool pin would force-pin it workspace-wide (--fix --transitive, or add the pool entry and re-lock)",
+		},
+		{
+			name: "declared in every locking module",
+			root: `{ :rig/modules ["modules/app"] :deps {org.clojure/clojure "1.11.0"} }`,
+			app:  `{ :deps {org.clojure/clojure "1.11.0"} }`,
+			want: "",
+		},
+		{
+			name: "declared nowhere",
+			root: `{ :rig/modules ["modules/app"] }`,
+			app:  `{ :deps {} }`,
+			want: "",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			t.Chdir(dir)
+			doc := lockfile.ForTest(".", "modules/app")
+			if err := doc.Save("deps.lock"); err != nil {
+				t.Fatal(err)
+			}
+			writeFile(t, "deps.edn", tc.root+"\n")
+			writeFile(t, filepath.Join("modules", "app", "deps.edn"), tc.app+"\n")
+			root, err := workspace.Find(".")
+			if err != nil {
+				t.Fatal(err)
+			}
+			st := auditPinStateOf(root, root.Lock)
+			if got := st.auditNote("org.clojure/clojure", "1.11.0"); got != tc.want {
+				t.Errorf("note = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// The hot fixture's root manifest gains a :rig/deps pool pin of the fix,
+// the lock still carrying the vulnerable version: the finding's note
+// names the re-lock as its remedy. Bare audit never re-locks — the note
+// is guidance, and it rides on the JSON artifact group too.
+func TestAuditStalePoolNote(t *testing.T) {
+	hotSetup(t)
+	mutateFile(t, "deps.edn", func(s string) string {
+		return strings.Replace(s, ":rig/modules",
+			`:rig/deps {org.clojure/core.rrb-vector "0.1.2"} :rig/modules`, 1)
+	})
+	fix := osvFixture{
+		batch:  map[string][]string{"org.clojure:core.rrb-vector@0.0.14": {"GHSA-rrb-1234-5678"}},
+		detail: map[string]string{"GHSA-rrb-1234-5678": rrbFixRecord},
+	}
+	t.Setenv("RIG_OSV_API", osvServer(t, fix).URL)
+	code, out := runCLI(t, "audit", "--cache-dir", t.TempDir())
+	if code != 1 {
+		t.Fatalf("exit = %d, want 1; out: %s", code, out)
+	}
+	for _, want := range []string{
+		"org.clojure/core.rrb-vector 0.0.14",
+		"note: the :rig/deps pool pins 0.1.2; the lock still carries 0.0.14 — rig lock picks up the pool pin",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("out missing %q; out: %s", want, out)
+		}
+	}
+	code, out = runCLI(t, "audit", "--json", "--cache-dir", t.TempDir())
+	if code != 1 {
+		t.Fatalf("--json exit = %d, want 1; out: %s", code, out)
+	}
+	report := auditJSONDoc(t, out)
+	if len(report.Findings) != 1 {
+		t.Fatalf("findings = %+v, want one artifact group", report.Findings)
+	}
+	a := report.Findings[0]
+	if a.Coordinate != "org.clojure/core.rrb-vector" || a.Version != "0.0.14" {
+		t.Errorf("artifact = %+v", a)
+	}
+	if a.Note == nil || *a.Note != "the :rig/deps pool pins 0.1.2; the lock still carries 0.0.14 — rig lock picks up the pool pin" {
+		t.Errorf("note = %v, want the stale pool note", a.Note)
 	}
 }

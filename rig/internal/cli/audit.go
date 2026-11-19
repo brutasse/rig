@@ -107,7 +107,7 @@ func scopesOf(ids []string, idx map[string][]string) []string {
 }
 
 func newAuditCmd(o *opts) *cobra.Command {
-	var jsonOut, explain bool
+	var jsonOut, explain, fix, breaking, transitive bool
 	cmd := &cobra.Command{
 		Use:   "audit",
 		Short: "Scan the lock for known vulnerabilities (OSV)",
@@ -126,6 +126,12 @@ bucket (Critical / High / Medium / Low). Fix versions are shown per
 series: the fixes in the locked version's own series first, the other
 series' fixes marked as such.
 
+A finding whose pin the report can see carries a note line: the root's
+:rig/deps pool entry that pins it — at the vulnerable version (bump the
+entry) or at a clean version the lock has not picked up (a plain
+re-lock) — or a coordinate some module pins while other modules pull it
+undeclared, the pull only a :rig/deps pool pin reaches.
+
 audit reads the lock only: it never re-locks, never downloads artifacts,
 and needs no JVM. Transient OSV failures (a network error, a 5xx or
 429) are retried a few times; a scan that still fails exits 4, and a
@@ -136,12 +142,39 @@ scope); the chains come from the kernel, which needs a JVM and the
 locked artifacts in the local maven repository, and its failures never
 change the scan's exit code.
 
-Exit codes: 0 the lock is clean; 1 known vulnerabilities; 2 usage;
-3 no lock; 4 the scan failed or could not complete. --offline refuses
-(the scan needs the network). --json prints the report as a JSON
-document on stdout instead of the human-readable report.`,
+--fix applies the fixable findings' fixes: each vulnerable coordinate's
+fix is the newest listed one at or above the locked version in the
+locked version's own major (with --breaking, fixes in a higher major
+join). A pin a module manifest already carries is updated in place, and
+a :rig/deps pool entry that pins the vulnerable version is updated the
+same way. A new pool entry — the force-pin that reaches a module which
+pulls the coordinate undeclared — is a new manifest entry: without
+--transitive it stands, whatever the coordinate's other edits do, and
+the in-manifest edits apply alone; with --transitive it is written and
+the re-lock pins every module. The workspace re-locks once, and the fix
+is verified by re-querying OSV for every locked version of the original
+findings' coordinates. When a fix cannot be applied (no fix listed, or
+only a higher major without --breaking, or only a version below the
+locked one, or a fix version no repository serves, or a new pool entry
+without --transitive) the finding is reported as unfixable and stands;
+a coordinate a manifest already pins at a clean version stands
+stale — its remedy is a plain re-lock, not an edit. --fix needs the
+kernel and re-locks: on any failure after the manifests are edited, they
+are restored byte-for-byte and the lock is left as it was.
+
+Exit codes: 0 the lock is clean (or every finding is fixed and
+verified); 1 known vulnerabilities (or findings remain after --fix);
+2 usage; 3 no lock; 4 the scan or the verification failed or could not
+complete; 5 a requirement was refused by cooldowns (--fix's explicit
+pins are cooldown-exempt, a refusal means another floating requirement
+of the workspace). --offline refuses (the scan needs the network).
+--json prints the report as a JSON document on stdout instead of the
+human-readable report (with --fix, a "fix" section).`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if fix {
+				return runAuditFix(cmd.Context(), o, jsonOut, explain, breaking, transitive)
+			}
 			return runAudit(cmd.Context(), o, jsonOut, explain)
 		},
 	}
@@ -149,19 +182,26 @@ document on stdout instead of the human-readable report.`,
 		"print the report as a JSON document (stdout), the human-readable report is suppressed")
 	cmd.Flags().BoolVar(&explain, "explain", false,
 		"for each finding, list the chains of direct deps that pull the artifact in (needs the kernel)")
+	cmd.Flags().BoolVar(&fix, "fix", false,
+		"apply the fixable findings' fixes, re-lock once, and verify by re-querying OSV (needs the kernel)")
+	cmd.Flags().BoolVar(&breaking, "breaking", false,
+		"with --fix, accept fixes in a higher major than the locked version")
+	cmd.Flags().BoolVar(&transitive, "transitive", false,
+		"with --fix, write the :rig/deps pool pins the fixes need (by default a new pool entry stands)")
 	return cmd
 }
 
 // auditReport is the --json document: the scanned coordinates, the
-// skipped ones, the findings grouped per artifact, and the count of
+// skipped ones, the findings grouped per artifact, the count of
 // artifacts a vulnerability record could not be fetched for (absent
-// when the scan completed).
+// when the scan completed), and, with --fix, the fix section.
 type auditReport struct {
 	Workspace string          `json:"workspace"`
 	Scanned   int             `json:"scanned"`
 	Skipped   auditSkipped    `json:"skipped"`
 	Findings  []auditArtifact `json:"findings"`
 	Failed    int             `json:"failed,omitempty"`
+	Fix       *auditFix       `json:"fix,omitempty"`
 }
 
 type auditSkipped struct {
@@ -175,6 +215,7 @@ type auditArtifact struct {
 	Scopes     []string       `json:"scopes"`
 	Vulns      []auditVulnRow `json:"vulnerabilities"`
 	Chains     []auditChain   `json:"chains,omitempty"`
+	Note       *string        `json:"note,omitempty"`
 }
 
 // auditChain is one puller chain of a finding (--explain): the scope
@@ -267,29 +308,28 @@ func auditRetry(ctx context.Context, fn func() error) error {
 	}
 }
 
-func runAudit(ctx context.Context, o *opts, jsonOut, explain bool) error {
-	root, err := workspace.Find(".")
-	if err != nil {
-		return err
-	}
-	if root.Lock == nil {
-		return exitf(3, "no lock at %s (run 'rig lock')", root.LockPath())
-	}
-	if o.offline {
-		return exitf(1, "offline: 'rig audit' needs the network")
-	}
+// auditCoord is one (coordinate, locked version) pair pinned in the
+// lock.
+type auditCoord struct{ name, version string }
 
+// scanAudit is the OSV scan shared by runAudit and runAuditFix: the
+// pinned public maven coordinates are queried in one batch, each
+// distinct vulnerability id's record is fetched once, and the findings
+// are collected. It fills report (scanned, skipped) and returns the
+// findings and the count of artifacts a vulnerability record could not
+// be fetched for. A batch that fails after the retries is a hard error
+// (exit 4, distinct from "has findings").
+func scanAudit(ctx context.Context, o *opts, root *workspace.Root, report *auditReport) ([]auditFinding, int, error) {
 	// One query per pinned maven coordinate: the same coordinate can be
 	// locked under several extensions or classifiers, and it is one
 	// version either way. Artifacts from private repositories are
 	// skipped before the query (counted), like git deps.
-	type coord struct{ name, version string }
-	seen := make(map[coord]bool)
-	var coords []coord
+	seen := make(map[auditCoord]bool)
+	var coords []auditCoord
 	git, priv := 0, 0
-	idsByCoord := make(map[coord][]string)
+	idsByCoord := make(map[auditCoord][]string)
 	for _, a := range root.Lock.Artifacts {
-		c := coord{a.Group + "/" + a.Name, a.Version}
+		c := auditCoord{a.Group + "/" + a.Name, a.Version}
 		switch a.Kind {
 		case "mvn":
 			if !publicRepo(a.Repository) {
@@ -305,31 +345,9 @@ func runAudit(ctx context.Context, o *opts, jsonOut, explain bool) error {
 			git++
 		}
 	}
+	report.Scanned = len(coords)
+	report.Skipped = auditSkipped{Private: priv, Git: git}
 	scopesOfArtifact := scopeIndex(root.Lock)
-	report := auditReport{
-		Workspace: root.Dir,
-		Scanned:   len(coords),
-		Skipped:   auditSkipped{Private: priv, Git: git},
-		Findings:  []auditArtifact{},
-	}
-	if len(coords) == 0 {
-		if jsonOut {
-			return printReport(&report)
-		}
-		msg := "audit: no maven artifacts to scan"
-		if priv > 0 {
-			msg += fmt.Sprintf(" (%d from private repositories, not audited", priv)
-			if git > 0 {
-				msg += fmt.Sprintf(", %d git dep%s skipped, pinned by commit sha", git, plural(git))
-			}
-			msg += ")"
-		} else if git > 0 {
-			msg += fmt.Sprintf(" (%d git dep%s skipped, pinned by commit sha)", git, plural(git))
-		}
-		fmt.Println(msg)
-		return nil
-	}
-
 	queries := make([]osv.Query, len(coords))
 	for i, c := range coords {
 		queries[i] = osv.Query{Package: osv.Pkg{Name: strings.ReplaceAll(c.name, "/", ":"), Ecosystem: "Maven"}, Version: c.version}
@@ -343,7 +361,7 @@ func runAudit(ctx context.Context, o *opts, jsonOut, explain bool) error {
 		perQuery, e = osv.QueryBatch(ctx, client, osvAPI(), queries)
 		return e
 	}); err != nil {
-		return exitf(4, "audit: scan failed: %v", err)
+		return nil, 0, exitf(4, "audit: scan failed: %v", err)
 	}
 
 	// The batch carries ids only: fetch each distinct id's full record
@@ -353,7 +371,7 @@ func runAudit(ctx context.Context, o *opts, jsonOut, explain bool) error {
 	// noted on stderr, and the rest of the report stands.
 	records := make(map[string]*osv.Vulnerability)
 	failedIDs := make(map[string]bool)
-	failedArtifacts := make(map[coord]bool)
+	failedArtifacts := make(map[auditCoord]bool)
 	var failedNotes []string
 	var findings []auditFinding
 	for i, ids := range perQuery {
@@ -393,29 +411,79 @@ func runAudit(ctx context.Context, o *opts, jsonOut, explain bool) error {
 			fmt.Fprintln(os.Stderr, n)
 		}
 	}
-	failedN := len(failedArtifacts)
-	if len(findings) == 0 {
-		if failedN > 0 {
-			report.Failed = failedN
-			if jsonOut {
-				if err := printReport(&report); err != nil {
-					return err
-				}
-			}
-			return exitf(4, "audit: scan incomplete: %d artifact record(s) could not be fetched", failedN)
+	return findings, len(failedArtifacts), nil
+}
+
+// auditNothingPrinted is the scan's "nothing to scan" print (exit 0).
+func auditNothingPrinted(report *auditReport, jsonOut bool) error {
+	if jsonOut {
+		return printReport(report)
+	}
+	msg := "audit: no maven artifacts to scan"
+	if report.Skipped.Private > 0 {
+		msg += fmt.Sprintf(" (%d from private repositories, not audited", report.Skipped.Private)
+		if report.Skipped.Git > 0 {
+			msg += fmt.Sprintf(", %d git dep%s skipped, pinned by commit sha", report.Skipped.Git, plural(report.Skipped.Git))
 		}
+		msg += ")"
+	} else if report.Skipped.Git > 0 {
+		msg += fmt.Sprintf(" (%d git dep%s skipped, pinned by commit sha)", report.Skipped.Git, plural(report.Skipped.Git))
+	}
+	fmt.Println(msg)
+	return nil
+}
+
+// auditCleanPrinted is the scan's "no findings" print: exit 4 when the
+// scan could not fetch every record, exit 0 when the lock is clean.
+func auditCleanPrinted(report *auditReport, jsonOut bool, failedN int) error {
+	if failedN > 0 {
+		report.Failed = failedN
 		if jsonOut {
-			return printReport(&report)
+			if err := printReport(report); err != nil {
+				return err
+			}
 		}
-		msg := fmt.Sprintf("audit: no known vulnerabilities (%d maven artifact%s", len(coords), plural(len(coords)))
-		if priv > 0 {
-			msg += fmt.Sprintf(", %d from private repositories, not audited", priv)
-		}
-		if git > 0 {
-			msg += fmt.Sprintf(", %d git dep%s skipped", git, plural(git))
-		}
-		fmt.Println(msg + ")")
-		return nil
+		return exitf(4, "audit: scan incomplete: %d artifact record(s) could not be fetched", failedN)
+	}
+	if jsonOut {
+		return printReport(report)
+	}
+	msg := fmt.Sprintf("audit: no known vulnerabilities (%d maven artifact%s", report.Scanned, plural(report.Scanned))
+	if report.Skipped.Private > 0 {
+		msg += fmt.Sprintf(", %d from private repositories, not audited", report.Skipped.Private)
+	}
+	if report.Skipped.Git > 0 {
+		msg += fmt.Sprintf(", %d git dep%s skipped", report.Skipped.Git, plural(report.Skipped.Git))
+	}
+	fmt.Println(msg + ")")
+	return nil
+}
+
+func runAudit(ctx context.Context, o *opts, jsonOut, explain bool) error {
+	root, err := workspace.Find(".")
+	if err != nil {
+		return err
+	}
+	if root.Lock == nil {
+		return exitf(3, "no lock at %s (run 'rig lock')", root.LockPath())
+	}
+	if o.offline {
+		return exitf(1, "offline: 'rig audit' needs the network")
+	}
+
+	report := auditReport{
+		Workspace: root.Dir,
+		Findings:  []auditArtifact{},
+	}
+	findings, failedN, err := scanAudit(ctx, o, root, &report)
+	if err != nil {
+		return err
+	}
+	if report.Scanned == 0 {
+		return auditNothingPrinted(&report, jsonOut)
+	}
+	if len(findings) == 0 {
+		return auditCleanPrinted(&report, jsonOut, failedN)
 	}
 	sort.Slice(findings, func(i, j int) bool {
 		if findings[i].coord != findings[j].coord {
@@ -430,58 +498,25 @@ func runAudit(ctx context.Context, o *opts, jsonOut, explain bool) error {
 	for _, f := range findings {
 		affected[f.coord+"/"+f.version] = true
 	}
+	// The pin state the finding notes derive from: the manifests and
+	// the lock, as scanned.
+	state := auditPinStateOf(root, root.Lock)
 	// The puller chains, one kernel call per scope the findings sit in;
 	// best effort, its failures only cost the "pulled in" lines.
 	var chainsByScope map[string]map[string][][]string
 	if explain {
 		chainsByScope = o.explainFindings(ctx, root, findings)
 	}
-	if !jsonOut {
-		fmt.Printf("audit: %d known vulnerabilities in %d of %d pinned artifacts\n\n",
-			len(findings), len(affected), len(coords))
-	}
-	prev := ""
-	for _, f := range findings {
-		if jsonOut {
-			// The findings are sorted per artifact: a new coordinate
-			// starts a new group, the rest append to it.
-			n := len(report.Findings)
-			if n == 0 || report.Findings[n-1].Coordinate != f.coord || report.Findings[n-1].Version != f.version {
-				report.Findings = append(report.Findings, auditArtifact{
-					Coordinate: f.coord,
-					Version:    f.version,
-					Scopes:     f.scopes,
-					Vulns:      []auditVulnRow{},
-					Chains:     chainsFor(f.coord, f.version, f.scopes, chainsByScope),
-				})
-			}
-			last := &report.Findings[len(report.Findings)-1]
-			last.Vulns = append(last.Vulns, vulnRow(f.version, f.vuln))
-			continue
-		}
-		// The artifact line and its scopes print once per artifact,
-		// whatever vulnerabilities it carries.
-		if f.coord+" "+f.version != prev {
-			prev = f.coord + " " + f.version
-			fmt.Printf("%s %s\n", f.coord, f.version)
-			if len(f.scopes) > 0 {
-				fmt.Printf("  used in %s\n", strings.Join(f.scopes, ", "))
-			}
-			if lines := pulledInLines(f.coord, f.version, f.scopes, chainsByScope); len(lines) > 0 {
-				fmt.Println("  pulled in:")
-				for _, l := range lines {
-					fmt.Printf("    %s\n", l)
-				}
-			}
-		}
-		fmt.Printf("  %s%s — %s\n", f.vuln.ID, aliasesOf(f.vuln), f.vuln.Summary)
-		fmt.Printf("    %s\n", metaOf(f.version, f.vuln))
-	}
 	if jsonOut {
+		groupFindings(&report, findings, chainsByScope, state)
 		report.Failed = failedN
 		if err := printReport(&report); err != nil {
 			return err
 		}
+	} else {
+		fmt.Printf("audit: %d known vulnerabilities in %d of %d pinned artifacts\n\n",
+			len(findings), len(affected), report.Scanned)
+		printFindingsHuman(findings, chainsByScope, state)
 	}
 	note := ""
 	if failedN > 0 {
