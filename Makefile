@@ -156,20 +156,19 @@ prepare:
 	echo "$(V)" > resolver/VERSION
 	cd resolver && $(RIG) lock
 
-# release: package a release — version stamp (prepare), kernel jar, runner
-# jar, cross-compiled binaries with the jars and version stamps embedded,
+# release: package a release — version stamp (prepare), cross-compiled
+# binaries with the freshly built jars and version stamps embedded,
 # SHA256SUMS — in rig/dist/release/. The release workflow publishes that
 # directory and lands the version stamp on main; locally it doubles as a
 # packaging dry-run (clean the worktree afterwards: VERSION, deps.lock).
-# The kernel and runner jars are still published as release assets: older
-# rig binaries (pre-embedding) fetch them at runtime.
+# The kernel and runner jars are build inputs of the binaries, not release
+# artifacts: every rig since v0.4.0 embeds its own jars, and pre-embedding
+# binaries fetch their pinned version's jar from older releases.
 # Usage: make release V=vX.Y.Z
 release: prepare kernel release-binaries
 	mkdir -p rig/dist/release
 	cp rig/dist/rig-linux-amd64 rig/dist/rig-linux-arm64 rig/dist/rig-darwin-amd64 rig/dist/rig-darwin-arm64 rig/dist/release/
-	cp $(JAR) rig/dist/release/
-	cp $(RUNNER) rig/dist/release/
-	cd rig/dist/release && sha256sum rig-linux-amd64 rig-linux-arm64 rig-darwin-amd64 rig-darwin-arm64 rig-resolver-$(V).jar rig-runner-$(V).jar > SHA256SUMS
+	cd rig/dist/release && sha256sum rig-linux-amd64 rig-linux-arm64 rig-darwin-amd64 rig-darwin-arm64 > SHA256SUMS
 	@echo "release artifacts in rig/dist/release/ — publish with:"
 	@echo "  (cd rig/dist/release && sha256sum -c SHA256SUMS) && gh release create $(V) rig/dist/release/*"
 

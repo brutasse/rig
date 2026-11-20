@@ -125,7 +125,7 @@ func versionBelow(v, floor string) bool {
 }
 
 // hot applies the stale-lock policy and prepares the launch environment.
-// needKernel fetches the kernel jar (the rig.fmt entry point lives in it;
+// needKernel materializes the kernel jar (the rig.fmt entry point lives in it;
 // the rig.runner entry point lives in the pin's runner jar, resolved by
 // Pin.Runner where needed).
 func (o *opts) hot(ctx context.Context, needKernel bool) (*hotEnv, error) {
@@ -219,7 +219,7 @@ func (e *hotEnv) gitProcure() classpath.GitProcure {
 	}
 }
 
-// kernelJar returns the kernel jar path, fetching it into the store when
+// kernelJar returns the kernel jar path, materializing it in the store when
 // absent (the hot(ctx, false) callers leave e.kernel empty).
 func (e *hotEnv) kernelJar() (string, error) {
 	if e.kernel != "" {

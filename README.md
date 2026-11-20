@@ -58,7 +58,7 @@ Releasing Rig: tag `vX.Y.Z` and push it. The CI workflow
 (`.github/workflows/ci.yml`) runs the test suite, and once it is green the
 release job builds the kernel jar, cross-compiles the Rig binaries with the
 fresh jars embedded (the version stamps go in via `-ldflags`), publishes
-the binaries + kernel jar + `SHA256SUMS` as
+the binaries + `SHA256SUMS` as
 GitHub release assets, and re-pins the install one-liner sha in this file.
 
 ## JVMs
