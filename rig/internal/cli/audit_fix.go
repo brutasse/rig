@@ -127,7 +127,7 @@ type auditFixRemain struct {
 // findings' vuln ids absent from the re-query (fixed) and the ids the
 // re-query still returns (remaining, with the pair they hit).
 type auditFixVerified struct {
-	Fixed     []string       `json:"fixed"`
+	Fixed     []string         `json:"fixed"`
 	Remaining []auditFixRemain `json:"remaining"`
 }
 
@@ -195,7 +195,7 @@ func (o *opts) auditFixCall(ctx context.Context, root *workspace.Root, targets [
 		Workspace: root.Dir,
 		Lock:      "deps.lock",
 		Args: map[string]any{
-			"targets": targets,
+			"targets":  targets,
 			"breaking": breaking,
 			"offline":  o.offline,
 			"force":    o.force,
@@ -511,10 +511,10 @@ type auditModuleDecls struct {
 // carry each (coordinate, version), and every module manifest's
 // declarations. From it auditNote derives a finding's remediation note.
 type auditPinState struct {
-	pool  map[string]string             // coord -> the pool entry's version ("" when absent)
-	ovr   map[string]string             // coord -> the overrides entry's version ("" when absent)
-	pulls map[auditCoord][]string       // (coord, version) -> the lock modules carrying it
-	decls map[string]*auditModuleDecls  // lock module dir -> its manifest's declarations
+	pool  map[string]string            // coord -> the pool entry's version ("" when absent)
+	ovr   map[string]string            // coord -> the overrides entry's version ("" when absent)
+	pulls map[auditCoord][]string      // (coord, version) -> the lock modules carrying it
+	decls map[string]*auditModuleDecls // lock module dir -> its manifest's declarations
 }
 
 // auditPinStateOf reads the root manifest (its :rig/deps pool and
