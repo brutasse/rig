@@ -48,7 +48,7 @@ jobs:
       - name: Install rig (binary, JVM, cache)
         uses: brutasse/setup-rig@b204f6b12fde6574ebbebe0227fcaaa10391882f # v2.0.0
         with:
-          version: v0.5.1
+          version: v0.6.0
 
       - name: Check and test
         run: |
