@@ -400,8 +400,13 @@
                                                   (for [[id sp] (get-in (or (:data man) {}) [:mvn/repos] {})]
                                                     [id sp]))
                                                 (vals manifests)))]
-                    (into (versions/standard-repos-of (set (map first extra)))
-                          (sort-by first extra)))
+                    ;; Declared repos probe first: the project's own
+                    ;; repositories are the authoritative source of its
+                    ;; artifacts; the standard repos are the fallback.
+                    ;; into conjs: the coll must be a vector, a lazy-seq
+                    ;; coll would prepend the standard repos instead.
+                    (into (vec (sort-by first extra))
+                          (versions/standard-repos-of (set (map first extra)))))
         local-excl (root-injected-deps)
         mres (into {} (for [m (concat module-dirs (keys local-mods))]
                         (let [mdir (get modules-abs m)

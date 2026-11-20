@@ -56,13 +56,57 @@
   [proxy id spec]
   (or (get proxy (str id)) (get spec :url)))
 
+(defn- xml-text
+  "The first string content of the child of node whose tag's local name is
+   tag (a settings.xml may carry the Maven XML namespace)."
+  [node tag]
+  (some (fn [c]
+          (when (= tag (name (:tag c)))
+            (some (fn [x] (when (string? x) x)) (:content c))))
+        (:content node)))
+
+(def ^:dynamic *settings-servers* :unset)
+
+(defn settings-servers
+  "The server credentials of the user-level ~/.m2/settings.xml — the same
+   file Maven, tools.deps and the Go fetcher read for private
+   repositories: a {repo-id [username password]} map, {} when the file is
+   absent or unreadable. Tests bind *settings-servers* (to a map or nil)
+   instead of touching the filesystem."
+  []
+  (if (identical? *settings-servers* :unset)
+    (let [p (io/file (System/getProperty "user.home") ".m2" "settings.xml")]
+      (when (.exists p)
+        (try
+          (into {}
+                (for [node (:content (xml/parse (org.xml.sax.InputSource. (io/reader p))))
+                      :when (= "servers" (name (:tag node)))
+                      s (:content node)
+                      :when (= "server" (name (:tag s)))
+                      :let [id (xml-text s "id")
+                            u (xml-text s "username")
+                            pw (xml-text s "password")]
+                      :when (and id u pw)]
+                  [id [u pw]]))
+          (catch Exception _ {}))))
+    (or *settings-servers* {})))
+
 (defn- with-auth
-  "Sets the bearer Authorization header on conn when the repo spec is marked
-  :auth :oidc and a token for repo-id is available; otherwise no-op."
+  "Sets the Authorization header on conn for repo-id: the bearer token when
+  the repo spec is marked :auth :oidc and a token for repo-id is available,
+  else the basic credentials of repo id from the user settings.xml (the
+  same file Maven and the Go fetcher use for private repositories); a
+  no-op when neither is available."
   [conn repo-id spec]
-  (when (= :oidc (get spec :auth))
+  (cond
+    (= :oidc (get spec :auth))
     (when-let [t (get (oidc-tokens) (str repo-id))]
-      (.setRequestProperty conn "Authorization" (str "Bearer " t)))))
+      (.setRequestProperty conn "Authorization" (str "Bearer " t)))
+    :else
+    (when-let [[u pw] (get (settings-servers) (str repo-id))]
+      (let [b64 (String. (.encode (java.util.Base64/getEncoder)
+                                  (.getBytes (str u ":" pw) "UTF-8")))]
+        (.setRequestProperty conn "Authorization" (str "Basic " b64))))))
 
 (defn floating?
   [v]
@@ -147,28 +191,46 @@
                 (get m 1)))
             (line-seq (io/reader f))))))
 
-(defn- head-200?
+(defn- probe
+  "The HEAD probe of url: :ok on 2xx, :absent on 404, :auth on 401/403,
+   :error on anything else — connection failure, timeout, 5xx, a HEAD the
+   repository does not support (:error is the inconclusive answer: the
+   repository may still serve the artifact). Credentials are attached the
+   way with-auth applies them, so an authed private repository probes :ok
+   instead of :auth. Unsupported urls (no protocol handler) probe nil."
   [url repo-id spec]
   (when (supported-url? url)
     (let [u (io/as-url url)]
       (if (= "file" (.getProtocol u))
-        (.exists (io/file (.getPath u)))
+        (if (.exists (io/file (.getPath u))) :ok :absent)
         (let [conn (.openConnection u)]
           (try
             (do (.setConnectTimeout conn 5000)
                 (.setReadTimeout conn 5000)
                 (.setRequestMethod conn "HEAD")
                 (with-auth conn repo-id spec)
-                (<= 200 (.getResponseCode conn) 299))
-            (catch java.io.IOException _ false)
+                (let [code (.getResponseCode conn)]
+                  (cond
+                    (<= 200 code 299) :ok
+                    (= code 404) :absent
+                    (#{401 403} code) :auth
+                    :else :error)))
+            (catch java.io.IOException _ :error)
             (finally (.disconnect conn))))))))
 
 (defn resolve-repo
-  "Determines the [repo-id url] serving an mvn artifact. Reads the repo id Maven
-  recorded in m2's _remote.repositories first (offline, exact); falls back to a
-  repo probe, then to the first repo. The probe goes through the auth proxy
-  when the repo id is mapped in it (the proxy carries the bearer); the
-  returned url is the repo's own, for lock attribution."
+  "Determines the [repo-id url] serving an mvn artifact. Reads the repo id
+  Maven recorded in m2's _remote.repositories first (offline, exact); else
+  probes the repos in the given order (through the auth proxy when the
+  repo id is mapped in it; credentials attached per repo) and attributes
+  the first 2xx. When every probe is definitive (404, or 401/403) no
+  known repository serves the artifact: the lock fails with a per-repo
+  report, because attributing it to a repository that refuses it would
+  bake an undownloadable url into the lock. When a probe is inconclusive
+  (:error) the first repository is a stand-in — a HEAD quirk or a network
+  blip may have hidden a 2xx — and the build's sha256 verification
+  catches a wrong stand-in. The returned url is the repo's own, for lock
+  attribution."
   [m2dir repos artifact]
   (let [proxy (proxy-map)
         url-of (fn [base]
@@ -179,12 +241,39 @@
         spec (some #(when (= id (first %)) (second %)) repos)]
     (if spec
       [id (url-of (get spec :url))]
-      (or (some (fn [[rid sp]]
-                  (when (head-200? (url-of (probe-base proxy rid sp)) rid sp)
-                    [rid (url-of (get sp :url))]))
-                repos)
-          (let [[fid fsp] (first repos)]
-            [fid (url-of (get fsp :url))])))))
+      (let [aid (str (:group artifact) "/" (:name artifact) ":" (:version artifact))
+            results (mapv (fn [[rid sp]]
+                            [rid (or (probe (url-of (probe-base proxy rid sp)) rid sp)
+                                     :error)
+                             sp])
+                          repos)
+        
+            winner (some (fn [[rid st sp]] (when (= st :ok) [rid sp])) results)]
+        (if winner
+          (let [[rid sp] winner]
+            [rid (url-of (get sp :url))])
+          (if (some (fn [[_ st _]] (= st :error)) results)
+            (let [[fid fsp] (first repos)]
+              [fid (url-of (get fsp :url))])
+            (throw (ex-info
+                    (str "no repository serves " aid ":\n"
+                         (str/join "\n"
+                                   (map (fn [[rid st _]]
+                                          (str "  " rid ": " (if (= st :auth)
+                                                               "authentication required"
+                                                               "not found")))
+                                        results))
+                         (when (some (fn [[rid st sp]]
+                                       (and (= st :auth)
+                                            (not= :oidc (get sp :auth))
+                                            (nil? (get (settings-servers) rid))))
+                                     results)
+                           (str "\nadd credentials for "
+                                (str/join ", "
+                                          (map (fn [[rid _ _]] (str "\"" rid "\""))
+                                               (filter #(= (second %) :auth) results)))
+                                " to ~/.m2/settings.xml, or mark the repo :auth :oidc")))
+                    {:rig/friendly? true :artifact aid}))))))))
 
 (defn- children
   [node tag]

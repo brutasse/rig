@@ -192,7 +192,8 @@
   "Two :auth :oidc repos each carry the bearer of their own repo id — and
   every probe of a marked repo carries one at all (the single-repo case is
   contained here)."
-  (binding [versions/*oidc-tokens* {"f" "tok-123" "g" "tok-456"}]
+  (binding [versions/*oidc-tokens* {"f" "tok-123" "g" "tok-456"}
+            versions/*settings-servers* {}]
     (let [[url-f seen-f srv-f] (start-recording-server)
           [url-g seen-g srv-g] (start-recording-server)]
       (try
@@ -211,7 +212,8 @@
         (finally (.stop srv-f 0) (.stop srv-g 0))))))
 
 (deftest unmarked-repo-probes-send-no-auth
-  (binding [versions/*oidc-tokens* {"f" "tok-123"}]
+  (binding [versions/*oidc-tokens* {"f" "tok-123"}
+            versions/*settings-servers* {}]
     (let [[base-url seen server] (start-recording-server)]
       (try
         (let [md (versions/repo-metadata "com.rig.test/plain"
@@ -222,7 +224,8 @@
         (finally (.stop server 0))))))
 
 (deftest oidc-repo-without-token-probes-unauthenticated
-  (binding [versions/*oidc-tokens* nil]
+  (binding [versions/*oidc-tokens* nil
+            versions/*settings-servers* {}]
     (let [[base-url seen server] (start-recording-server)]
       (try
         (let [md (versions/repo-metadata "com.rig.test/no-token"
@@ -252,7 +255,8 @@
       (finally (delete-tree (str m2))))))
 
 (deftest resolve-repo-probes-with-bearer-token
-  (binding [versions/*oidc-tokens* {"f" "tok-456"}]
+  (binding [versions/*oidc-tokens* {"f" "tok-456"}
+            versions/*settings-servers* {}]
     (let [[base-url seen server] (start-recording-server)]
       (try
         (let [[id url] (versions/resolve-repo
@@ -265,6 +269,135 @@
           (is (every? #(and (seq %) (= "Bearer tok-456" (first %))) @seen)
               (str "HEAD probe sent the bearer header: " (pr-str @seen))))
         (finally (.stop server 0))))))
+
+;; --- :auth basic repos: ~/.m2/settings.xml credentials on the probes ---
+
+(defn- start-refusing-server
+  "A local HTTP server answering every request with status and no body.
+   Returns [base-url server]."
+  [status]
+  (let [server (HttpServer/create (java.net.InetSocketAddress. "127.0.0.1" 0) 0)]
+    (.createContext
+     server "/"
+     (reify com.sun.net.httpserver.HttpHandler
+       (handle [_ exchange]
+         (.sendResponseHeaders exchange status 0))))
+    (doto server (.start))
+    (let [addr (.substring (str (.getAddress server)) 1)]
+      [(str "http://" addr "/") server])))
+
+(deftest settings-server-probes-with-basic-auth
+  "A repo id with credentials in the user settings.xml probes
+  basic-authenticated — the same file the Go fetcher reads at build
+  time, so a private repository attributes to itself instead of 401ing."
+  (binding [versions/*oidc-tokens* nil
+            versions/*settings-servers* {"f" ["user" "pass"]}]
+    (let [[base-url seen server] (start-recording-server)]
+      (try
+        (let [[id url] (versions/resolve-repo
+                        (str (io/file (System/getProperty "java.io.tmpdir") "no-such-m2"))
+                        [["f" {:url (.toString base-url)}]]
+                        {:group "com.rig.test" :name "art" :version "0.1.0"
+                         :extension "jar" :classifier nil})]
+          (is (= "f" id) "probe found the artifact")
+          (is (every? #(= "Basic dXNlcjpwYXNz" (first %)) @seen)
+              (str "HEAD probe sent the basic credentials: " (pr-str @seen))))
+        (finally (.stop server 0))))))
+
+(deftest resolve-repo-refuses-when-no-repo-serves
+  "Every probe definitive (404/401): the lock must fail with a per-repo
+   report rather than attribute the artifact to a repository that
+   refuses it — that attribution is an undownloadable url on a cold
+   .m2."
+  (binding [versions/*oidc-tokens* nil
+            versions/*settings-servers* {}]
+    (let [[base-404 srv-404] (start-refusing-server 404)
+          [base-401 srv-401] (start-refusing-server 401)]
+      (try
+        (let [e (try
+                  (versions/resolve-repo
+                   (str (io/file (System/getProperty "java.io.tmpdir") "no-such-m2"))
+                   [["a" {:url (.toString base-404)}]
+                    ["b" {:url (.toString base-401)}]]
+                   {:group "com.rig.test" :name "art" :version "0.1.0"
+                    :extension "jar" :classifier nil})
+                  (catch Exception e e))]
+          (is (instance? clojure.lang.ExceptionInfo e) "the error is a friendly ex-info")
+          (is (.contains (.getMessage e) "no repository serves com.rig.test/art:0.1.0")
+              (str (.getMessage e)))
+          (is (.contains (.getMessage e) "a: not found")
+              (str "the 404 is reported: " (.getMessage e)))
+          (is (.contains (.getMessage e) "b: authentication required")
+              (str "the 401 is reported: " (.getMessage e)))
+          (is (.contains (.getMessage e) "add credentials for \"b\" to ~/.m2/settings.xml")
+              (str "the missing credentials are named: " (.getMessage e)))
+          (is (true? (get (ex-data e) :rig/friendly?)) "the runner prints it plainly"))
+        (finally (.stop srv-404 0) (.stop srv-401 0))))))
+
+(deftest resolve-repo-attributes-the-first-2xx
+  "A 404 does not block a later repo: the first 2xx in probe order wins."
+  (binding [versions/*oidc-tokens* nil
+            versions/*settings-servers* {}]
+    (let [[base-404 srv-404] (start-refusing-server 404)
+          [base-200 _ srv-200] (start-recording-server)]
+      (try
+        (let [[id url] (versions/resolve-repo
+                        (str (io/file (System/getProperty "java.io.tmpdir") "no-such-m2"))
+                        [["a" {:url (.toString base-404)}]
+                         ["b" {:url (.toString base-200)}]]
+                        {:group "com.rig.test" :name "art" :version "0.1.0"
+                         :extension "jar" :classifier nil})]
+          (is (= "b" id) "the second repo served the artifact")
+          (is (.startsWith url (.toString base-200)) "url from the serving repo"))
+        (finally (.stop srv-404 0) (.stop srv-200 0))))))
+
+(deftest resolve-repo-falls-back-when-a-probe-is-inconclusive
+  "A 405 (HEAD not supported) is inconclusive: the first repository is a
+   stand-in attribution, verified later by the build's sha256 check."
+  (binding [versions/*oidc-tokens* nil
+            versions/*settings-servers* {}]
+    (let [[base-405 srv-405] (start-refusing-server 405)
+          [base-404 srv-404] (start-refusing-server 404)]
+      (try
+        (let [[id url] (versions/resolve-repo
+                        (str (io/file (System/getProperty "java.io.tmpdir") "no-such-m2"))
+                        [["a" {:url (.toString base-405)}]
+                         ["b" {:url (.toString base-404)}]]
+                        {:group "com.rig.test" :name "art" :version "0.1.0"
+                         :extension "jar" :classifier nil})]
+          (is (= "a" id) "the first repo is the stand-in")
+          (is (.startsWith url (.toString base-405)) "url from the first repo"))
+        (finally (.stop srv-405 0) (.stop srv-404 0))))))
+
+(deftest settings-servers-parses-namespaced-servers
+  "The user settings.xml is read namespace-agnostically (Maven ships the
+   settings schema namespace) into {repo-id [username password]}; an
+   entry without all three fields is dropped."
+  (let [dir (File. (System/getProperty "java.io.tmpdir")
+                   (str "rig-settings-test-" (java.util.UUID/randomUUID)))
+        old (System/getProperty "user.home")]
+    (try
+      (do (.mkdirs (io/file dir ".m2"))
+          (spit (io/file dir ".m2/settings.xml")
+                (str "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+                     "<settings xmlns=\"http://maven.apache.org/SETTINGS/1.0.0\">\n"
+                     "  <servers>\n"
+                     "    <server>\n"
+                     "      <id>private</id>\n"
+                     "      <username>u</username>\n"
+                     "      <password>p</password>\n"
+                     "    </server>\n"
+                     "    <server>\n"
+                     "      <id>incomplete</id>\n"
+                     "      <username>u</username>\n"
+                     "    </server>\n"
+                     "  </servers>\n"
+                     "</settings>"))
+          (System/setProperty "user.home" (str dir))
+          (is (= {"private" ["u" "p"]} (versions/settings-servers))
+              "namespaced servers parsed, incomplete entries dropped"))
+      (finally (System/setProperty "user.home" old)
+               (delete-tree (str dir))))))
 
 ;; --- auth proxy env: RIG_PROXY_REPOS rewrites marked repo urls ---
 

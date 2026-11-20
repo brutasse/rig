@@ -37,7 +37,8 @@ When the cache does not hold an artifact, Rig tries these sources in order:
 3. a download from the repository URL, over HTTPS.
 
 Credentials for private repositories come from `~/.m2/settings.xml`. Maven
-and tools.deps use the same file.
+and tools.deps use the same file, and so does Rig at lock time, when it
+probes the repositories to decide which one serves an artifact.
 
 ## `check`: the CI security gate
 
