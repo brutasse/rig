@@ -107,7 +107,7 @@ func scopesOf(ids []string, idx map[string][]string) []string {
 }
 
 func newAuditCmd(o *opts) *cobra.Command {
-	var jsonOut, explain, fix, breaking, transitive bool
+	var jsonOut, explain, fix, breaking bool
 	cmd := &cobra.Command{
 		Use:   "audit",
 		Short: "Scan the lock for known vulnerabilities (OSV)",
@@ -127,10 +127,11 @@ series: the fixes in the locked version's own series first, the other
 series' fixes marked as such.
 
 A finding whose pin the report can see carries a note line: the root's
-:rig/deps pool entry that pins it — at the vulnerable version (bump the
-entry) or at a clean version the lock has not picked up (a plain
-re-lock) — or a coordinate some module pins while other modules pull it
-undeclared, the pull only a :rig/deps pool pin reaches.
+:rig/overrides force pin or :rig/deps pool entry that pins it — at the
+vulnerable version (bump the entry) or at a clean version the lock has
+not picked up (a plain re-lock) — or a coordinate some module pins
+while other modules pull it undeclared, the pull only a force pin
+reaches.
 
 audit reads the lock only: it never re-locks, never downloads artifacts,
 and needs no JVM. Transient OSV failures (a network error, a 5xx or
@@ -146,21 +147,20 @@ change the scan's exit code.
 fix is the newest listed one at or above the locked version in the
 locked version's own major (with --breaking, fixes in a higher major
 join). A pin a module manifest already carries is updated in place, and
-a :rig/deps pool entry that pins the vulnerable version is updated the
-same way. A new pool entry — the force-pin that reaches a module which
-pulls the coordinate undeclared — is a new manifest entry: without
---transitive it stands, whatever the coordinate's other edits do, and
-the in-manifest edits apply alone; with --transitive it is written and
-the re-lock pins every module. The workspace re-locks once, and the fix
-is verified by re-querying OSV for every locked version of the original
-findings' coordinates. When a fix cannot be applied (no fix listed, or
-only a higher major without --breaking, or only a version below the
-locked one, or a fix version no repository serves, or a new pool entry
-without --transitive) the finding is reported as unfixable and stands;
-a coordinate a manifest already pins at a clean version stands
-stale — its remedy is a plain re-lock, not an edit. --fix needs the
-kernel and re-locks: on any failure after the manifests are edited, they
-are restored byte-for-byte and the lock is left as it was.
+a root :rig/deps pool or :rig/overrides entry that pins the vulnerable
+version is updated the same way. A coordinate no module declares — the
+pure transitive pull — gets a force pin written to the root's
+:rig/overrides (the security-pin section, fed to resolution as
+override-deps, beating :rig/deps on the same coordinate). The workspace
+re-locks once, and the fix is verified by re-querying OSV for every
+locked version of the original findings' coordinates. When a fix cannot
+be applied (no fix listed, or only a higher major without --breaking, or
+only a version below the locked one, or a fix version no repository
+serves) the finding is reported as unfixable and stands; a coordinate a
+manifest already pins at a clean version stands stale — its remedy is a
+plain re-lock, not an edit. --fix needs the kernel and re-locks: on any
+failure after the manifests are edited, they are restored byte-for-byte
+and the lock is left as it was.
 
 Exit codes: 0 the lock is clean (or every finding is fixed and
 verified); 1 known vulnerabilities (or findings remain after --fix);
@@ -173,7 +173,7 @@ human-readable report (with --fix, a "fix" section).`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if fix {
-				return runAuditFix(cmd.Context(), o, jsonOut, explain, breaking, transitive)
+				return runAuditFix(cmd.Context(), o, jsonOut, explain, breaking)
 			}
 			return runAudit(cmd.Context(), o, jsonOut, explain)
 		},
@@ -186,8 +186,6 @@ human-readable report (with --fix, a "fix" section).`,
 		"apply the fixable findings' fixes, re-lock once, and verify by re-querying OSV (needs the kernel)")
 	cmd.Flags().BoolVar(&breaking, "breaking", false,
 		"with --fix, accept fixes in a higher major than the locked version")
-	cmd.Flags().BoolVar(&transitive, "transitive", false,
-		"with --fix, write the :rig/deps pool pins the fixes need (by default a new pool entry stands)")
 	return cmd
 }
 

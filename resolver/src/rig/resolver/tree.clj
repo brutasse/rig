@@ -4,8 +4,9 @@
    (and per module+alias with --alias): one line per chain, every artifact
    a selected version, no loser version of a conflict. The basis is built
    exactly as the lock builds it (rig.resolver.resolve): no root/user
-   manifest, the module's repos, the :rig/deps pool pins. Floating
-   requirements are pinned to the lock's versions first, so with a warm
+   manifest, the module's repos, the root's force-pins (:rig/deps and
+   :rig/overrides). Floating requirements are pinned to the lock's
+   versions first, so with a warm
    ~/.m2 repository no network is needed."
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
@@ -68,7 +69,8 @@
 (defn- trace-for
   "The module's dependency trace, with the basis built exactly as the
   lock builds it (see the ns doc): no root/user manifest, the module's
-  repos, the :rig/deps pool pins, floating requirements pinned to the
+  repos, the root's force-pins (:rig/deps pool and :rig/overrides),
+  floating requirements pinned to the
   lock's versions. Returns the calc-trace result plus the manifest and
   the refused floating versions (an empty seq when the lock covers
   everything)."
@@ -90,7 +92,7 @@
                                       {}
                                       (System/currentTimeMillis))
         refused (:refused sel)
-        pool-ov (resolve/pool-overrides root-data data)
+        pool-ov (resolve/root-overrides root-data data)
         ;; The same project map the lock resolves from (basis-project in
         ;; rig.resolver.resolve): one construction, so the tree and the
         ;; lock's per-module classpaths are built from identical bases.

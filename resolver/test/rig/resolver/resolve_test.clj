@@ -775,9 +775,11 @@
   "A single-module workspace whose dep (served with a pom requiring
   rig.ktest.pool/lib at v-new) is locked against a root :rig/deps pin of
   lib at v-old, from a fake repo serving every version. declare-lib? adds
-  a direct declaration of lib at v-own. Returns the {:arts :v-new :v-old
-  :v-own :v-dep} map (arts is {name version} for the rig.ktest.pool group)."
-  [declare-lib?]
+  a direct declaration of lib at v-own; when v-ov is given, the root
+  additionally carries a :rig/overrides entry of lib at v-ov. Returns the
+  {:arts :v-new :v-old :v-own :v-dep} map (arts is {name version} for the
+  rig.ktest.pool group)."
+  [declare-lib? & [v-ov]]
   (let [ts (mod (System/currentTimeMillis) 10000000)
         v-new (str "1.0." ts)
         v-old (str "0.9." ts)
@@ -792,6 +794,7 @@
         _ (repo-artifacts! (str root) "rig.ktest.pool" "lib" v-new)
         _ (repo-artifacts! (str root) "rig.ktest.pool" "lib" v-old)
         _ (repo-artifacts! (str root) "rig.ktest.pool" "lib" v-own)
+        _ (when v-ov (repo-artifacts! (str root) "rig.ktest.pool" "lib" v-ov))
         m2-lib (m2-dir-of "rig.ktest.pool" "lib")
         m2-dep (m2-dir-of "rig.ktest.pool" "dep")
         declared (str (when declare-lib?
@@ -801,6 +804,8 @@
         ws (temp-ws (str "{:rig/lib x/y\n"
                          " :deps {" declared "}\n"
                          " :rig/deps {rig.ktest.pool/lib {:mvn/version \"" v-old "\"}}\n"
+                         (when v-ov
+                           (str " :rig/overrides {rig.ktest.pool/lib {:mvn/version \"" v-ov "\"}}\n"))
                          " :mvn/repos {\"central\" {:url \"" base "\"}}}\n"))]
     (delete-tree m2-lib)
     (delete-tree m2-dep)
@@ -833,6 +838,81 @@
   (let [{:keys [arts v-own]} (pool-lock true)]
     (is (= v-own (get arts "lib"))
         (str "the declared version must stand over the pool pin: " (pr-str arts)))))
+
+(deftest override-pin-wins-over-the-pool
+  "A root that carries both a :rig/deps pool pin and a :rig/overrides
+  entry for the same coordinate: the overrides entry wins, the lock
+  carries its version, not the pool's."
+  (let [ts (mod (System/currentTimeMillis) 10000000)
+        v-ov (str "2.0." ts)
+        {:keys [arts]} (pool-lock false v-ov)]
+    (is (= v-ov (get arts "lib"))
+        (str "the overrides entry must beat the pool pin: " (pr-str arts)))))
+
+(defn- pin-no-leak
+  "A two-module workspace: the root declares dep (served with a pom
+  requiring rig.ktest.pool/lib at v-new) and carries a root force-pin of
+  lib at v-old under key (the :rig/deps pool or :rig/overrides);
+  modules/b declares only rig.ktest.pool/other. The fake repo serves
+  every version. Returns the {:lock :v-new :v-old :v-other :v-dep} map."
+  [key]
+  (let [ts (mod (System/currentTimeMillis) 10000000)
+        v-new (str "1.0." ts)
+        v-old (str "0.9." ts)
+        v-other (str "2.0." ts)
+        v-dep (str "3.0." ts)
+        root (doto (java.io.File. (str (System/getProperty "java.io.tmpdir") "/"
+                                       (str "rig-pin-repo-" (java.util.UUID/randomUUID))))
+               (.mkdirs) (.deleteOnExit))
+        [base _ srv] (start-serving (str root) nil)
+        _ (repo-pom-deps! (str root) "rig.ktest.pool" "dep" v-dep
+                          [["rig.ktest.pool" "lib" v-new]])
+        _ (repo-artifacts! (str root) "rig.ktest.pool" "lib" v-new)
+        _ (repo-artifacts! (str root) "rig.ktest.pool" "lib" v-old)
+        _ (repo-artifacts! (str root) "rig.ktest.pool" "other" v-other)
+        m2-lib (m2-dir-of "rig.ktest.pool" "lib")
+        m2-dep (m2-dir-of "rig.ktest.pool" "dep")
+        m2-other (m2-dir-of "rig.ktest.pool" "other")
+        ws (temp-ws (str "{:rig/lib x/root\n"
+                         " :rig/modules [\"b\"]\n"
+                         " :deps {rig.ktest.pool/dep {:mvn/version \"" v-dep "\"}}\n"
+                         " " (str key) " {rig.ktest.pool/lib {:mvn/version \"" v-old "\"}}\n"
+                         " :mvn/repos {\"central\" {:url \"" base "\"}}}\n"))]
+    (delete-tree m2-lib)
+    (delete-tree m2-dep)
+    (delete-tree m2-other)
+    (.mkdirs (io/file ws "b"))
+    (spit (io/file ws "b" "deps.edn")
+          (str "{:rig/lib x/b\n"
+               " :deps {rig.ktest.pool/other {:mvn/version \"" v-other "\"}}\n"
+               " :mvn/repos {\"central\" {:url \"" base "\"}}}\n"))
+    (try
+      (let [lock (-> (resolve/resolve-lock {:workspace ws}) (get "lock"))]
+        {:lock lock :v-new v-new :v-old v-old :v-other v-other :v-dep v-dep})
+      (finally
+        (.stop srv 0)
+        (delete-tree m2-lib)
+        (delete-tree m2-dep)
+        (delete-tree m2-other)
+        (delete-tree (str root))))))
+
+(deftest root-pin-reaches-only-the-pulling-modules
+  "A root force-pin — a :rig/deps pool entry or a :rig/overrides entry —
+  pins lib for the module that pulls it and adds nothing to a module
+  that does not: b declares only other, and its classpath carries no
+  lib coordinate at all."
+  (doseq [key [:rig/deps :rig/overrides]]
+    (let [{:keys [lock v-old v-other]} (pin-no-leak key)]
+      (is (some #(= (str "rig.ktest.pool/lib:" v-old ":jar") %)
+                (get-in lock ["modules" "." :classpath]))
+          (str key ": the pulling module carries the pinned version"))
+      (is (not (some (fn [e] (and (string? e)
+                                  (str/starts-with? e "rig.ktest.pool/lib:")))
+                     (get-in lock ["modules" "b" :classpath])))
+          (str key ": the non-pulling module's classpath carries no lib"))
+      (is (some #(= (str "rig.ktest.pool/other:" v-other ":jar") %)
+                (get-in lock ["modules" "b" :classpath]))
+          (str key ": module b's own declaration resolves")))))
 
 (deftest local-sibling-module-wins-over-its-published-version
   "A workspace module enters a basis twice under the same lib: as the

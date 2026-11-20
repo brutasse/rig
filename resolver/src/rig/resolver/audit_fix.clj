@@ -3,26 +3,30 @@
 
   One request, one re-lock: every fixable coordinate's edits — its
   vulnerable declaration sites (the module manifests) and, when the fix
-  needs it, its pool pin (the root's :rig/deps) — are applied, then the
-  workspace resolves once. A pool pin the coordinate does not already
-  carry is a new manifest entry: it stands with the plan reason
-  \"transitive\" unless :transitive is set. A coordinate a manifest
-  already pins at a clean version stands \"stale-lock\": its remedy is the
-  re-lock that picks the pin up, not an edit.
+  needs it, its root force-pin — are applied, then the workspace
+  resolves once. A vulnerable entry the root already carries (the
+  :rig/deps pool, or a :rig/overrides entry) is updated in place; a
+  coordinate no manifest pins but some module pulls undeclared gets a
+  new :rig/overrides entry — the force-pin is the only reach into such
+  a module. A coordinate a manifest already pins at a clean version
+  stands \"stale-lock\": its remedy is the re-lock that picks the pin
+  up, not an edit.
 
   Request:  {op \"audit-fix\" workspace ws lock \"deps.lock\"
-             args {:targets [{coord g/n locked v fixes [f …] breaking? b}]  ; one
+             args {:targets [{coord g/n locked v fixes [f …]
+                              breaking? b}]                   ; one
                                                             ; entry per vulnerable
                                                             ; (coordinate, locked version)
-                  :offline bool :force bool :transitive bool}}
+                  :offline bool :force bool}}
   Response: {plan    [{coord locked target reason}]        ; one row per input entry:
                                                             target nil when reason set
                                                             (no-fix, breaking, below-locked,
-                                                            fix-unavailable, transitive,
-                                                            stale-lock)
-           applied   [{coord target sites pool}]           ; per applied coordinate: the
-                                                            edit sites and the pool pin
-                                                            (pool nil when none is written)
+                                                            fix-unavailable, stale-lock)
+           applied   [{coord target sites pin}]            ; per applied coordinate: the
+                                                            edit sites and the root pin
+                                                            (pin nil when none is written;
+                                                            its :section is \"pool\" or
+                                                            \"overrides\")
            edits     […]}                                  ; the manifest edits, edit-dep
                                                             record shape (absent when no
                                                             edit applied)
@@ -68,7 +72,7 @@
 
 (defn- pool-declared?
   "True when a module declares coord where the :rig/deps pool does not
-  force-pin it (resolve/pool-overrides' definition: its :deps or an
+  force-pin it (resolve/root-overrides' definition: its :deps or an
   alias's :deps/:extra-deps carries the coordinate) — a module like that
   ignores a pool entry for the coordinate."
   [data coord]
@@ -116,26 +120,32 @@
       :else
       (contains? vuln-versions v))))
 
-(defn- pool-write
-  "The pool edit a coordinate needs: {:action … :from p :value v} when the
-  root's :rig/deps entry must carry the fix — its own version is
-  vulnerable (value: the fix, never below the entry's own), or the entry
-  is absent and some module pulls a vulnerable version without declaring
-  the coordinate (the pool is the only reach into such a module) — else
-  nil (a clean entry already pins every non-declaring module, and a
-  declaring module's pin is a site edit, not a pool's business)."
+(defn- pin-write
+  "The root pin edit a coordinate needs: {:section s :action … :from p
+  :value v} when a root force-pin must carry the fix — the effective
+  pin (the :rig/overrides entry when present, else the :rig/deps
+  entry) is vulnerable (value: the fix, never below the entry's own),
+  or no entry exists and some module pulls a vulnerable version without
+  declaring the coordinate (an override is the only reach into such a
+  module) — else nil (a clean entry already pins every non-declaring
+  module, and a declaring module's pin is a site edit, not a pin's
+  business)."
   [root-data coord target vuln-versions datas lock-modules meta]
-  (let [p (entry-version (get (get root-data :rig/deps {}) (coord-sym coord)))
+  (let [ov (entry-version (get (get root-data :rig/overrides {}) (coord-sym coord)))
+        p (entry-version (get (get root-data :rig/deps {}) (coord-sym coord)))
+        eff (or ov p)
+        eff-sec (if (some? ov) "overrides" "pool")
         needed? (some (fn [m]
                         (and (module-pulls? meta (get lock-modules m) coord vuln-versions)
                              (not (pool-declared? (get datas m) coord))))
                       (keys datas))]
     (cond
-      (and p (contains? vuln-versions p))
-      {:action "update" :from p :value (if (neg? (versions/vcmp target p)) p target)}
+      (and (some? eff) (contains? vuln-versions eff))
+      {:section eff-sec :action "update" :from eff
+       :value (if (neg? (versions/vcmp target eff)) eff target)}
 
-      (and (nil? p) needed?)
-      {:action "add" :from nil :value target}
+      (and (nil? eff) needed?)
+      {:section "overrides" :action "add" :from nil :value target}
 
       :else
       nil)))
@@ -154,9 +164,9 @@
 (defn- edit-shape
   "The manifest edits a coordinate's fix requires: its vulnerable
   declaration sites (one row per site, the edit record shape), and the
-  pool write the fix needs (nil when none). A pool \"add\" is the only
-  edit a fix may require that is not a bump of an entry that is already
-  in a manifest — the gate of audit-fix."
+  root pin write the fix needs (nil when none). A pin \"add\" is the
+  only edit a fix may require that is not a bump of an entry that is
+  already in a manifest."
   [root-data coord target vulns datas lock-modules meta]
   {:sites (vec
            (for [m (sort (keys datas))
@@ -167,22 +177,7 @@
               :section (:section s)
               :alias (:alias s)
               :from (:version s)}))
-   :pool (pool-write root-data coord target vulns datas lock-modules meta)})
-
-(defn- pinned-clean?
-  "True when a manifest already pins coord at a version the findings do
-  not carry: the root's :rig/deps entry, or a module declaration (a
-  git or local spec pins no version and counts as unpinned)."
-  [root-data coord vulns datas]
-  (let [pv (entry-version (get (get root-data :rig/deps {}) (coord-sym coord)))]
-    (boolean
-     (or (and (some? pv) (not (contains? vulns pv)))
-         (some (fn [m]
-                 (some (fn [s]
-                         (and (some? (:version s))
-                              (not (contains? vulns (:version s)))))
-                       (declaration-sites (get datas m) coord)))
-               (keys datas))))))
+   :pin (pin-write root-data coord target vulns datas lock-modules meta)})
 
 (defn audit-fix
   [request]
@@ -190,7 +185,6 @@
         args (or (:args request) {})
         targets (get args :targets [])
         breaking (true? (get args :breaking))
-        transitive (true? (get args :transitive))
         lock (resolve/lock-of request)
         meta (id-meta lock)
         ;; lock-of keywordizes the document, so the module keys are keywords
@@ -246,24 +240,14 @@
                                                      [:by-version (versions/newest ts)]))
                                             (catch Exception _ false)))]
                         [coord (versions/newest ts)]))
-        ;; The edits each fixable coordinate requires — and the gate: a
-        ;; pool "add" creates an entry no manifest carries, it stands
-        ;; without :transitive, whatever the sites do. A site edit and a
-        ;; pool "update" touch entries that are already in a manifest:
-        ;; they apply whatever the flag says. The row itself stands
-        ;; transitive only when the add was the coordinate's only edit.
+        ;; The edits each fixable coordinate requires.
         shapes (into {}
                      (for [[coord target] fixable
                            :let [rows (get (group-by :coord rows0) coord)
                                  vulns (into #{} (keep :locked (filter (comp some? :target) rows)))
                                  sh (edit-shape root-data coord target vulns
-                                                datas lock-modules meta)
-                                 stands (and (not transitive)
-                                             (some? (:pool sh))
-                                             (= "add" (:action (:pool sh))))]]
-                       [coord (assoc sh :vulns vulns
-                                     :pool (if stands nil (:pool sh))
-                                     :gated (and stands (empty? (:sites sh))))]))
+                                                datas lock-modules meta)]]
+                       [coord sh]))
         rows (for [r rows0
                    :let [coord (get r :coord)
                          fix (get fixable coord)
@@ -273,23 +257,18 @@
                  {:coord coord :locked (get r :locked) :reason "fix-unavailable"}
 
                  (and (some? (:target r)) (some? sh)
-                      (not (or (seq (:sites sh)) (some? (:pool sh)))))
-                 ;; The fix has no edit to apply: a gated pool "add"
-                 ;; stands transitive, a manifest that already pins the
-                 ;; coordinate at a clean version stands stale-lock —
-                 ;; the re-lock, not an edit, is its remedy.
-                 {:coord coord :locked (get r :locked)
-                  :reason (if (or (:gated sh)
-                                  (not (pinned-clean? root-data coord (:vulns sh) datas)))
-                            "transitive"
-                            "stale-lock")}
+                      (not (or (seq (:sites sh)) (some? (:pin sh)))))
+                 ;; The fix has no edit to apply: a manifest already
+                 ;; pins the coordinate at a clean version — the
+                 ;; re-lock, not an edit, is its remedy.
+                 {:coord coord :locked (get r :locked) :reason "stale-lock"}
 
                  :else r))
         applied (vec
                  (for [[coord target] (sort-by key fixable)
                        :let [sh (get shapes coord)]
-                       :when (or (seq (:sites sh)) (some? (:pool sh)))]
-                   {:coord coord :target target :sites (:sites sh) :pool (:pool sh)}))
+                       :when (or (seq (:sites sh)) (some? (:pin sh)))]
+                   {:coord coord :target target :sites (:sites sh) :pin (:pin sh)}))
         edits-spec (concat
                     (for [a applied
                           s (:sites a)]
@@ -299,12 +278,12 @@
                        :section (:section s)
                        :alias (:alias s)})
                     (for [a applied
-                          :let [p (:pool a)]
+                          :let [p (:pin a)]
                           :when (some? p)]
                       {:file "deps.edn"
                        :coord (:coord a)
                        :requirement (:value p)
-                       :section "pool"}))
+                       :section (:section p)}))
         edits (when (seq edits-spec) (edit/apply-edits ws edits-spec))
         relock (resolve/resolve-lock
                 (assoc request

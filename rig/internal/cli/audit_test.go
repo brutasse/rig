@@ -780,11 +780,12 @@ func TestAuditPrivateNotCounted(t *testing.T) {
 }
 
 // TestAuditPinNote derives the remediation notes of findings from the
-// workspace's manifests and lock: the pool entry pinning the vulnerable
-// version, the pool entry pinning a clean version (the stale lock), a
-// coordinate some module pins while others pull it undeclared — and no
-// note in the plain cases (every locking module declares it, or none
-// does).
+// workspace's manifests and lock: the overrides pin or the pool entry
+// pinning the vulnerable version, the entry pinning a clean version
+// (the stale lock), the overrides entry beating the pool on the same
+// coordinate, a coordinate some module pins while others pull it
+// undeclared — and no note in the plain cases (every locking module
+// declares it, or none does).
 func TestAuditPinNote(t *testing.T) {
 	cases := []struct {
 		name string
@@ -805,10 +806,28 @@ func TestAuditPinNote(t *testing.T) {
 			want: "the :rig/deps pool pins 1.12.0; the lock still carries 1.11.0 — rig lock picks up the pool pin",
 		},
 		{
+			name: "overrides pin pins the vulnerable version",
+			root: `{ :rig/modules ["modules/app"] :rig/overrides {org.clojure/clojure "1.11.0"} }`,
+			app:  `{ :deps {} }`,
+			want: "bump the :rig/overrides pin",
+		},
+		{
+			name: "overrides pin pins a clean version",
+			root: `{ :rig/modules ["modules/app"] :rig/overrides {org.clojure/clojure "1.12.0"} }`,
+			app:  `{ :deps {} }`,
+			want: "the :rig/overrides pin pins 1.12.0; the lock still carries 1.11.0 — rig lock picks up the pin",
+		},
+		{
+			name: "overrides beats the pool on the same coordinate",
+			root: `{ :rig/modules ["modules/app"] :rig/deps {org.clojure/clojure "1.11.0"} :rig/overrides {org.clojure/clojure "1.12.0"} }`,
+			app:  `{ :deps {} }`,
+			want: "the :rig/overrides pin pins 1.12.0; the lock still carries 1.11.0 — rig lock picks up the pin",
+		},
+		{
 			name: "declared in one module, pulled undeclared in the other",
 			root: `{ :rig/modules ["modules/app"] }`,
 			app:  `{ :deps {org.clojure/clojure "1.11.0"} }`,
-			want: "a :rig/deps pool pin would force-pin it workspace-wide (--fix --transitive, or add the pool entry and re-lock)",
+			want: "a :rig/overrides force pin would force-pin it workspace-wide (rig audit --fix writes one)",
 		},
 		{
 			name: "declared in every locking module",

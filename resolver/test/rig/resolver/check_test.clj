@@ -289,6 +289,21 @@
                     (= "orphan/orphan" (:coord %)))
               (get res :problems)))))
 
+(deftest unconsumed-override-entry-stands-silent
+  "A :rig/overrides entry no module resolves is no check finding at all:
+  the force-pin section is not managed like the pool, so an unconsumed
+  override is neither drift nor error nor warning."
+  (let [ws (temp-ws
+            "{:rig/modules [\"modules/a\"]\n :rig/overrides {orphan/orphan {:mvn/version \"9.9.9\"}}}\n"
+            {"modules/a" "{:deps {org.clojure/test.check {:mvn/version \"1.1.0\"}}}\n"})
+        res (check/check {:workspace ws
+                          :lock (lock-with
+                                 [{:kind "mvn" :group "org.clojure" :name "test.check"
+                                   :version "1.1.0"}]
+                                 {"modules/a" {"org.clojure/test.check" "1.1.0"}})})]
+    (is (true? (get res :ok)) "an unconsumed override entry is not an error")
+    (is (empty? (get res :problems)) "and it raises no finding")))
+
 (deftest pool-requirement-vs-pin-mismatch-still-errors
   "A pool entry IS resolved — at a different version than the pool names —
   is a real divergence: stale-lock stays an error."

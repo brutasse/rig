@@ -27,9 +27,9 @@
   (some-> zloc z/string (str/includes? "\n")))
 
 (defn- create-section
-  [owner key entry]
+  [owner key entry own-line?]
   (-> owner
-      (cond-> (multi-line? owner)
+      (cond-> own-line?
         (z/append-child* (n/newline-node "\n")))
       (s/assoc key entry)
       (s/get key)))
@@ -60,10 +60,41 @@
       :else
       deps-map)))
 
-(defn- edit-rig-deps
-  [ztop coord req]
-  (let [rdm (or (s/get ztop :rig/deps)
-                (when req (create-section ztop :rig/deps {coord req})))]
+(defn- unwrap-pool
+  "rewrite-clj reads a pool written as a namespaced-map literal —
+  #:ns {...}, what pr-str emits for a keyword-keyed pool — as a
+  namespaced-map node, which does not take appended entries. Returns
+  the pool as a plain map: every key fully qualified, the rest of the
+  text untouched."
+  [node]
+  (let [inner (last (n/children node))]
+    (n/map-node (loop [cs (n/children inner)
+                       key? true
+                       out []]
+                  (if (empty? cs)
+                    out
+                    (let [c (first cs)
+                          c (if (and key? (not= (n/tag c) :whitespace))
+                              (let [sx (n/sexpr c)]
+                                (if (some-> sx namespace)
+                                  (if (keyword? sx)
+                                    (n/keyword-node sx)
+                                    (n/token-node sx))
+                                  c))
+                              c)]
+                      (recur (rest cs)
+                             (if (= (n/tag c) :whitespace) key? (not key?))
+                             (conj out c))))))))
+
+(defn- edit-rig-pinned
+  "Edits coord's requirement in the root manifest's force-pin section
+  key (:rig/deps pool, :rig/overrides): bump the entry (string or map)
+  to req, create the section when absent, or remove the entry (req
+  nil). Written one entry per line: the section key on its own line,
+  each appended entry on its own."
+  [zt key coord req]
+  (let [rdm (or (s/get zt key)
+                (when req (create-section zt key {coord req} true)))]
     (when rdm
       (let [existing (s/get rdm coord)]
         (cond
@@ -74,34 +105,41 @@
           (if (map? (n/sexpr (z/node existing)))
             (let [ver-z (s/get existing :mvn/version)]
               (if (nil? ver-z)
-                (throw (ex-info (str "shared dep " (str coord) " has no :mvn/version") {}))
+                (throw (ex-info (str "force-pin " (str coord) " has no :mvn/version") {}))
                 (-> ver-z (z/edit (fn [_] req)))))
             (-> existing (z/edit (fn [_] req))))
 
           (and (nil? existing) req)
-          (-> rdm
-              (cond-> (multi-line? rdm)
-                (z/append-child* (n/newline-node "\n")))
-              (z/append-child* (n/token-node coord))
-              (z/append-child* (n/whitespace-node " "))
-              (z/append-child* (n/map-node [(n/keyword-node :mvn/version)
-                                            (n/whitespace-node " ")
-                                            (n/string-node req)])))
+          (let [rdm (if (s/namespaced-map? rdm)
+                      (let [node (z/node rdm)]
+                        (z/edit rdm (fn [_] (unwrap-pool node))))
+                      rdm)]
+            (-> rdm
+                (z/append-child* (n/newline-node "\n"))
+                (z/append-child* (n/token-node coord))
+                (z/append-child* (n/whitespace-node " "))
+                (z/append-child* (n/map-node [(n/keyword-node :mvn/version)
+                                              (n/whitespace-node " ")
+                                              (n/string-node req)]))))
 
           :else
           rdm)))))
 
 (defn- edit-section
   "Edits the coord's requirement in the named section of a manifest node:
-  \"pool\" the root's :rig/deps (string or map entries), else a deps
-  section — \"deps\" (the module's :deps) or an alias section (\"alias-deps\",
+  \"pool\" the root's :rig/deps, \"overrides\" the root's :rig/overrides
+  (force-pin sections, string or map entries), else a deps section —
+  \"deps\" (the module's :deps) or an alias section (\"alias-deps\",
   \"extra-deps\" or \"replace-deps\" under :aliases/<alias>/, which needs
-  the alias). req nil removes the entry. Returns the edited node, or nil
-  when nothing was edited."
+  the alias). req nil removes the entry. Returns the edited node, or
+  nil when nothing was edited."
   [zt section alias coord req]
   (case section
     "pool"
-    (edit-rig-deps zt coord req)
+    (edit-rig-pinned zt :rig/deps coord req)
+
+    "overrides"
+    (edit-rig-pinned zt :rig/overrides coord req)
 
     (let [owner (if (nil? alias)
                   zt
@@ -113,7 +151,8 @@
                 "replace-deps" :replace-deps
                 :extra-deps)
           dm (or (s/get owner key)
-                 (when req (create-section owner key {coord {:mvn/version req}})))]
+                 (when req (create-section owner key {coord {:mvn/version req}}
+                                           (multi-line? owner))))]
       (when dm (edit-deps-section dm coord req)))))
 
 (defn- rel-deps [m] (if (= m ".") "deps.edn" (str m "/deps.edn")))
@@ -123,8 +162,8 @@
   the workspace's manifests (file workspace-relative, section as
   edit-section) and returns the edit records the edit-dep response
   carries, one per file actually changed. req nil removes the entry.
-  The audit-fix op uses it for a batch of edits across several files in
-  one call, ahead of its single re-lock."
+  The audit-fix op uses it for a batch of edits across several files
+  in one call, ahead of its single re-lock."
   [ws edits]
   (reduce (fn [records e]
             (let [f (io/file ws (get e :file))
@@ -174,7 +213,7 @@
                            "requirement" req}))
                   ;; root manifest, for a shared requirement
                   (cond-> (and shared
-                               (edit-file root-file (fn [zt] (or (edit-rig-deps zt coord req) zt))))
+                               (edit-file root-file (fn [zt] (or (edit-rig-pinned zt :rig/deps coord req) zt))))
                     (conj {"file" "deps.edn"
                            "action" action
                            "coord" coord-str

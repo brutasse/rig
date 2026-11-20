@@ -289,11 +289,11 @@ counted. Artifacts from private repositories (the `:mvn/repos` entries
 other than `central` and `clojars`) are skipped and counted the same
 way; an overridden `central` or `clojars` keeps its name and is scanned
 as the real one. A finding whose pin the report can see carries a
-`note:` line: a `:rig/deps` pool entry at the vulnerable version (bump
-the entry), a pool entry at a clean version the lock has not picked up
-(a plain re-lock), or a coordinate some module pins while another pulls
-it undeclared — the pull only a `:rig/deps` pool pin reaches
-(`--fix --transitive`, or the entry and a re-lock). `audit` reads the
+`note:` line: a `:rig/overrides` pin or a `:rig/deps` pool entry at the
+vulnerable version (bump the entry), an entry at a clean version the
+lock has not picked up (a plain re-lock), or a coordinate some module
+pins while another pulls it undeclared — the pull only a force pin
+reaches. `audit` reads the
 lock and the manifests only: it never re-locks, never downloads
 artifacts, and needs no JVM.
 
@@ -333,13 +333,12 @@ coordinate's target from the fix versions the records list: the newest
 fix at or above the locked version, in the locked version's own
 major. A fix in a higher major is a candidate only with `--breaking`;
 SNAPSHOT fixes are never candidates. A pin a manifest already carries —
-a `:deps` entry or a `:rig/deps` pool entry at the vulnerable version —
-is updated in place. A fix only a new `:rig/deps` pool entry would
-carry (the force-pin that reaches a module which pulls the coordinate
-undeclared) stands without `--transitive`: the edits in the manifests
-apply, the pool entry is not written, and the coordinate stands
-`unfixable` with the reason; with `--transitive` the entry is written
-and the re-lock force-pins every module. A coordinate a manifest
+a `:deps` entry, or a root `:rig/deps` or `:rig/overrides` entry at
+the vulnerable version — is updated in place. A fix no manifest entry
+carries (the coordinate is a pure transitive pull) is written as a
+force pin in the root's `:rig/overrides` (the security-pin section,
+beating `:rig/deps` on the same coordinate), and the re-lock
+force-pins every module. A coordinate a manifest
 already pins at a clean version stands `stale-lock` — its remedy is the
 re-lock that picks the pin up, not an edit. A coordinate with no fix
 listed, with only a higher-major fix without `--breaking`, with only a
@@ -369,7 +368,7 @@ requirement's: `--fix`'s own pins are exempt from the cooldowns. Rig
 restores every manifest it edited, byte for byte. `--fix` needs the
 kernel and a JVM (the re-lock) and the network (OSV). It composes
 with `--explain` and `--json`; the report gains a `fix` section: the
-plan rows, the applied fixes with their edit sites and pool pins, and
+plan rows, the applied fixes with their edit sites and force pins, and
 the verification. Keep `rig audit` bare in CI: `--fix` edits
 manifests and re-locks, so its changes belong to a commit you review,
 not to a pipeline step ([CI](../workflows/ci.md)).

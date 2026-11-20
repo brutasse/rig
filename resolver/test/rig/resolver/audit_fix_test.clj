@@ -1,6 +1,6 @@
 (ns rig.resolver.audit-fix-test
   "Kernel op tests for audit-fix: the plan over a file:// repo workspace,
-  the edit sites and pool pins, and the single re-lock. Every manifest's
+  the edit sites and root pins, and the single re-lock. Every manifest's
   :mvn/repos redeclares the standard ids (central, clojars) at the file://
   repo, so resolution never reaches the network."
   (:require [cheshire.core :as json]
@@ -194,13 +194,13 @@
                                 :section "deps"
                                 :alias nil
                                 :from "1.0.0"}]
-                       :pool nil}]
+                       :pin nil}]
                      (get resp "applied")))
               (is (= "1.0.1" (get-in (manifest dir "modules/app/deps.edn")
                                      [:deps 'com.rig.test/parent
                                       :mvn/version])))
               (is (= orig-root (slurp (io/file dir "deps.edn")))
-                  "no pool entry: the declaring module's pin is the edit")
+                  "no pin entry: the declaring module's pin is the edit")
               (is (artifact-id? (get resp "lock")
                                 "com.rig.test/parent:1.0.1:jar"))
               (is (artifact-id? (get resp "lock")
@@ -210,7 +210,7 @@
                         (get-in (get resp "lock")
                                 ["modules" "modules/app" :classpath]))))))))))
 
-(deftest transitive-dep-is-pinned-in-the-pool
+(deftest transitive-dep-is-pinned-in-overrides
   (let [now (System/currentTimeMillis)]
     (with-repo [["com.rig.test" "parent"
                  {"1.0.0" {:published (old now)
@@ -231,8 +231,8 @@
             (let [orig-app (slurp (io/file dir "modules/app/deps.edn"))
                   resp (fix! dir [{:coord "com.rig.test/child"
                                    :locked "1.0.0"
-                                   :fixes ["1.1.0"]}]
-                              {:transitive true})]
+                                   :fixes ["1.1.0"]}
+                              ])]
               (is (= [{:coord "com.rig.test/child"
                        :locked "1.0.0"
                        :target "1.1.0"}]
@@ -240,17 +240,64 @@
               (is (= [{:coord "com.rig.test/child"
                        :target "1.1.0"
                        :sites []
-                       :pool {:action "add" :from nil :value "1.1.0"}}]
+                       :pin {:section "overrides" :action "add" :from nil
+                             :value "1.1.0"}}]
                      (get resp "applied")))
               (is (= "1.1.0" (get-in (manifest dir "deps.edn")
-                                     [:rig/deps 'com.rig.test/child]))
-                  "the pool pin is written at the root")
+                                     [:rig/overrides 'com.rig.test/child]))
+                  "the override pin is written at the root")
+              (is (nil? (get-in (manifest dir "deps.edn")
+                                 [:rig/deps 'com.rig.test/child]))
+                  "no pool section is created for the pin")
+              (is (re-find #"\n :rig/overrides " (slurp (io/file dir "deps.edn")))
+                  "the section starts on its own line")
               (is (= orig-app (slurp (io/file dir "modules/app/deps.edn")))
                   "no module declares the coord, none is touched")
               (is (artifact-id? (get resp "lock")
                                 "com.rig.test/child:1.1.0:jar"))
               (is (artifact-id? (get resp "lock")
                                 "com.rig.test/parent:1.0.0:jar")))))))))
+
+(deftest override-add-beside-an-existing-pool
+  "A pin \"add\" into a root that already carries a pool: the entry
+  lands in a new :rig/overrides section; the pool is untouched."
+  (let [now (System/currentTimeMillis)]
+    (with-repo [["com.rig.test" "parent"
+                 {"1.0.0" {:published (old now)
+                           :deps [["com.rig.test" "child" "1.0.0"]]}}]
+               ["com.rig.test" "child"
+                {"1.0.0" {:published (old now)}
+                 "1.1.0" {:published (old now)}}]]
+       #{"central" "clojars"}
+       (fn [url]
+         (with-ws {"deps.edn" (man url {:rig/modules ["modules/app"]
+                                        :rig/deps {'com.rig.test/parent
+                                                   "1.0.0"}})
+                   "modules/app/deps.edn" (man url
+                                               {:rig/lib "example/app"
+                                                :paths ["src"]
+                                                :deps {'com.rig.test/parent
+                                                       {:mvn/version "1.0.0"}}})}
+           (fn [dir]
+             (lock! dir {})
+             (let [resp (fix! dir [{:coord "com.rig.test/child"
+                                    :locked "1.0.0"
+                                    :fixes ["1.1.0"]}
+                               ])]
+               (is (= [{:coord "com.rig.test/child"
+                        :locked "1.0.0"
+                        :target "1.1.0"}]
+                      (get resp "plan")))
+               (is (= "1.1.0" (get-in (manifest dir "deps.edn")
+                                       [:rig/overrides 'com.rig.test/child]))
+                   "the override pin is written at the root")
+               (is (= "1.0.0" (get-in (manifest dir "deps.edn")
+                                      [:rig/deps 'com.rig.test/parent]))
+                   "the existing pool entry is untouched")
+               (is (artifact-id? (get resp "lock")
+                                 "com.rig.test/child:1.1.0:jar"))
+               (is (artifact-id? (get resp "lock")
+                                 "com.rig.test/parent:1.0.0:jar")))))))))
 
 (deftest vulnerable-pool-entry-is-updated
   (let [now (System/currentTimeMillis)]
@@ -278,7 +325,8 @@
               (is (= [{:coord "com.rig.test/child"
                        :target "1.1.0"
                        :sites []
-                       :pool {:action "update" :from "1.0.0" :value "1.1.0"}}]
+                       :pin {:section "pool" :action "update" :from "1.0.0"
+                             :value "1.1.0"}}]
                      (get resp "applied")))
               (is (= "1.1.0" (get-in (manifest dir "deps.edn")
                                      [:rig/deps 'com.rig.test/child
@@ -321,7 +369,7 @@
                                 :section "deps"
                                 :alias nil
                                 :from "1.0.0"}]
-                       :pool nil}]
+                       :pin nil}]
                      (get resp "applied")))
               (is (= orig-root (slurp (io/file dir "deps.edn")))
                   "the clean pool entry is untouched")
@@ -384,14 +432,13 @@
             (lock! dir {})
             (let [resp (fix! dir [{:coord "com.rig.test/child"
                                    :locked "1.0.0"
-                                   :fixes ["2.0.0"]}]
-                              {:breaking true :transitive true})]
+                                   :fixes ["2.0.0"]}] {:breaking true})]
               (is (= [{:coord "com.rig.test/child"
                        :locked "1.0.0"
                        :target "2.0.0"}]
                      (get resp "plan")))
               (is (= "2.0.0" (get-in (manifest dir "deps.edn")
-                                     [:rig/deps 'com.rig.test/child])))
+                                     [:rig/overrides 'com.rig.test/child])))
               (is (artifact-id? (get resp "lock")
                                 "com.rig.test/child:2.0.0:jar")))))))))
 
@@ -477,8 +524,7 @@
                                     :fixes ["1.1.0"]}
                                    {:coord "com.rig.test/broken"
                                     :locked "1.0.0"
-                                    :fixes ["1.9.0"]}]
-                               {:transitive true})]
+                                    :fixes ["1.9.0"]}])]
                (is (= [{:coord "com.rig.test/broken"
                         :locked "1.0.0"
                         :reason "fix-unavailable"}
@@ -489,7 +535,7 @@
                (is (= 1 (count (get resp "applied")))
                    "only the served fix is applied")
                (is (= "1.1.0" (get-in (manifest dir "deps.edn")
-                                      [:rig/deps 'com.rig.test/child])))
+                                      [:rig/overrides 'com.rig.test/child])))
                (is (= "1.0.0" (get-in (manifest dir "modules/app/deps.edn")
                                       [:deps 'com.rig.test/broken
                                        :mvn/version]))
@@ -532,7 +578,7 @@
                                 :section "extra-deps"
                                 :alias "test"
                                 :from "1.0.0"}]
-                       :pool nil}]
+                       :pin nil}]
                      (get resp "applied")))
               (is (= "1.1.0" (get-in (manifest dir "modules/app/deps.edn")
                                      [:aliases :test :extra-deps
@@ -571,7 +617,7 @@
                                   :section "deps"
                                   :alias nil
                                   :from "RELEASE"}]
-                         :pool nil}]
+                         :pin nil}]
                        (get resp "applied")))
                 (is (= "1.1.0" (get-in (manifest dir "modules/app/deps.edn")
                                        [:deps 'com.rig.test/child
@@ -626,7 +672,7 @@
                        :alias nil
                        :from "1.1.0"}]
                      (get-in (get resp "applied") [0 :sites])))
-              (is (nil? (get-in (get resp "applied") [0 :pool])))
+              (is (nil? (get-in (get resp "applied") [0 :pin])))
               (is (artifact-id? (get resp "lock")
                                 "com.rig.test/child:1.2.0:jar")))))))))
 
@@ -669,12 +715,12 @@
                                      {:mvn/version "RELEASE"}}}))
               (let [resp (fix! dir [{:coord "com.rig.test/child"
                                    :locked "1.0.0"
-                                   :fixes ["1.1.0"]}]
-                               {:transitive true})]
+                                   :fixes ["1.1.0"]}])]
                (is (= [{:coord "com.rig.test/child"
                         :target "1.1.0"
                         :sites []
-                        :pool {:action "add" :from nil :value "1.1.0"}}]
+                        :pin {:section "overrides" :action "add" :from nil
+                              :value "1.1.0"}}]
                       (get resp "applied")))
                (is (some #(= "com.rig.test/other" (str (:coord %)))
                          (get resp "refused")))
@@ -682,63 +728,15 @@
                (is (seq (get resp "edits"))
                     "the fix edits applied ahead of the refusal")
                (is (= "1.1.0" (get-in (manifest dir "deps.edn")
-                                      [:rig/deps 'com.rig.test/child])))
+                                      [:rig/overrides 'com.rig.test/child])))
                (is (nil? (get-in (manifest dir "deps.edn")
-                                  [:rig/deps 'com.rig.test/other])))
+                                  [:rig/overrides 'com.rig.test/other])))
                (is (artifact-id? (get resp "lock")
                                   "com.rig.test/other:1.0.0:jar")
                     "MIMA resolved the floating natively from the local m2")
                (is (artifact-id? (get resp "lock")
                                   "com.rig.test/child:1.1.0:jar")))))))
       (finally (delete-tree m2)))))
-
-(deftest transitive-fix-stands-without-the-flag
-  "A fix that would add a :rig/deps pool pin stands without :transitive —
-  the manifests and the lock are untouched — and applies with it."
-  (let [now (System/currentTimeMillis)]
-    (with-repo [["com.rig.test" "parent"
-                 {"1.0.0" {:published (old now)
-                           :deps [["com.rig.test" "child" "1.0.0"]]}}]
-                 ["com.rig.test" "child"
-                  {"1.0.0" {:published (old now)}
-                   "1.1.0" {:published (old now)}}]]
-       #{"central" "clojars"}
-       (fn [url]
-         (with-ws {"deps.edn" (man url {:rig/modules ["modules/app"]})
-                   "modules/app/deps.edn" (man url
-                                               {:rig/lib "example/app"
-                                                :paths ["src"]
-                                                :deps {'com.rig.test/parent
-                                                       {:mvn/version "1.0.0"}}})}
-           (fn [dir]
-             (lock! dir {})
-             (let [targets [{:coord "com.rig.test/child"
-                             :locked "1.0.0"
-                             :fixes ["1.1.0"]}]
-                   orig-root (slurp (io/file dir "deps.edn"))
-                   orig-lock (slurp (io/file dir "deps.lock"))
-                   resp (fix! dir targets)]
-               (is (= [{:coord "com.rig.test/child"
-                        :locked "1.0.0"
-                        :reason "transitive"}]
-                      (get resp "plan")))
-               (is (empty? (get resp "applied")))
-               (is (nil? (get resp "edits")))
-               (is (nil? (get resp "lock")))
-               (is (= orig-root (slurp (io/file dir "deps.edn")))
-                   "no pool entry is written")
-               (is (= orig-lock (slurp (io/file dir "deps.lock")))
-                   "the lock is untouched")
-               (let [resp (fix! dir targets {:transitive true})]
-                 (is (= [{:coord "com.rig.test/child"
-                          :locked "1.0.0"
-                          :target "1.1.0"}]
-                        (get resp "plan")))
-                 (is (= "1.1.0" (get-in (manifest dir "deps.edn")
-                                        [:rig/deps 'com.rig.test/child]))
-                     "with the flag the pool pin is written")
-                 (is (artifact-id? (get resp "lock")
-                                   "com.rig.test/child:1.1.0:jar")))))))))
 
 (deftest stale-pool-entry-stands
   "The pool already pins the fix and the lock still carries the vulnerable
@@ -782,13 +780,91 @@
                (is (= orig-root (slurp (io/file dir "deps.edn")))
                    "the clean pool entry is untouched")
                (is (= orig-lock (slurp (io/file dir "deps.lock")))
-                   "the lock is untouched")))))))))
+                   "the lock is untouched"))))))))
 
-(deftest partial-fix-applies-the-sites-gates-the-pool
+(deftest override-pin-updates-a-vulnerable-overrides-entry
+  "An existing :rig/overrides entry carries the vulnerable version: the
+  entry is updated in place."
+  (let [now (System/currentTimeMillis)]
+    (with-repo [["com.rig.test" "parent"
+                 {"1.0.0" {:published (old now)
+                           :deps [["com.rig.test" "child" "1.0.0"]]}}]
+                ["com.rig.test" "child"
+                 {"1.0.0" {:published (old now)}
+                  "1.1.0" {:published (old now)}}]]
+      #{"central" "clojars"}
+      (fn [url]
+        (with-ws {"deps.edn" (man url {:rig/modules ["modules/app"]
+                                       :rig/overrides {'com.rig.test/child
+                                                       "1.0.0"}})
+                  "modules/app/deps.edn" (man url
+                                              {:rig/lib "example/app"
+                                               :paths ["src"]
+                                               :deps {'com.rig.test/parent
+                                                      {:mvn/version "1.0.0"}}})}
+          (fn [dir]
+            (lock! dir {})
+            (let [resp (fix! dir [{:coord "com.rig.test/child"
+                                   :locked "1.0.0"
+                                   :fixes ["1.1.0"]}])]
+              (is (= [{:coord "com.rig.test/child"
+                       :target "1.1.0"
+                       :sites []
+                       :pin {:section "overrides" :action "update" :from "1.0.0"
+                             :value "1.1.0"}}]
+                     (get resp "applied")))
+              (is (= "1.1.0" (get-in (manifest dir "deps.edn")
+                                     [:rig/overrides 'com.rig.test/child])))
+              (is (artifact-id? (get resp "lock")
+                                "com.rig.test/child:1.1.0:jar")))))))))
+(deftest stale-override-entry-stands
+  "The override already pins the fix and the lock still carries the
+  vulnerable version (the lock predates the pin): the fix stands
+  stale-lock — the re-lock, not an edit, is its remedy."
+  (let [now (System/currentTimeMillis)]
+    (with-repo [["com.rig.test" "parent"
+                 {"1.0.0" {:published (old now)
+                           :deps [["com.rig.test" "child" "1.0.0"]]}}]
+                ["com.rig.test" "child"
+                 {"1.0.0" {:published (old now)}
+                  "1.1.0" {:published (old now)}}]]
+      #{"central" "clojars"}
+      (fn [url]
+        (with-ws {"deps.edn" (man url {:rig/modules ["modules/app"]})
+                  "modules/app/deps.edn" (man url
+                                              {:rig/lib "example/app"
+                                               :paths ["src"]
+                                               :deps {'com.rig.test/parent
+                                                      {:mvn/version "1.0.0"}}})}
+          (fn [dir]
+            (lock! dir {})
+            ;; The override pin lands in the root after the lock: the
+            ;; stale lock still carries the vulnerable child.
+            (spit (io/file dir "deps.edn")
+                  (man url {:rig/modules ["modules/app"]
+                            :rig/overrides {'com.rig.test/child
+                                            {:mvn/version "1.1.0"}}}))
+            (let [orig-root (slurp (io/file dir "deps.edn"))
+                  orig-lock (slurp (io/file dir "deps.lock"))
+                  resp (fix! dir [{:coord "com.rig.test/child"
+                                   :locked "1.0.0"
+                                   :fixes ["1.1.0"]}])]
+              (is (= [{:coord "com.rig.test/child"
+                       :locked "1.0.0"
+                       :reason "stale-lock"}]
+                     (get resp "plan")))
+              (is (empty? (get resp "applied")))
+              (is (nil? (get resp "edits")))
+              (is (nil? (get resp "lock")))
+              (is (= orig-root (slurp (io/file dir "deps.edn")))
+                  "the clean override entry is untouched")
+              (is (= orig-lock (slurp (io/file dir "deps.lock")))
+                  "the lock is untouched"))))))))
+
+(deftest partial-fix-edits-the-site-and-pins-the-override
   "A coordinate declared in one module and pulled undeclared in another:
-  without :transitive the declaring module's pin is bumped and the pool
-  pin that would reach the other module stands; with it the pool pin is
-  written and the re-lock pins every module."
+  the declaring module's pin is bumped and an override pin reaches the
+  other module — one run, one re-lock."
   (let [now (System/currentTimeMillis)]
     (with-repo [["com.rig.test" "parent"
                  {"1.0.0" {:published (old now)
@@ -816,7 +892,6 @@
              (let [targets [{:coord "com.rig.test/child"
                              :locked "1.0.0"
                              :fixes ["1.1.0"]}]
-                   orig-root (slurp (io/file dir "deps.edn"))
                    resp (fix! dir targets)]
                (is (= [{:coord "com.rig.test/child"
                         :locked "1.0.0"
@@ -829,28 +904,19 @@
                                  :section "deps"
                                  :alias nil
                                  :from "1.0.0"}]
-                        :pool nil}]
+                        :pin {:section "overrides" :action "add" :from nil
+                              :value "1.1.0"}}]
                       (get resp "applied"))
-                   "the site is edited, the pool pin stands")
+                   "the site is edited, the override pin is written")
                (is (= "1.1.0" (get-in (manifest dir "modules/app/deps.edn")
                                       [:deps 'com.rig.test/child
                                        :mvn/version])))
-               (is (= orig-root (slurp (io/file dir "deps.edn")))
-                   "no pool entry is written")
+               (is (= "1.1.0" (get-in (manifest dir "deps.edn")
+                                      [:rig/overrides 'com.rig.test/child])))
                (is (artifact-id? (get resp "lock")
                                  "com.rig.test/child:1.1.0:jar")
                    "the declaring module moves to the fix")
-               (is (some #(= "com.rig.test/child:1.0.0:jar" %)
-                         (get-in (get resp "lock")
-                                 ["modules" "modules/b" :classpath]))
-                   "the undeclaring module keeps the vulnerable pull")
-               (let [resp (fix! dir targets {:transitive true})]
-                 (is (= "1.1.0" (get-in (manifest dir "deps.edn")
-                                        [:rig/deps 'com.rig.test/child]))
-                     "with the flag the pool pin is written")
                  (is (some #(= "com.rig.test/child:1.1.0:jar" %)
                            (get-in (get resp "lock")
                                    ["modules" "modules/b" :classpath]))
-                     "the pool pin reaches the undeclaring module")
-                 (is (artifact-id? (get resp "lock")
-                                   "com.rig.test/child:1.1.0:jar"))))))))))
+                     "the override pin reaches the undeclaring module"))))))))

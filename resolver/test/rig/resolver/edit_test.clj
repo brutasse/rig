@@ -315,6 +315,96 @@
                                             "org.clojure/core.specs.alpha:0.4.74:jar"))
               "still in the lock: pulled transitively by org.clojure/clojure"))))))
 
+(deftest overrides-section-create-update-remove
+  "The :rig/overrides force-pin section is edited like the pool: an
+  absent section is created, an existing entry — string or map — is
+  bumped, and a nil requirement removes the entry."
+  (let [root-ov (str/replace root-text
+                             ":rig/deps {"
+                             (str ":rig/overrides {org.clojure/clojure \"1.12.6\"}\n"
+                                  "   :rig/deps {"))]
+    (with-ws root-ov lib-text app-text
+      (fn [dir]
+        (is (= "1.12.6" (get-in (read-manifest dir "deps.edn")
+                                [:rig/overrides 'org.clojure/clojure]))
+            "the string entry survives the fixture")
+        (edit/apply-edits dir [{:file "deps.edn"
+                                :coord "org.clojure/clojure"
+                                :requirement "1.12.7"
+                                :section "overrides"}])
+        (is (= "1.12.7" (get-in (read-manifest dir "deps.edn")
+                                [:rig/overrides 'org.clojure/clojure]))
+            "the string entry is bumped in place")
+        (edit/apply-edits dir [{:file "deps.edn"
+                                :coord "org.clojure/tools.logging"
+                                :requirement "1.3.2"
+                                :section "overrides"}])
+        (is (= "1.3.2" (get-in (read-manifest dir "deps.edn")
+                               [:rig/overrides 'org.clojure/tools.logging
+                                :mvn/version]))
+            "a new entry is created beside the pool entry")
+        (let [lines (str/split-lines (slurp (io/file dir "deps.edn")))]
+          (is (some #(and (str/includes? % "org.clojure/tools.logging")
+                          (not (str/includes? % ":rig/overrides")))
+                   lines)
+              "the appended entry is on its own line")
+          (is (some #(and (str/includes? % ":rig/overrides")
+                          (not (str/includes? % "org.clojure/tools.logging")))
+                   lines)
+              "no entry is appended to the section line"))
+        (is (= "1.3.1" (get-in (read-manifest dir "deps.edn")
+                               [:rig/deps 'org.clojure/tools.logging]))
+            "the pool is untouched")
+        (edit/apply-edits dir [{:file "deps.edn"
+                                :coord "org.clojure/tools.logging"
+                                :requirement "1.3.3"
+                                :section "overrides"}])
+        (is (= "1.3.3" (get-in (read-manifest dir "deps.edn")
+                               [:rig/overrides 'org.clojure/tools.logging
+                                :mvn/version]))
+            "the map entry is bumped")
+        (edit/apply-edits dir [{:file "deps.edn"
+                                :coord "org.clojure/tools.logging"
+                                :requirement nil
+                                :section "overrides"}])
+        (is (nil? (get-in (read-manifest dir "deps.edn")
+                          [:rig/overrides 'org.clojure/tools.logging]))
+            "the entry is removed")
+        (is (cljfmt-clean? (slurp (io/file dir "deps.edn"))))))))
+
+(deftest overrides-section-entries-one-per-line
+  "A force-pin section created from a single-line root is written one
+  entry per line: the section key on its own line, each appended entry
+  on its own."
+  (with-ws "{:rig/modules [\"modules/app\"]}\n" nil nil
+    (fn [dir]
+      (edit/apply-edits dir [{:file "deps.edn"
+                              :coord "org.clojure/clojure"
+                              :requirement "1.12.6"
+                              :section "overrides"}])
+      (let [lines (str/split-lines (slurp (io/file dir "deps.edn")))]
+        (is (some #(and (str/includes? % ":rig/modules")
+                        (not (str/includes? % ":rig/overrides")))
+                  lines)
+            "the section key is not on the :rig/modules line")
+        (is (some #(str/includes? % ":rig/overrides") lines)
+            "the section is created"))
+      (edit/apply-edits dir [{:file "deps.edn"
+                              :coord "org.clojure/tools.logging"
+                              :requirement "1.3.2"
+                              :section "overrides"}])
+      (let [text (slurp (io/file dir "deps.edn"))
+            lines (str/split-lines text)]
+        (is (some #(and (str/includes? % "org.clojure/tools.logging")
+                        (not (str/includes? % ":rig/overrides")))
+                  lines)
+            "the appended entry is on its own line")
+        (is (not (some #(and (str/includes? % "org.clojure/clojure")
+                             (str/includes? % "org.clojure/tools.logging"))
+                       lines))
+            "the entries share no line")
+        (is (cljfmt-clean? text))))))
+
 (deftest single-module-same-file
   (let [one-module "{:paths [\"src\"]
                      :deps {org.clojure/clojure {:mvn/version \"1.12.5\"}}}

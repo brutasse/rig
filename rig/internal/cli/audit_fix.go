@@ -27,7 +27,7 @@ import (
 )
 
 // fixTarget is one kernel audit-fix target: a vulnerable (coordinate,
-// locked version) pair and the union of the findings' fix versions.
+// locked version) pair, the union of the findings' fix versions.
 type fixTarget struct {
 	Coord  string   `json:"coord"`
 	Locked string   `json:"locked"`
@@ -92,23 +92,25 @@ type auditFixSite struct {
 	From    *string `json:"from"`
 }
 
-// auditFixPool is the pool pin of an applied fix: add (the root's
-// :rig/deps entry is created) or update (from the entry's own
-// version), at value.
-type auditFixPool struct {
-	Action string  `json:"action"`
-	From   *string `json:"from"`
-	Value  string  `json:"value"`
+// auditFixPin is the root force pin of an applied fix: the section it
+// is written in (the :rig/deps pool, "pool", or the :rig/overrides
+// force pins, "overrides"), add (the entry is created) or update (from
+// the entry's own version), at value.
+type auditFixPin struct {
+	Section string  `json:"section"`
+	Action  string  `json:"action"`
+	From    *string `json:"from"`
+	Value   string  `json:"value"`
 }
 
 // auditFixApplied is one applied fix: the coordinate, its target, its
-// edit sites (empty when only a pool pin was written), and the pool pin
-// (nil when none).
+// edit sites (empty when only a pin was written), and the pin (nil
+// when none).
 type auditFixApplied struct {
 	Coord  string         `json:"coord"`
 	Target string         `json:"target"`
 	Sites  []auditFixSite `json:"sites"`
-	Pool   *auditFixPool  `json:"pool"`
+	Pin    *auditFixPin   `json:"pin"`
 }
 
 // auditFixRemain is one finding that still stands after the fix: the
@@ -150,13 +152,14 @@ type auditFixResponse struct {
 }
 
 // auditFixCall runs the kernel audit-fix op: every fixable coordinate's
-// edit sites and pool pin are applied (a new pool pin only with
-// transitive), then the workspace re-locks once. It completes and saves
-// the lock, returning the response and the saved document. On any
-// failure after the kernel may have edited a manifest, the manifests
-// are restored byte-for-byte — a refusal arrives from the re-lock,
-// after the edits, and is reported as an error for the same reason.
-func (o *opts) auditFixCall(ctx context.Context, root *workspace.Root, targets []fixTarget, breaking, transitive bool) (resp auditFixResponse, lock *lockfile.Document, err error) {
+// edit sites and force pin (the root's :rig/overrides entry, or the
+// :rig/deps pool entry it already carries) are applied, then the
+// workspace re-locks once. It completes and saves the lock, returning
+// the response and the saved document. On any failure after the kernel
+// may have edited a manifest, the manifests are restored byte-for-byte
+// — a refusal arrives from the re-lock, after the edits, and is
+// reported as an error for the same reason.
+func (o *opts) auditFixCall(ctx context.Context, root *workspace.Root, targets []fixTarget, breaking bool) (resp auditFixResponse, lock *lockfile.Document, err error) {
 	store, err := o.store()
 	if err != nil {
 		return resp, nil, err
@@ -192,11 +195,10 @@ func (o *opts) auditFixCall(ctx context.Context, root *workspace.Root, targets [
 		Workspace: root.Dir,
 		Lock:      "deps.lock",
 		Args: map[string]any{
-			"targets":    targets,
-			"breaking":   breaking,
-			"transitive": transitive,
-			"offline":    o.offline,
-			"force":      o.force,
+			"targets": targets,
+			"breaking": breaking,
+			"offline":  o.offline,
+			"force":    o.force,
 		},
 	}, append(env, penv...)...)
 	if err != nil {
@@ -387,7 +389,7 @@ func printFindingsHuman(findings []auditFinding, chainsByScope map[string]map[st
 }
 
 // printFixHuman prints the fix report: per applied coordinate, the
-// fix line, the edit and pool lines, and the vuln ids it fixes; then
+// fix line, the edit and pin lines, and the vuln ids it fixes; then
 // the unfixable lines with their reasons and the pin note the state
 // derives for the pair.
 func printFixHuman(findings []auditFinding, resp *auditFixResponse, chainsByScope map[string]map[string][][]string, state *auditPinState) {
@@ -439,11 +441,11 @@ func printFixHuman(findings []auditFinding, resp *auditFixResponse, chainsByScop
 			}
 			fmt.Printf("  %s: set %s %q (%s%s)\n", s.File, a.Coord, a.Target, s.Section, alias)
 		}
-		if a.Pool != nil {
-			if a.Pool.From == nil {
-				fmt.Printf("  pool: add %s %q\n", a.Coord, a.Pool.Value)
+		if a.Pin != nil {
+			if a.Pin.From == nil {
+				fmt.Printf("  %s: add %s %q\n", a.Pin.Section, a.Coord, a.Pin.Value)
 			} else {
-				fmt.Printf("  pool: update %s %q → %q\n", a.Coord, *a.Pool.From, a.Pool.Value)
+				fmt.Printf("  %s: update %s %q → %q\n", a.Pin.Section, a.Coord, *a.Pin.From, a.Pin.Value)
 			}
 		}
 		if ids := vulnsOf[a.Coord]; len(ids) > 0 {
@@ -487,8 +489,6 @@ func unfixableText(reason string) string {
 		return "fixes only below the locked version"
 	case "fix-unavailable":
 		return "fix not available in the workspace's repositories"
-	case "transitive":
-		return "no manifest entry to bump: a :rig/deps pool pin would be added (use --transitive)"
 	case "stale-lock":
 		return "the manifest already pins a clean version; the lock is stale (run rig lock)"
 	default:
@@ -506,23 +506,26 @@ type auditModuleDecls struct {
 }
 
 // auditPinState is the pin situation of a workspace's manifests and one
-// lock document: the root :rig/deps pool's version per coordinate, the
-// lock modules whose classpaths (base or alias) carry each
-// (coordinate, version), and every module manifest's declarations. From
-// it auditNote derives a finding's remediation note.
+// lock document: the root :rig/deps pool's and :rig/overrides' versions
+// per coordinate, the lock modules whose classpaths (base or alias)
+// carry each (coordinate, version), and every module manifest's
+// declarations. From it auditNote derives a finding's remediation note.
 type auditPinState struct {
-	pool   map[string]string             // coord -> the pool entry's version ("" when absent)
-	pulls  map[auditCoord][]string       // (coord, version) -> the lock modules carrying it
-	decls  map[string]*auditModuleDecls  // lock module dir -> its manifest's declarations
+	pool  map[string]string             // coord -> the pool entry's version ("" when absent)
+	ovr   map[string]string             // coord -> the overrides entry's version ("" when absent)
+	pulls map[auditCoord][]string       // (coord, version) -> the lock modules carrying it
+	decls map[string]*auditModuleDecls  // lock module dir -> its manifest's declarations
 }
 
-// auditPinStateOf reads the root manifest (its :rig/deps pool) and
-// every lock module's manifest (ednlit; a manifest that is unreadable
-// or unparseable declares nothing) and the lock's classpaths, and
-// returns the pin state the finding notes derive from.
+// auditPinStateOf reads the root manifest (its :rig/deps pool and
+// :rig/overrides force pins) and every lock module's manifest (ednlit;
+// a manifest that is unreadable or unparseable declares nothing) and
+// the lock's classpaths, and returns the pin state the finding notes
+// derive from.
 func auditPinStateOf(root *workspace.Root, lock *lockfile.Document) *auditPinState {
 	st := &auditPinState{
 		pool:  make(map[string]string),
+		ovr:   make(map[string]string),
 		pulls: make(map[auditCoord][]string),
 		decls: make(map[string]*auditModuleDecls),
 	}
@@ -562,11 +565,19 @@ func auditPinStateOf(root *workspace.Root, lock *lockfile.Document) *auditPinSta
 			continue
 		}
 		if dir == "." {
-			if pool, ok := ednlitGet(man, ednlit.Keyword{NS: "rig", Name: "deps"}); ok {
-				if m, ok := pool.(ednlit.Map); ok {
-					for _, p := range m {
-						if c, ok := coordOf(p.K); ok {
-							st.pool[c] = specVersion(p.V)
+			for _, sec := range []ednlit.Keyword{{NS: "rig", Name: "deps"}, {NS: "rig", Name: "overrides"}} {
+				var dst map[string]string
+				if sec.Name == "deps" {
+					dst = st.pool
+				} else {
+					dst = st.ovr
+				}
+				if v, ok := ednlitGet(man, sec); ok {
+					if m, ok := v.(ednlit.Map); ok {
+						for _, p := range m {
+							if c, ok := coordOf(p.K); ok {
+								dst[c] = specVersion(p.V)
+							}
 						}
 					}
 				}
@@ -679,20 +690,30 @@ func addDecls(d *auditModuleDecls, m ednlit.Map) {
 }
 
 // auditNote is the remediation note of a (coordinate, version) finding,
-// derived from the pin state: the root :rig/deps pool entry the
-// coordinate sits under — pinning the vulnerable version (bump the
-// entry) or a clean version the lock has not picked up (a plain
-// re-lock) — or a coordinate some locking module pins while others
-// pull it undeclared, the pull only a :rig/deps pool pin reaches.
-// Empty when every locking module pins the coordinate itself, or no
-// manifest does (a pure transitive pull, which --fix names on its
-// unfixable line).
+// derived from the pin state: the root's force pin the coordinate sits
+// under — its :rig/overrides entry (the section a fix writes, beating
+// the pool on the same coordinate) or its :rig/deps pool entry — at the
+// vulnerable version (bump the entry) or at a clean version the lock has
+// not picked up (a plain re-lock) — or a coordinate some locking module
+// pins while others pull it undeclared, the pull only a force pin
+// reaches. Empty when every locking module pins the coordinate itself,
+// or no manifest does (a pure transitive pull, which --fix reaches by
+// writing the :rig/overrides pin).
 func (st *auditPinState) auditNote(coord, version string) string {
-	if p, ok := st.pool[coord]; ok && p != "" {
-		if p == version {
-			return "bump the pool entry"
+	for _, e := range []struct{ sec, p string }{{"overrides", st.ovr[coord]}, {"pool", st.pool[coord]}} {
+		if e.p == "" {
+			continue
 		}
-		return fmt.Sprintf("the :rig/deps pool pins %s; the lock still carries %s — rig lock picks up the pool pin", p, version)
+		if e.p == version {
+			if e.sec == "pool" {
+				return "bump the pool entry"
+			}
+			return "bump the :rig/overrides pin"
+		}
+		if e.sec == "pool" {
+			return fmt.Sprintf("the :rig/deps pool pins %s; the lock still carries %s — rig lock picks up the pool pin", e.p, version)
+		}
+		return fmt.Sprintf("the :rig/overrides pin pins %s; the lock still carries %s — rig lock picks up the pin", e.p, version)
 	}
 	sited, undecl := false, 0
 	for _, m := range st.pulls[auditCoord{coord, version}] {
@@ -704,12 +725,12 @@ func (st *auditPinState) auditNote(coord, version string) string {
 		}
 	}
 	if sited && undecl > 0 {
-		return "a :rig/deps pool pin would force-pin it workspace-wide (--fix --transitive, or add the pool entry and re-lock)"
+		return "a :rig/overrides force pin would force-pin it workspace-wide (rig audit --fix writes one)"
 	}
 	return ""
 }
 
-func runAuditFix(ctx context.Context, o *opts, jsonOut, explain, breaking, transitive bool) error {
+func runAuditFix(ctx context.Context, o *opts, jsonOut, explain, breaking bool) error {
 	root, err := workspace.Find(".")
 	if err != nil {
 		return err
@@ -778,7 +799,7 @@ func runAuditFix(ctx context.Context, o *opts, jsonOut, explain, breaking, trans
 	}
 
 	targets, _ := fixTargets(findings)
-	resp, lock, err := o.auditFixCall(ctx, root, targets, breaking, transitive)
+	resp, lock, err := o.auditFixCall(ctx, root, targets, breaking)
 	if err != nil {
 		return err
 	}
