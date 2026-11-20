@@ -2,13 +2,13 @@
   "version": 2,
   "tool": {
     "name": "rig",
-    "version": "v0.5.1"
+    "version": "v0.6.0"
   },
   "resolver": {
     "lib": "io.github.brutasse/rig-resolver",
-    "version": "v0.5.1",
-    "git/sha": "ec32426",
-    "sha256": "41129d1d24d496ae271599e5fdabaf4bc8184ac3ca94e3699ebf53732446e96e"
+    "version": "v0.6.0",
+    "git/sha": "53caf82",
+    "sha256": "02fb542b6cb6af4b72dce324d2097fff924e74ac3315bcdec743fde2c7b16a27"
   },
   "workspace": {
     "modules": [
