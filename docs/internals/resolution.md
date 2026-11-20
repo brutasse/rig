@@ -93,12 +93,19 @@ mechanics and the escape hatches are on the
   lock time and pins the answer into the lock (`repository` + `url`). It
   checks in order: first the repository Maven itself recorded in
   `~/.m2/…/_remote.repositories` (offline and exact), then a HEAD probe
-  of each declared repository, then the first one. From then on, the hot
-  build fetches from the recorded URL and never re-probes
-  ([the closed build](closed-build.md)).
+  of each repository, declared ones first. When every probe is
+  definitive — a 404, or a 401/403 — the lock fails with a
+  per-repository report: attributing the artifact to a repository that
+  refuses it would bake an undownloadable URL into the lock. Only an
+  inconclusive probe (a connection failure) falls back to the first
+  repository as a stand-in; the build's sha256 check catches a wrong
+  stand-in. From then on, the hot build fetches from the recorded URL
+  and never re-probes ([the closed build](closed-build.md)).
 - Credentials for private repositories come from `~/.m2/settings.xml`,
-  the same file Maven and tools.deps use. The local auth proxy of Rig
-  serves `:auth :oidc` repositories instead.
+  the same file Maven and tools.deps use — read at build time, and at
+  lock time, when Rig probes the repositories to decide which one serves
+  an artifact. The local auth proxy of Rig serves `:auth :oidc`
+  repositories instead.
 
 ## Ecosystem interop
 
