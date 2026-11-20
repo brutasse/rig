@@ -2,6 +2,7 @@
   (:require [cheshire.core :as json]
             [clojure.edn :as edn]
             [rig.resolver.aot :as aot]
+            [rig.resolver.audit-fix :as audit-fix]
             [rig.resolver.build :as build]
             [rig.resolver.check :as check]
             [rig.resolver.edit :as edit]
@@ -79,10 +80,12 @@
   (let [thunk (case (keyword (:op request))
                 :resolve #(resolve/resolve-lock request)
                 :edit-dep #(edit/edit-dep request)
+                :audit-fix #(audit-fix/audit-fix request)
                 :check #(check/check request)
                 :aot-plan #(aot/aot-plan request)
                 :migrate #(migrate/migrate request)
                 :tree #(tree/tree request)
+                :explain #(tree/explain request)
                 :outdated #(outdated/outdated request)
                 :latest #(latest/latest request)
                 :git-procure #(git-sync/procure (get-in request [:args :url])

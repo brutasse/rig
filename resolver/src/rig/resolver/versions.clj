@@ -276,6 +276,34 @@
   [vs]
   (reduce (fn [a b] (if (pos? (vcmp a b)) a b)) vs))
 
+(defn major-of
+  "A version's major: its first dot component (\"2.18.6\" -> \"2\")."
+  [v]
+  (first (str/split (str v) #"\.")))
+
+(defn pick-fix
+  "The audit-fix target for locked given the fixes known for it: the
+  newest fix (vcmp) at or above locked in locked's own major; with
+  breaking?, fixes in a higher major join the candidates. Snapshots are
+  never candidates. Returns {:target v} or {:reason r}: \"no-fix\" (no
+  fix listed), \"breaking\" (fixes only in a higher major), or
+  \"below-locked\" (fixes only below locked — a rollback, a human call)."
+  [locked fixes breaking?]
+  (let [fs (remove snapshot? fixes)
+        lm (major-of locked)
+        cands (filter (fn [f]
+                        (let [m (major-of f)]
+                          (and (>= (vcmp f locked) 0)
+                               (or (= 0 (vcmp m lm))
+                                   (and (true? breaking?) (pos? (vcmp m lm)))))))
+                      fs)]
+    (if (seq cands)
+      {:target (newest cands)}
+      {:reason (cond
+                 (empty? fs) "no-fix"
+                 (some #(pos? (vcmp (major-of %) lm)) fs) "breaking"
+                 :else "below-locked")})))
+
 (defn iso
   [ms]
   (when ms (.toString (java.time.Instant/ofEpochMilli ms))))

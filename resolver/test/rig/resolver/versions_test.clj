@@ -293,3 +293,45 @@
              (versions/with-proxy-repos
                {:mvn/repos {"oidc" {:url "https://pier.example"}}}))
           "no proxy binding, data returned unchanged"))))
+
+(deftest pick-fix-same-major
+  (is (= {:target "1.12.0"}
+         (versions/pick-fix "1.11.0" ["1.11.1" "1.12.0"] false))
+      "the newest fix at or above the locked version in its own major")
+  (is (= {:target "0.6.26"}
+         (versions/pick-fix "0.6.17" ["0.6.20" "0.6.26"] false))
+      "0.x majors: 0.6.20 and 0.6.26 are the same major as 0.6.17")
+  (is (= {:target "1.12.0"}
+         (versions/pick-fix "1.11.0" ["1.12.0-beta" "1.12.0"] false))
+      "Maven ordering: the release beats its pre-release"))
+
+(deftest pick-fix-breaking
+  (is (= {:reason "breaking"}
+         (versions/pick-fix "1.2.0" ["2.0.0"] false))
+      "a higher-major fix is not picked without the flag")
+  (is (= {:target "2.0.0"}
+         (versions/pick-fix "1.2.0" ["2.0.0"] true))
+      "the higher-major fix joins the candidates with the flag")
+  (is (= {:target "2.0.0"}
+         (versions/pick-fix "1.2.0" ["2.0.0" "1.2.5"] true))
+      "with the flag, the newest candidate wins, whatever its major")
+  (is (= {:reason "breaking"}
+         (versions/pick-fix "1.0.0" ["0.5.0" "2.0.0"] false))
+      "a below-locked fix beside a higher-major one still reports breaking")
+  (is (= {:reason "breaking"}
+         (versions/pick-fix "0.9.0" ["1.0.0"] false))
+      "0.x to 1.x is a major jump"))
+
+(deftest pick-fix-unfixable
+  (is (= {:reason "no-fix"}
+         (versions/pick-fix "1.0.0" [] false))
+      "no fix listed")
+  (is (= {:reason "below-locked"}
+         (versions/pick-fix "1.5.0" ["1.4.0"] false))
+      "fixes only below the locked version are a rollback, a human call")
+  (is (= {:reason "no-fix"}
+         (versions/pick-fix "1.0.0" ["1.0.1-SNAPSHOT"] false))
+      "a snapshot-only fix set is an empty one")
+  (is (= {:target "1.0.2"}
+         (versions/pick-fix "1.0.0" ["1.0.1-SNAPSHOT" "1.0.2"] false))
+      "snapshots are excluded, releases stand"))

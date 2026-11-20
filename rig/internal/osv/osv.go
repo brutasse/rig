@@ -143,7 +143,18 @@ type Event struct {
 	Fixed      string `json:"fixed"`
 }
 
-// Get fetches the full record of one vulnerability.
+// StatusError is a non-2xx response from the OSV API: the status and a
+// snippet of the body. 5xx (and 429) are transient: a retry can fix
+// them; the other statuses are permanent (a 404 is an id the API does
+// not know).
+type StatusError struct {
+	Status  int
+	Snippet string
+}
+
+func (e *StatusError) Error() string {
+	return fmt.Sprintf("osv: HTTP %d: %s", e.Status, e.Snippet)
+}
 func Get(ctx context.Context, client *http.Client, base, id string) (*Vulnerability, error) {
 	u := base + "/vulns/" + url.PathEscape(id)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
@@ -160,7 +171,7 @@ func Get(ctx context.Context, client *http.Client, base, id string) (*Vulnerabil
 		return nil, err
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("osv: %s: HTTP %d: %s", u, resp.StatusCode, snippet(raw))
+		return nil, &StatusError{Status: resp.StatusCode, Snippet: snippet(raw)}
 	}
 	var v Vulnerability
 	if err := json.Unmarshal(raw, &v); err != nil {
@@ -213,7 +224,7 @@ func post(ctx context.Context, client *http.Client, u string, body, out any) err
 		return err
 	}
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("osv: %s: HTTP %d: %s", u, resp.StatusCode, snippet(raw))
+		return &StatusError{Status: resp.StatusCode, Snippet: snippet(raw)}
 	}
 	if err := json.Unmarshal(raw, out); err != nil {
 		return fmt.Errorf("osv: %s: bad response: %w", u, err)

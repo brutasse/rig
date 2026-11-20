@@ -264,8 +264,12 @@ audit: 2 known vulnerabilities in 2 of 510 pinned artifacts
 
 com.fasterxml.jackson.core/jackson-databind 2.9.0
   used in ., modules/backend, modules/backend:test
+  pulled in:
+    .: com.fasterxml.jackson.dataformat/jackson-dataformat-xml:2.9.0 → com.fasterxml.jackson.core/jackson-databind:2.9.0
+    modules/backend: modules/backend/lib:0.1.0 → com.fasterxml.jackson.core/jackson-databind:2.9.0
+  note: the :rig/deps pool pins 2.17.1; the lock still carries 2.9.0 — rig lock picks up the pool pin
   GHSA-… (CVE-2024-…) Deserialization of untrusted data
-    published 2024-… · severity CVSS_V3 9.8 Critical · fixed in 2.17.1
+    published 2024-… · severity CVSS_V3 9.8 Critical · fixed in 2.17.1 · other series: 2.21.4
 ```
 
 Scan every maven artifact pinned in the workspace lock against the OSV
@@ -276,21 +280,98 @@ is its directory, an alias classpath the `module:alias` pair. Severity
 is the OSV score when the record carries a numeric one, the CVSS base
 score computed from the record's vector string otherwise, with its
 bucket (Critical at 9.0, High at 7.0, Medium at 4.0, Low below); a
-vector that cannot be scored leaves the type alone. Git deps are
+vector that cannot be scored leaves the type alone. Fix versions are
+shown per series: the fixes in the locked version's own
+`major.minor` series first, the other series' fixes marked as
+`other series`. Git deps are
 pinned by commit sha and OSV cannot look them up; they are skipped and
 counted. Artifacts from private repositories (the `:mvn/repos` entries
 other than `central` and `clojars`) are skipped and counted the same
 way; an overridden `central` or `clojars` keeps its name and is scanned
-as the real one. `audit` reads the lock only: it never re-locks, never
-downloads artifacts, and needs no JVM. It exits 1 when any scanned
-artifact has a known vulnerability, 0 when the lock is clean, 3 when
-the lock is missing. `--offline` refuses — the scan needs the network,
+as the real one. A finding whose pin the report can see carries a
+`note:` line: a `:rig/overrides` pin or a `:rig/deps` pool entry at the
+vulnerable version (bump the entry), an entry at a clean version the
+lock has not picked up (a plain re-lock), or a coordinate some module
+pins while another pulls it undeclared — the pull only a force pin
+reaches. `audit` reads the
+lock and the manifests only: it never re-locks, never downloads
+artifacts, and needs no JVM.
+
+Transient OSV failures (a network error, a 5xx, a 429) are retried a
+few times. A scan that still fails exits 4 (`audit: scan failed: …`),
+distinct from "has findings"; a vulnerability record that cannot be
+fetched is skipped — the affected artifact is counted in the summary
+(`…; N artifact record(s) could not be fetched`), the reason is printed
+to stderr, and the rest of the report stands. With findings the exit
+stays 1; with none, an incomplete scan exits 4
+(`audit: scan incomplete: …`). It exits 1 when any scanned artifact
+has a known vulnerability, 0 when the lock is clean, 3 when the lock
+is missing. `--offline` refuses — the scan needs the network,
 so it never joins the hermetic gate (see
-[CI](../workflows/ci.md)). `--json` prints the report on stdout as a
-JSON document (the workspace, the scanned and skipped counts, and the
-findings grouped per artifact with their scopes and severity details,
-including the full vector string); the summary stays on stderr, and
+[CI](../workflows/ci.md)).
+
+`--explain` adds each finding's puller chains: which direct dep pulled
+the artifact in, per scope, walked from the module's dependency trace
+(the same basis as [tree](#rig-tree)) — `pulled in: <scope>: a → b →
+artifact`, one line per chain (a shared dep carries one chain per chain
+that pulls it). The chains need the kernel, a JVM, and the locked
+artifacts in the local maven repository; a scope the kernel cannot walk
+prints a note on stderr and its findings render without chains, and the
+exit code is the scan's, unchanged.
+
+`--json` prints the report on stdout as a
+JSON document (the workspace, the scanned and skipped counts, the
+`failed` count of artifacts a record could not be fetched for, and the
+findings grouped per artifact with their scopes, severity details
+(including the full vector string), the `fixed` versions per series
+(`fixedSeries`: the ones in the locked version's own series), and the
+`chains` of `--explain`); the summary stays on stderr, and
 the exit codes are unchanged.
+
+`--fix` applies the fixable findings' fixes. Rig picks each vulnerable
+coordinate's target from the fix versions the records list: the newest
+fix at or above the locked version, in the locked version's own
+major. A fix in a higher major is a candidate only with `--breaking`;
+SNAPSHOT fixes are never candidates. A pin a manifest already carries —
+a `:deps` entry, or a root `:rig/deps` or `:rig/overrides` entry at
+the vulnerable version — is updated in place. A fix no manifest entry
+carries (the coordinate is a pure transitive pull) is written as a
+force pin in the root's `:rig/overrides` (the security-pin section,
+beating `:rig/deps` on the same coordinate), and the re-lock
+force-pins every module. A coordinate a manifest
+already pins at a clean version stands `stale-lock` — its remedy is the
+re-lock that picks the pin up, not an edit. A coordinate with no fix
+listed, with only a higher-major fix without `--breaking`, with only a
+fix below the locked version, or with a fix version the workspace's
+repositories do not serve stands the same way: the report names it
+`unfixable` with the reason. Rig then re-locks once. The verification
+re-queries OSV for every version the new lock carries of the original
+findings' coordinates. The report lists the vuln ids the re-query no
+longer returns (`fixed`) and the ones it still returns (`remaining`),
+with the note the re-locked state derives for each.
+
+```
+fix: org.clojure/clojure 1.11.0 → 1.12.5
+  used in modules/app, modules/app:test
+  modules/app/deps.edn: set org.clojure/clojure "1.12.5" (deps)
+  fixes: GHSA-… (CVE-…)
+wrote deps.lock: 26 artifacts, 2 modules
+verified: 1 fixed, 0 remaining
+```
+
+The exit is 0 when every finding is fixed and verified, and 1 when
+findings remain after the fix (or when nothing is fixable). It is 3
+when the lock is missing, 4 when the scan is incomplete or the
+verification fails, and 5 when the re-lock refuses a requirement. An
+incomplete scan does not attempt the fix. A refusal is another
+requirement's: `--fix`'s own pins are exempt from the cooldowns. Rig
+restores every manifest it edited, byte for byte. `--fix` needs the
+kernel and a JVM (the re-lock) and the network (OSV). It composes
+with `--explain` and `--json`; the report gains a `fix` section: the
+plan rows, the applied fixes with their edit sites and force pins, and
+the verification. Keep `rig audit` bare in CI: `--fix` edits
+manifests and re-locks, so its changes belong to a commit you review,
+not to a pipeline step ([CI](../workflows/ci.md)).
 
 ### `rig info`
 
@@ -716,7 +797,7 @@ rig --autocomplete | Invoke-Expression  # PowerShell
 | 1 | failure — build/test/publish/resolve error, or a `check` error |
 | 2 | usage error — bad flag, missing main, module not in the lock, … |
 | 3 | lock problem — missing or stale lock on a command that does not write it |
-| 4 | security failure — artifact hash mismatch / not in the lock |
+| 4 | security failure — artifact hash mismatch / not in the lock; or an `audit` scan that failed or could not complete (OSV unreachable after retries, a record that cannot be fetched) |
 | 5 | cooldown refused — retry with `--force` |
 
 Commands that launch a child process (`run`, `nrepl`, `exec`, `fmt`)

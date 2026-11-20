@@ -119,26 +119,30 @@
   [c]
   (if (namespace c) c (symbol (name c) (name c))))
 
-(defn pool-overrides
-  "The root manifest's :rig/deps versions as basis :override-deps for one
-  module. A shared pool force-pins its version workspace-wide — lein
-  :managed-dependencies (what migrate materializes into :rig/deps)
-  applies to transitive consumers, not just declaring ones — and a pool
-  entry no module declares can only force-pin from the outside: the
-  module's own declared coordinates are left out, they stay the
-  module's business — declarations in its aliases (where a dev tool's
-  version lives) count as declared too. Entries that carry no
-  mvn/version (a module pinned by :local/root) are not force-pinning
-  anything: skipped."
+(defn root-overrides
+  "The root manifest's force-pins — :rig/deps (the shared pool) and
+  :rig/overrides (the security pins `rig audit --fix` writes) — as basis
+  :override-deps for one module. A force-pin applies its version
+  workspace-wide, to transitive consumers, not just declaring ones: an
+  entry no module declares can only force-pin from the outside, so the
+  module's own declared coordinates are left out — they stay the
+  module's business — and declarations in its aliases (where a dev
+  tool's version lives) count as declared too. A coordinate present in
+  both sections is the :rig/overrides version: the later, deliberate
+  pin beats the durable pool. Entries that carry no mvn/version (a
+  module pinned by :local/root) are not force-pinning anything:
+  skipped."
   [root-data data]
   (let [declared (into #{} (map qualify-sym)
                        (concat (keys (get data :deps {}))
                                (mapcat (fn [al]
                                          (concat (keys (:deps al {}))
                                                  (keys (:extra-deps al {}))))
-                                       (vals (get data :aliases {})))))]
+                                       (vals (get data :aliases {})))))
+        entries (merge (get root-data :rig/deps {})
+                       (get root-data :rig/overrides {}))]
     (into {}
-          (for [[c s] (get root-data :rig/deps {})
+          (for [[c s] entries
                 :let [v (if (map? s) (get s :mvn/version) (when (string? s) s))]
                 :when (and (string? v) (not (contains? declared (qualify-sym c))))]
             [(qualify-sym c) {:mvn/version v}]))))
@@ -313,7 +317,7 @@
       (let [abs (some-> (io/file mdir r) (.getCanonicalPath) str)]
         [(rel abs) abs]))))
 
-(defn- local-modules
+(defn local-modules
   "Every :local/root dir referenced by the module manifests that is not
   itself a workspace module and holds a manifest, as
   {workspace-relative-dir canonical-abs}. Nested references are followed; the
@@ -417,7 +421,7 @@
                                            (versions/with-proxy-repos base)
                                            base))
                                        (with-local-exclusions local-excl))
-                              pool-ov (pool-overrides root-data data)
+                              pool-ov (root-overrides root-data data)
                               base-basis (resolve-basis mdir [] proj pool-ov)
                               base-mapped (plan/map-classpath (:classpath-roots base-basis) modules-abs m2 gl)
                               alias-maps (into {}
