@@ -4,6 +4,27 @@ Changelog for Rig.
 
 ## Unreleased
 
+## v0.6.1 — 2026-11-21
+
+### Fixed
+
+#### The lock attributes an artifact to the repository that serves it
+
+When the local `~/.m2` held no record of an artifact, the lock probed
+the repositories without credentials. A private repository answered
+401, which the old probe read as "not here", and the lock blamed the
+first repository on the list: central. It recorded central's URL, and
+a build on a machine without that `~/.m2` entry fetched it and failed.
+
+The probe now carries the build's credentials: the bearer of a
+`:auth :oidc` repository, or the basic credentials of the repository
+id from `~/.m2/settings.xml`. The lock records the first repository
+that answers 2xx, the project's own `:mvn/repos` first. When no
+repository serves the artifact, the lock fails with a per-repository
+report instead of recording an undownloadable URL. Re-lock any lock
+that predates this fix and carries a private artifact. [Repository
+semantics](internals/resolution.md#repository-semantics).
+
 ## v0.6.0 — 2026-11-20
 
 ### Added
