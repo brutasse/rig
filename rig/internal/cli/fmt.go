@@ -25,8 +25,8 @@ func newFmtCmd(o *opts) *cobra.Command {
 }
 
 // runFmt formats (or checks) the module with the cljfmt pinned in the
-// kernel jar. No workspace lock needed; the kernel jar is fetched by its
-// pinned hash.
+// kernel jar. No workspace lock needed; the kernel jar is materialized by
+// its pinned hash.
 func runFmt(ctx context.Context, o *opts, check bool) error {
 	root, err := workspace.Find(".")
 	if err != nil {

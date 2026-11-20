@@ -46,9 +46,9 @@
 #   3. builds and pushes the multi-arch Docker image (the rig binary
 #      alone: it embeds its own jars, pre-materialized into the store)
 #      to ghcr.io/brutasse/rig
-#   4. publishes a GitHub release with all binaries + kernel jar +
-#      runner jar + SHA256SUMS (the jars stay published as assets for
-#      pre-embedding rig binaries, which fetch them by their compiled pin)
+#   4. publishes a GitHub release with all binaries + SHA256SUMS (the
+#      jars are not published: rig embeds them, and pre-embedding
+#      binaries fetch their pinned version's jar from older releases)
 #   5. re-pins the install one-liner's git sha and bumps the version
 #      examples in README.md and docs/getting-started.md on main
 #   6. pushes the version stamp (resolver/VERSION + lock) to main
@@ -292,12 +292,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           v="${{ github.ref_name }}"
-          jarsha=$(sha256sum "resolver/target/rig-resolver-$v.jar" | cut -d' ' -f1)
-          runnersha=$(sha256sum "resolver/runner/target/rig-runner-$v.jar" | cut -d' ' -f1)
           (cd rig/dist/release && sha256sum -c SHA256SUMS)
           gh release create "$v" \
             --title "$v" \
-            --notes "rig $v — binaries (linux/darwin, amd64/arm64) + resolver kernel jar (sha256 $jarsha) + runner jar (sha256 $runnersha). Install: see README (curl one-liner, pinned at the release git sha). Self-update: rig self-update." \
+            --notes "rig $v — binaries (linux/darwin, amd64/arm64). Install: see README (curl one-liner, pinned at the release git sha). Self-update: rig self-update." \
             rig/dist/release/*
 
       - name: Save release stamps

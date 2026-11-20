@@ -4,6 +4,17 @@ Changelog for Rig.
 
 ## Unreleased
 
+### Changed
+
+#### Releases ship only the binaries
+
+Rig embeds its kernel and runner jars in the binary (`go:embed`), and
+pre-embedding binaries only ever fetched their pinned version's jar from
+older releases — so the jar assets on recent releases had no fetcher.
+Releases now publish the binaries and `SHA256SUMS` only, and the release
+notes no longer carry the jar digests. Published releases keep their
+assets.
+
 ## v0.6.1 — 2026-11-21
 
 ### Fixed
@@ -386,8 +397,10 @@ git sha) is stamped into the binary at release build via `-ldflags`, the
 same way as the Rig version, and the lock's `resolver` block still
 records the sha256 of the jar that actually ran. The `RIG_KERNEL_JAR` /
 `RIG_RUNNER_JAR` dev overrides work as before. The kernel and runner
-jars remain published as release assets: pre-embedding rig binaries
-still fetch them at runtime.
+jars are still published as release assets on the releases that
+followed; no binary fetches them — pre-embedding rig binaries pin their
+own version's jar from older releases — so they stop shipping with the
+next release.
 
 #### `deps.lock` no longer records `locked_at`
 

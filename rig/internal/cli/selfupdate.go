@@ -98,6 +98,5 @@ func runSelfUpdate(ctx context.Context, o *opts, checkOnly bool, target string) 
 		writeUpdateCheck(store.Root, rel.Tag)
 	}
 	fmt.Printf("updated rig %s -> %s at %s\n", Version, rel.Tag, path)
-	fmt.Println("the matching kernel jar is fetched on next use")
 	return nil
 }
