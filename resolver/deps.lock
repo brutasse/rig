@@ -2,20 +2,20 @@
   "version": 2,
   "tool": {
     "name": "rig",
-    "version": "v0.6.0"
+    "version": "v0.6.1"
   },
   "resolver": {
     "lib": "io.github.brutasse/rig-resolver",
-    "version": "v0.6.0",
-    "git/sha": "53caf82",
-    "sha256": "02fb542b6cb6af4b72dce324d2097fff924e74ac3315bcdec743fde2c7b16a27"
+    "version": "v0.6.1",
+    "git/sha": "3eda2c0",
+    "sha256": "843f26f019d722c2ea648af2e6333fb6ab4bdbf70fe9e8091068c86d5dc16006"
   },
   "workspace": {
     "modules": [
       ".",
       "runner"
     ],
-    "manifest_sha256": "808ec50ffcdc9a99be221cf3ccd64c294670508d84a97471376d8d1aadfc06d9"
+    "manifest_sha256": "8a84dae73e5654cfc539b97500354268de66f435a3f1429ff2dc16be9cac69d7"
   },
   "cooldown": {
     "default": "48h",
@@ -237,6 +237,20 @@
       "git": null
     },
     {
+      "id": "org.clojure/tools.deps.edn:0.10.63:jar",
+      "kind": "mvn",
+      "group": "org.clojure",
+      "name": "tools.deps.edn",
+      "version": "0.10.63",
+      "extension": "jar",
+      "classifier": null,
+      "repository": "central",
+      "url": "https://repo.maven.apache.org/maven2/org/clojure/tools.deps.edn/0.10.63/tools.deps.edn-0.10.63.jar",
+      "sha256": "1d7bc40c204fee39c688e60e8c47c6dc00ed6616464ddcab08ac144ef2d903ae",
+      "published_at": null,
+      "git": null
+    },
+    {
       "id": "fipp/fipp:0.6.26:jar",
       "kind": "mvn",
       "group": "fipp",
@@ -331,20 +345,6 @@
       "repository": "central",
       "url": "https://repo.maven.apache.org/maven2/org/clojure/core.memoize/1.1.266/core.memoize-1.1.266.jar",
       "sha256": "5792a21d6d90a1f5e68d4a10f65607aa21f6c484eb9d1a421cefc1f8ac26f18e",
-      "published_at": null,
-      "git": null
-    },
-    {
-      "id": "org.clojure/tools.deps:0.31.1646:jar",
-      "kind": "mvn",
-      "group": "org.clojure",
-      "name": "tools.deps",
-      "version": "0.31.1646",
-      "extension": "jar",
-      "classifier": null,
-      "repository": "central",
-      "url": "https://repo.maven.apache.org/maven2/org/clojure/tools.deps/0.31.1646/tools.deps-0.31.1646.jar",
-      "sha256": "aa794519dcdc7450495cc5d025d98a044e8aac6a0ad80e7a1e1ef54a0b507db8",
       "published_at": null,
       "git": null
     },
@@ -517,6 +517,20 @@
       "git": null
     },
     {
+      "id": "org.clojure/tools.deps:0.32.1650:jar",
+      "kind": "mvn",
+      "group": "org.clojure",
+      "name": "tools.deps",
+      "version": "0.32.1650",
+      "extension": "jar",
+      "classifier": null,
+      "repository": "central",
+      "url": "https://repo.maven.apache.org/maven2/org/clojure/tools.deps/0.32.1650/tools.deps-0.32.1650.jar",
+      "sha256": "5017ef6ee2c159446629791af39b8e41fa476b05b75c1f9bf7aefc0eafb14d84",
+      "published_at": null,
+      "git": null
+    },
+    {
       "id": "com.nextjournal/beholder:1.0.2:jar",
       "kind": "mvn",
       "group": "com.nextjournal",
@@ -569,20 +583,6 @@
       "repository": "central",
       "url": "https://repo.maven.apache.org/maven2/com/cognitect/aws/s3/871.2.46.17/s3-871.2.46.17.jar",
       "sha256": "cbcb19dcab49bd51dc1569c50f9e1faa600ca648074a4e32203db7b0f97ce31e",
-      "published_at": null,
-      "git": null
-    },
-    {
-      "id": "org.clojure/tools.deps.edn:0.9.48:jar",
-      "kind": "mvn",
-      "group": "org.clojure",
-      "name": "tools.deps.edn",
-      "version": "0.9.48",
-      "extension": "jar",
-      "classifier": null,
-      "repository": "central",
-      "url": "https://repo.maven.apache.org/maven2/org/clojure/tools.deps.edn/0.9.48/tools.deps.edn-0.9.48.jar",
-      "sha256": "d155023ab9f2f54c6ed69e20b311d178656554e0fc629ed6f1ee8aa2a1fdf699",
       "published_at": null,
       "git": null
     },
@@ -1206,7 +1206,7 @@
   "skipped": [],
   "modules": {
     ".": {
-      "manifest_sha256": "808ec50ffcdc9a99be221cf3ccd64c294670508d84a97471376d8d1aadfc06d9",
+      "manifest_sha256": "8a84dae73e5654cfc539b97500354268de66f435a3f1429ff2dc16be9cac69d7",
       "lib": "io.github.brutasse/rig-resolver",
       "version": "v0.6.1",
       "main": "Main",
@@ -1220,7 +1220,7 @@
         "cljfmt/cljfmt:0.9.2:jar",
         "io.github.clojure/tools.build:0.10.14:jar",
         "org.clojure/clojure:1.12.6:jar",
-        "org.clojure/tools.deps:0.31.1646:jar",
+        "org.clojure/tools.deps:0.32.1650:jar",
         "org.clojure/tools.namespace:1.5.1:jar",
         "rewrite-clj/rewrite-clj:1.3.59:jar",
         "com.fasterxml.jackson.core/jackson-core:2.21.8:jar",
@@ -1236,7 +1236,7 @@
         "eu.maveniverse.maven.mima.runtime/standalone-static:2.4.48:jar",
         "org.clojure/data.xml:0.2.0-alpha11:jar",
         "org.clojure/tools.cli:1.4.256:jar",
-        "org.clojure/tools.deps.edn:0.9.48:jar",
+        "org.clojure/tools.deps.edn:0.10.63:jar",
         "org.clojure/tools.deps.maven-s3-transporter:0.1.4:jar",
         "org.clojure/tools.gitlibs:2.6.217:jar",
         "org.clojure/java.classpath:1.1.1:jar",
@@ -1291,7 +1291,7 @@
             "io.github.clojure/tools.build:0.10.14:jar",
             "lambdaisland/kaocha:1.91.1392:jar",
             "org.clojure/clojure:1.12.6:jar",
-            "org.clojure/tools.deps:0.31.1646:jar",
+            "org.clojure/tools.deps:0.32.1650:jar",
             "org.clojure/tools.namespace:1.5.1:jar",
             "rewrite-clj/rewrite-clj:1.3.59:jar",
             "com.fasterxml.jackson.core/jackson-core:2.21.8:jar",
@@ -1317,7 +1317,7 @@
             "eu.maveniverse.maven.mima.runtime/standalone-static:2.4.48:jar",
             "org.clojure/data.xml:0.2.0-alpha11:jar",
             "org.clojure/tools.cli:1.4.256:jar",
-            "org.clojure/tools.deps.edn:0.9.48:jar",
+            "org.clojure/tools.deps.edn:0.10.63:jar",
             "org.clojure/tools.deps.maven-s3-transporter:0.1.4:jar",
             "org.clojure/tools.gitlibs:2.6.217:jar",
             "org.clojure/java.classpath:1.1.1:jar",
