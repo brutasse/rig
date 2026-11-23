@@ -3,7 +3,7 @@
  ;; declares no org.clojure/clojure of its own still hosts rig.runner (a
  ;; declared Clojure wins on classpath order). Pinned with the root
  ;; module so the workspace carries one Clojure version.
- :deps {org.clojure/clojure {:mvn/version "1.12.6"}}
+ :deps {org.clojure/clojure {:mvn/version "1.12.7"}}
  :rig/lib io.github.brutasse/rig-runner
  :rig/uberjar? true
  ;; No Clojure test suite here: rig.runner is exercised by the kernel
