@@ -4,6 +4,30 @@ Changelog for Rig.
 
 ## Unreleased
 
+### Added
+
+#### `rig audit --fix` sweeps the stale force pins
+
+A `:rig/overrides` force pin ages out: the pull it stops may go away,
+and the pin then only costs — it holds a version nothing else would
+have picked. `rig audit --fix` now sweeps the section against the
+pins' own absence before the re-lock: the fixes apply, the workspace is
+re-derived with the section stripped from the basis, and each pin — the
+ones the fix just wrote included — is judged per module and scope. A
+pin no module resolves its coordinate at an OSV-vulnerable version
+without (absent, or every resolved version clean) is dropped; a pin the
+pin-less resolution still pulls vulnerable stands; a pin whose
+resolution a query cannot reach (git, local) is kept, conservatively.
+The stale pins are dropped, the fixes' targets ride the single real
+re-lock, and the verification re-queries the dropped pins' coordinates
+in the final lock — a pin the final lock shows was load-bearing comes
+back at the value the fix left it, reported as `keep`. The section's
+net change prints as an `overrides` block (one line per changed
+coordinate: `add`, `remove`, `update`, `keep`; a pin added and dropped
+by the same run stands for no line) and appears in the JSON report as
+the `fix.overrides` list. The per-fix `overrides: add/update` lines
+leave the `fix:` blocks; the `:rig/deps` pool is never swept.
+
 ### Changed
 
 #### Releases ship only the binaries

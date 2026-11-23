@@ -511,7 +511,7 @@ func TestNotAProject(t *testing.T) {
 	if code != 1 {
 		t.Errorf("exit = %d, want 1", code)
 	}
-	if !strings.Contains(out, "not a rig project") {
+	if !strings.Contains(out, "no rig project") {
 		t.Errorf("out = %q", out)
 	}
 }

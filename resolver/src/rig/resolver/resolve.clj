@@ -345,12 +345,52 @@
                  (merge extra news)
                  (vec (concat (pop pending) (keys news)))))))))
 
+(defn resolved-scopes
+  "The dry re-derivation's response: per coordinate (group/name), per
+  module, per scope (\"base\" or an alias name), the resolved artifact
+  kind and version, [kind version]. A coordinate sits in a scope once,
+  whatever extensions or classifiers it locked under; local-module
+  classpath entries carry no artifact, so no coordinate."
+  [mres]
+  (reduce (fn [sweep [m r]]
+            (let [plan (:plan r)
+                  by-id (into {} (for [a (:raw-artifacts plan)] [(:id a) a]))
+                  one (fn [cls]
+                        (into {}
+                              (for [id cls
+                                    :let [a (get by-id id)]
+                                    :when (and (string? id) a)]
+                                [(str (:group a) "/" (:name a))
+                                 [(:kind a) (str (:version a))]])))
+                  scopes (into {} (for [[al am] (get-in plan [:aliases] {})]
+                                    [al (:classpath am)]))]
+              (reduce (fn [acc [sc cls]]
+                        (reduce (fn [acc [coord kv]]
+                                  (assoc-in acc [coord m sc] kv))
+                                acc
+                                (one cls)))
+                      sweep
+                      (assoc scopes "base" (:classpath plan)))))
+          {}
+          mres))
+
 (defn resolve-lock
+  "Resolves the workspace and returns the lock document, plus the
+  re-lock's refused requirements. With :dry true the op re-derives
+  instead of locking: the root's :rig/overrides force pins are stripped
+  from the basis (the caller tests against their absence), no repository
+  is probed and no lock document is built, and the response is
+  \"resolved\" — every module's coordinates per scope, see
+  resolved-scopes — instead of \"lock\"."
   [request]
   (let [ws (str (:workspace request))
         args (or (:args request) {})
+        dry? (true? (get args :dry))
         root-man (manifest/read-manifest ws)
         root-data (or (:data root-man) {})
+        ;; The dry re-derivation's basis force-pins from the pool only:
+        ;; :rig/overrides is stripped — it is what the caller is testing.
+        ov-root (if dry? (dissoc root-data :rig/overrides) root-data)
         cooldown (cooldown-of args root-data)
         force (true? (get args :force))
         overrides (into {} (for [[k v] (or (get args :requirement-overrides) {})]
@@ -426,7 +466,7 @@
                                            (versions/with-proxy-repos base)
                                            base))
                                        (with-local-exclusions local-excl))
-                              pool-ov (root-overrides root-data data)
+                              pool-ov (root-overrides ov-root data)
                               base-basis (resolve-basis mdir [] proj pool-ov)
                               base-mapped (plan/map-classpath (:classpath-roots base-basis) modules-abs m2 gl)
                               alias-maps (into {}
@@ -440,31 +480,38 @@
         modules (into {} (for [[m r] mres] [m (:plan r)]))
         skipped (mapcat :skipped (vals mres))
         refused (mapcat :refused (vals mres))
-        artifacts (into []
-                        (pmap (fn [a]
-                                (if (= "mvn" (:kind a))
-                                  (let [[id url] (versions/resolve-repo m2 all-repos a)]
-                                    (assoc a :repository id :url url))
-                                  a))
-                              (plan/merge-artifacts (mapcat :raw-artifacts (vals modules)) git-deps)))
-        lock-doc {"version" 2
-                  "workspace" {"modules" module-dirs
-                               "manifest_sha256" (some-> root-man :sha256)}
-                  "cooldown" {"default" (or (get cooldown :default) versions/default-cooldown)
-                              "repos" (or (get cooldown :repos) {})}
-                  "jvm" (when-let [r (get root-data :rig/jvm)]
-                          {"vendor" "temurin"
-                           "requested" (str r)})
-                  "graalvm" (when (and (get root-data :rig/jvm)
-                                       (some :native (map :build (vals modules))))
-                              {"vendor" "graalvm"
-                               "requested" (str (get root-data :rig/jvm))})
-                  "compile-jvm-opts" (when-let [o (get root-data :rig/compile-jvm-opts)]
-                                       (vec o))
-                  "artifacts" artifacts
-                  "skipped" (mapv skip-entry
-                                  (distinct (sort-by (juxt :coord :version :reason)
-                                                     skipped)))
-                  "modules" (into {} (for [[k v] modules] [k (dissoc v :raw-artifacts)]))}]
-    (cond-> {"lock" lock-doc}
-      (seq refused) (assoc "refused" refused))))
+        ;; The dry re-derivation never probes a repository or builds the
+        ;; lock document: the caller only needs the resolved coordinates.
+        artifacts (when (not dry?)
+                    (into []
+                          (pmap (fn [a]
+                                  (if (= "mvn" (:kind a))
+                                    (let [[id url] (versions/resolve-repo m2 all-repos a)]
+                                      (assoc a :repository id :url url))
+                                    a))
+                                (plan/merge-artifacts (mapcat :raw-artifacts (vals modules)) git-deps))))
+        lock-doc (when (not dry?)
+                   {"version" 2
+                    "workspace" {"modules" module-dirs
+                                 "manifest_sha256" (some-> root-man :sha256)}
+                    "cooldown" {"default" (or (get cooldown :default) versions/default-cooldown)
+                                "repos" (or (get cooldown :repos) {})}
+                    "jvm" (when-let [r (get root-data :rig/jvm)]
+                            {"vendor" "temurin"
+                             "requested" (str r)})
+                    "graalvm" (when (and (get root-data :rig/jvm)
+                                         (some :native (map :build (vals modules))))
+                                {"vendor" "graalvm"
+                                 "requested" (str (get root-data :rig/jvm))})
+                    "compile-jvm-opts" (when-let [o (get root-data :rig/compile-jvm-opts)]
+                                         (vec o))
+                    "artifacts" artifacts
+                    "skipped" (mapv skip-entry
+                                    (distinct (sort-by (juxt :coord :version :reason)
+                                                       skipped)))
+                    "modules" (into {} (for [[k v] modules] [k (dissoc v :raw-artifacts)]))})]
+    (if dry?
+      (cond-> {"resolved" (resolved-scopes mres)}
+        (seq refused) (assoc "refused" refused))
+      (cond-> {"lock" lock-doc}
+        (seq refused) (assoc "refused" refused)))))

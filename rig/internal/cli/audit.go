@@ -151,9 +151,22 @@ a root :rig/deps pool or :rig/overrides entry that pins the vulnerable
 version is updated the same way. A coordinate no module declares — the
 pure transitive pull — gets a force pin written to the root's
 :rig/overrides (the security-pin section, fed to resolution as
-override-deps, beating :rig/deps on the same coordinate). The workspace
-re-locks once, and the fix is verified by re-querying OSV for every
-locked version of the original findings' coordinates. When a fix cannot
+override-deps, beating :rig/deps on the same coordinate). The
+:rig/overrides pins are swept in the same run, against their own
+absence: after the fixes apply, a dry re-derivation with the section
+stripped from the basis judges each pin — the fix's included — per
+module and scope; a pin no module resolves its coordinate at an
+OSV-vulnerable version without (absent, or every resolved version
+clean) is dropped, a pin the pin-less resolution still pulls vulnerable
+stands, and one whose resolution a query cannot reach (git, local)
+keeps. The workspace re-locks once, carrying the applied fixes'
+targets, and the fix is verified by re-querying OSV for every locked
+version of the original findings' coordinates and of the dropped pins.
+The section's net change — add, remove, update, keep (the pin the
+verdict dropped that the final lock showed was load-bearing, restored
+at the value the fix left it) — is reported as a block of its own. The
+:rig/deps pool is never swept. When a fix
+cannot
 be applied (no fix listed, or only a higher major without --breaking, or
 only a version below the locked one, or a fix version no repository
 serves) the finding is reported as unfixable and stands; a coordinate a

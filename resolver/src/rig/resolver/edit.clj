@@ -99,7 +99,10 @@
       (let [existing (s/get rdm coord)]
         (cond
           (and existing (nil? req))
-          (-> existing z/remove z/remove)
+          (if (= 1 (count (n/sexpr (z/node rdm))))
+            ;; the last entry: drop the emptied section with it
+            (-> rdm z/remove z/remove)
+            (-> existing z/remove z/remove))
 
           (and existing req)
           (if (map? (n/sexpr (z/node existing)))

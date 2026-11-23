@@ -920,3 +920,157 @@
                            (get-in (get resp "lock")
                                    ["modules" "modules/b" :classpath]))
                      "the override pin reaches the undeclaring module"))))))))
+
+
+(deftest dry-sweep-tests-the-pins-against-their-absence
+  "The :dry-sweep op applies the fix edits but re-derives instead of
+  re-locking: the response carries the sweep — per coordinate, per
+  module, per scope, the resolved kind and version with the root's
+  :rig/overrides stripped from the basis — and no lock document; the
+  lock file is untouched."
+  (let [now (System/currentTimeMillis)]
+    (with-repo [["com.rig.test" "parent"
+                 {"1.0.0" {:published (old now)
+                           :deps [["com.rig.test" "child" "1.0.0"]]}
+                  "1.0.1" {:published (old now)
+                           :deps [["com.rig.test" "child" "1.0.0"]]}}]
+               ["com.rig.test" "child"
+                {"1.0.0" {:published (old now)}
+                 "1.1.0" {:published (old now)}}]]
+      #{"central" "clojars"}
+      (fn [url]
+        (with-ws {"deps.edn" (man url {:rig/modules ["modules/app"]
+                                       :rig/overrides {'com.rig.test/child
+                                                       "1.0.0"}})
+                  "modules/app/deps.edn" (man url
+                                              {:rig/lib "example/app"
+                                               :paths ["src"]
+                                               :deps {'com.rig.test/parent
+                                                      {:mvn/version "1.0.0"}}
+                                               :aliases {:test {:extra-deps
+                                                                {'com.rig.test/child
+                                                                 {:mvn/version "1.1.0"}}}}})}
+          (fn [dir]
+            (lock! dir {})
+            (let [lock-text (slurp (io/file dir "deps.lock"))
+                  resp (fix! dir [{:coord "com.rig.test/child"
+                                   :locked "1.0.0"
+                                   :fixes ["1.1.0"]}]
+                             {:dry-sweep true})]
+              (is (nil? (get resp "lock"))
+                  "the dry re-derivation builds no lock document")
+              (is (= [{:coord "com.rig.test/child"
+                       :target "1.1.0"
+                       :sites []
+                       :pin {:section "overrides" :action "update"
+                             :from "1.0.0" :value "1.1.0"}}]
+                     (get resp "applied"))
+                  "the fix updates the vulnerable override pin")
+              (is (= "1.1.0" (get-in (manifest dir "deps.edn")
+                                     [:rig/overrides 'com.rig.test/child]))
+                  "the pin edit lands on disk")
+              (is (= lock-text (slurp (io/file dir "deps.lock")))
+                  "the lock file is untouched")
+              (is (= {"com.rig.test/child"
+                      {"modules/app" {"base" ["mvn" "1.0.0"]
+                                      :test ["mvn" "1.1.0"]}}
+                     "com.rig.test/parent"
+                     {"modules/app" {"base" ["mvn" "1.0.0"]
+                                     :test ["mvn" "1.0.0"]}}}
+                    (get resp "sweep"))
+                  "without the pin the base pulls the vulnerable 1.0.0;
+                  the alias's own declaration stands"))))))))
+
+(deftest pin-edit-drops-the-entry-and-the-emptied-section
+  "The op's :pin-edits apply to the root's :rig/overrides: a nil
+  requirement removes the entry — and the section itself with its last
+  entry — and the call re-locks for real, carrying the lock and no
+  sweep."
+  (let [now (System/currentTimeMillis)]
+    (with-repo [["com.rig.test" "parent"
+                 {"1.0.0" {:published (old now)
+                           :deps [["com.rig.test" "child" "1.0.0"]]}}]
+               ["com.rig.test" "child"
+                {"1.0.0" {:published (old now)}
+                 "1.1.0" {:published (old now)}}]]
+      #{"central" "clojars"}
+      (fn [url]
+        (with-ws {"deps.edn" (man url {:rig/modules ["modules/app"]
+                                       :rig/overrides {'com.rig.test/child
+                                                       "1.0.0"}})
+                  "modules/app/deps.edn" (man url
+                                              {:rig/lib "example/app"
+                                               :paths ["src"]
+                                               :deps {'com.rig.test/parent
+                                                      {:mvn/version "1.0.0"}}})}
+          (fn [dir]
+            (lock! dir {})
+            (let [resp (fix! dir [] {:pin-edits [{:coord "com.rig.test/child"
+                                                  :requirement nil}]})]
+              (is (nil? (get-in (manifest dir "deps.edn") [:rig/overrides]))
+                  "the emptied section is removed with its entry")
+              (is (nil? (get resp "sweep"))
+                  "a real re-lock carries no sweep")
+              (is (artifact-id? (get resp "lock")
+                                "com.rig.test/child:1.0.0:jar")
+                  "the transitive stays locked at its own version"))))))))
+
+(deftest dry-sweep-short-circuits-without-version-pins
+  "A :rig/overrides that carries no mvn version (an out-of-scope entry)
+  gives the dry sweep nothing to test: the op re-locks for real, and the
+  entry stands untouched."
+  (let [now (System/currentTimeMillis)]
+    (with-repo [["com.rig.test" "child"
+                 {"1.0.0" {:published (old now)}
+                  "1.1.0" {:published (old now)}}]]
+      #{"central" "clojars"}
+      (fn [url]
+        (with-ws {"deps.edn" (man url {:rig/modules ["modules/app"]
+                                       :rig/overrides {'com.rig.test/child
+                                                       {:local/root "../lib"}}})
+                  "modules/app/deps.edn" (man url
+                                              {:rig/lib "example/app"
+                                               :paths ["src"]
+                                               :deps {'com.rig.test/child
+                                                      {:mvn/version "1.0.0"}}})}
+          (fn [dir]
+            (lock! dir {})
+            (let [resp (fix! dir [{:coord "com.rig.test/child"
+                                   :locked "1.0.0"
+                                   :fixes ["1.1.0"]}]
+                             {:dry-sweep true})]
+              (is (nil? (get resp "sweep"))
+                  "no versioned pin: the real re-lock instead")
+              (is (artifact-id? (get resp "lock")
+                                "com.rig.test/child:1.1.0:jar"))
+              (is (= {:local/root "../lib"}
+                     (get-in (manifest dir "deps.edn")
+                             [:rig/overrides 'com.rig.test/child]))
+                  "the out-of-scope entry stands"))))))))
+
+(deftest requirement-overrides-ride-the-relock
+  "A caller's :requirement-overrides ride the op's re-lock ahead of the
+  lock's own pins: with no targets the caller's override alone decides
+  the locked version."
+  (let [now (System/currentTimeMillis)]
+    (with-repo [["com.rig.test" "child"
+                 {"1.0.0" {:published (old now)}
+                  "1.1.0" {:published (recent now)}}]]
+      #{"central" "clojars"}
+      (fn [url]
+        (with-ws {"deps.edn" (man url {:rig/modules ["modules/app"]})
+                  "modules/app/deps.edn" (man url
+                                              {:rig/lib "example/app"
+                                               :paths ["src"]
+                                               :deps {'com.rig.test/child
+                                                      {:mvn/version "RELEASE"}}})}
+          (fn [dir]
+            (let [lock (lock! dir {})
+                  resp (fix! dir []
+                             {:requirement-overrides
+                              {"com.rig.test/child" "1.1.0"}})]
+              (is (artifact-id? lock "com.rig.test/child:1.0.0:jar")
+                  "the recent 1.1.0 is out of cooldown; 1.0.0 locks")
+              (is (artifact-id? (get resp "lock")
+                                "com.rig.test/child:1.1.0:jar")
+                  "the caller's override wins over the lock's pin"))))))))

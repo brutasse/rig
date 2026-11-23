@@ -132,34 +132,53 @@ type auditFixVerified struct {
 }
 
 // auditFix is the --json report's fix section: the kernel's plan and
-// applied lists, and the verification (absent when it could not run).
+// applied lists, the root's :rig/overrides net diff across the fix
+// (absent when the section is unchanged), and the verification
+// (absent when it could not run).
 type auditFix struct {
-	Plan     []auditFixPlan    `json:"plan"`
-	Applied  []auditFixApplied `json:"applied"`
-	Verified *auditFixVerified `json:"verified,omitempty"`
+	Plan      []auditFixPlan       `json:"plan"`
+	Applied   []auditFixApplied    `json:"applied"`
+	Overrides []auditOverridesDiff `json:"overrides,omitempty"`
+	Verified  *auditFixVerified    `json:"verified,omitempty"`
 }
 
 // auditFixResponse is the kernel audit-fix op's response: the plan (one
 // row per target), the applied fixes, the manifest edits (the edit-dep
-// record shape), the new lock document (absent when nothing was
-// applied), and the re-lock's refused requirements.
+// record shape), the new lock document (absent when nothing was applied
+// and no re-lock was requested) or the sweep of the dry re-derivation
+// (per coordinate, per module, per scope, the resolved kind and
+// version — the pins' verdict basis, see sweepDrops), and the re-lock's
+// refused requirements.
 type auditFixResponse struct {
-	Plan    []auditFixPlan     `json:"plan"`
-	Applied []auditFixApplied  `json:"applied"`
-	Edits   []manifestEdit     `json:"edits"`
-	Lock    *lockfile.Document `json:"lock"`
-	Refused []map[string]any   `json:"refused"`
+	Plan    []auditFixPlan                            `json:"plan"`
+	Applied []auditFixApplied                         `json:"applied"`
+	Edits   []manifestEdit                            `json:"edits"`
+	Lock    *lockfile.Document                        `json:"lock"`
+	Sweep   map[string]map[string]map[string][]string `json:"sweep"`
+	Refused []map[string]any                          `json:"refused"`
+}
+
+// pinEdit is one caller-supplied edit of the root's :rig/overrides
+// force pins: a nil requirement removes the entry (the stale-pin drop),
+// a value sets it (the restore of a pin the verification shows was
+// load-bearing).
+type pinEdit struct {
+	Coord       string  `json:"coord"`
+	Requirement *string `json:"requirement"`
 }
 
 // auditFixCall runs the kernel audit-fix op: every fixable coordinate's
 // edit sites and force pin (the root's :rig/overrides entry, or the
-// :rig/deps pool entry it already carries) are applied, then the
-// workspace re-locks once. It completes and saves the lock, returning
-// the response and the saved document. On any failure after the kernel
-// may have edited a manifest, the manifests are restored byte-for-byte
-// — a refusal arrives from the re-lock, after the edits, and is
-// reported as an error for the same reason.
-func (o *opts) auditFixCall(ctx context.Context, root *workspace.Root, targets []fixTarget, breaking bool) (resp auditFixResponse, lock *lockfile.Document, err error) {
+// :rig/deps pool entry it already carries) are applied, the
+// caller-supplied :rig/overrides pin edits are applied, and the
+// workspace re-locks once — or, with drySweep, re-derives without
+// locking (the :rig/overrides force pins stripped from the basis) and
+// returns the sweep. It completes and saves the lock, returning the
+// response and the saved document. On any failure after the kernel may
+// have edited a manifest, the manifests are restored byte-for-byte — a
+// refusal arrives from the re-lock, after the edits, and is reported as
+// an error for the same reason.
+func (o *opts) auditFixCall(ctx context.Context, root *workspace.Root, targets []fixTarget, breaking, drySweep bool, pinEdits []pinEdit, reqOverrides map[string]string) (resp auditFixResponse, lock *lockfile.Document, err error) {
 	store, err := o.store()
 	if err != nil {
 		return resp, nil, err
@@ -195,10 +214,13 @@ func (o *opts) auditFixCall(ctx context.Context, root *workspace.Root, targets [
 		Workspace: root.Dir,
 		Lock:      "deps.lock",
 		Args: map[string]any{
-			"targets":  targets,
-			"breaking": breaking,
-			"offline":  o.offline,
-			"force":    o.force,
+			"targets":               targets,
+			"breaking":              breaking,
+			"offline":               o.offline,
+			"force":                 o.force,
+			"dry-sweep":             drySweep,
+			"pin-edits":             pinEdits,
+			"requirement-overrides": reqOverrides,
 		},
 	}, append(env, penv...)...)
 	if err != nil {
@@ -227,17 +249,21 @@ func (o *opts) auditFixCall(ctx context.Context, root *workspace.Root, targets [
 }
 
 // verifyFix re-queries OSV for every locked version of the original
-// findings' coordinates in the saved lock: an original finding's vuln
-// id is fixed when the re-query does not return it, remaining (with the
-// pair it hits) when it does — whatever its originality, a new finding
-// at a new version stands too.
-func (o *opts) verifyFix(ctx context.Context, lock *lockfile.Document, findings []auditFinding) (*auditFixVerified, error) {
+// findings' coordinates in the saved lock, plus every locked version of
+// the pins the fix dropped (their lock is the only proof the drop was
+// safe): an original finding's vuln id is fixed when the re-query does
+// not return it, remaining (with the pair it hits) when it does —
+// whatever its originality, a new finding at a new version stands too.
+func (o *opts) verifyFix(ctx context.Context, lock *lockfile.Document, findings []auditFinding, drops []string) (*auditFixVerified, error) {
 	// Every (coordinate, version) pair the lock carries for an original
 	// finding's coordinate (one coordinate can lock several versions,
-	// per module).
+	// per module) — and for a dropped pin's coordinate.
 	coords := make(map[string]bool)
 	for _, f := range findings {
 		coords[f.coord] = true
+	}
+	for _, c := range drops {
+		coords[c] = true
 	}
 	seen := make(map[auditCoord]bool)
 	var pairs []auditCoord
@@ -301,6 +327,167 @@ func (o *opts) verifyFix(ctx context.Context, lock *lockfile.Document, findings 
 		return out.Remaining[i].Version < out.Remaining[j].Version
 	})
 	return out, nil
+}
+
+// sweepDrops judges the workspace's :rig/overrides pins against the
+// dry re-derivation's sweep: a pin is stale when no module (base or
+// alias scope) resolves its coordinate at an OSV-vulnerable version —
+// the coordinate absent from the sweep, or every resolved version
+// clean. A resolved version OSV cannot query (git or local) keeps the
+// pin conservatively. Returns the stale pins.
+func (o *opts) sweepDrops(ctx context.Context, sweep map[string]map[string]map[string][]string, pins map[string]string) (map[string]bool, error) {
+	drop := make(map[string]bool, len(pins))
+	for c := range pins {
+		drop[c] = true
+	}
+	type pair struct{ coord, version string }
+	var pairs []pair
+	seen := make(map[pair]bool)
+	for c := range pins {
+		for _, scopes := range sweep[c] {
+			for _, kv := range scopes {
+				if len(kv) != 2 {
+					continue
+				}
+				if kv[0] != "mvn" {
+					drop[c] = false
+					continue
+				}
+				p := pair{c, kv[1]}
+				if !seen[p] {
+					seen[p] = true
+					pairs = append(pairs, p)
+				}
+			}
+		}
+	}
+	if len(pairs) == 0 {
+		return drop, nil
+	}
+	queries := make([]osv.Query, len(pairs))
+	for i, p := range pairs {
+		queries[i] = osv.Query{Package: osv.Pkg{Name: strings.ReplaceAll(p.coord, "/", ":"), Ecosystem: "Maven"}, Version: p.version}
+	}
+	client := &http.Client{Timeout: 2 * time.Minute}
+	var perQuery [][]string
+	if err := auditRetry(ctx, func() error {
+		var e error
+		perQuery, e = osv.QueryBatch(ctx, client, osvAPI(), queries)
+		return e
+	}); err != nil {
+		return nil, err
+	}
+	for i, ids := range perQuery {
+		if len(ids) > 0 {
+			drop[pairs[i].coord] = false
+		}
+	}
+	return drop, nil
+}
+
+// overridesOf is the root manifest's :rig/overrides force pins carrying
+// an mvn version, as coordinate -> version (entries without a version
+// are out of the pin lifecycle's scope and never reported or touched).
+func overridesOf(root *workspace.Root) map[string]string {
+	out := make(map[string]string)
+	man, ok := manifestEDN(root, ".")
+	if !ok {
+		return out
+	}
+	v, ok := ednlitGet(man, ednlit.Keyword{NS: "rig", Name: "overrides"})
+	if !ok {
+		return out
+	}
+	if m, ok := v.(ednlit.Map); ok {
+		for _, p := range m {
+			if c, ok := coordOf(p.K); ok {
+				if s := specVersion(p.V); s != "" {
+					out[c] = s
+				}
+			}
+		}
+	}
+	return out
+}
+
+// appliedTargets is an applied fix list's coord -> target map: the
+// requirement-overrides that ride the re-lock after the pins' verdict
+// (the fix versions stay locked whatever the pins do).
+func appliedTargets(applied []auditFixApplied) map[string]string {
+	out := make(map[string]string, len(applied))
+	for _, a := range applied {
+		out[a.Coord] = a.Target
+	}
+	return out
+}
+
+// auditOverridesDiff is one row of the :rig/overrides section's net
+// diff across the fix: add (the fix wrote the pin and it stands),
+// remove (the pin was stale and dropped), update (the fix moved the
+// pin's version), keep (the fix dropped the pin, the verification
+// showed it was load-bearing, and it was restored).
+type auditOverridesDiff struct {
+	Coord  string  `json:"coord"`
+	Action string  `json:"action"`
+	From   *string `json:"from,omitempty"`
+	To     *string `json:"to,omitempty"`
+}
+
+// overridesDiff is the :rig/overrides section's net change across the
+// fix: the pre-fix pins against the final ones (a pin added and dropped
+// by the same run is absent, an updated-then-dropped pin is one remove),
+// plus a keep row per restored pin.
+func overridesDiff(before, after map[string]string, restored []string) []auditOverridesDiff {
+	var out []auditOverridesDiff
+	s := func(v string) *string { return &v }
+	for c, v := range after {
+		old, was := before[c]
+		switch {
+		case !was:
+			out = append(out, auditOverridesDiff{Coord: c, Action: "add", To: s(v)})
+		case old != v:
+			out = append(out, auditOverridesDiff{Coord: c, Action: "update", From: s(old), To: s(v)})
+		}
+	}
+	for c, v := range before {
+		if _, is := after[c]; !is {
+			out = append(out, auditOverridesDiff{Coord: c, Action: "remove", From: s(v)})
+		}
+	}
+	for _, c := range restored {
+		if v, is := after[c]; is {
+			out = append(out, auditOverridesDiff{Coord: c, Action: "keep", To: s(v)})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Coord != out[j].Coord {
+			return out[i].Coord < out[j].Coord
+		}
+		return out[i].Action < out[j].Action
+	})
+	return out
+}
+
+// printOverridesDiff prints the :rig/overrides net-diff block after the
+// fix and unfixable blocks, before the lock write line; no block when
+// the section's net change is empty.
+func printOverridesDiff(rows []auditOverridesDiff) {
+	if len(rows) == 0 {
+		return
+	}
+	fmt.Println("overrides:")
+	for _, r := range rows {
+		switch r.Action {
+		case "add":
+			fmt.Printf("  add %s %q\n", r.Coord, *r.To)
+		case "remove":
+			fmt.Printf("  remove %s %q (no module resolves vulnerable without the pin)\n", r.Coord, *r.From)
+		case "update":
+			fmt.Printf("  update %s %q → %q\n", r.Coord, *r.From, *r.To)
+		case "keep":
+			fmt.Printf("  keep %s %q (pin-less resolution still pulls vulnerable)\n", r.Coord, *r.To)
+		}
+	}
 }
 
 // verifiedOf is the verification when nothing was applied: no re-query
@@ -441,7 +628,9 @@ func printFixHuman(findings []auditFinding, resp *auditFixResponse, chainsByScop
 			}
 			fmt.Printf("  %s: set %s %q (%s%s)\n", s.File, a.Coord, a.Target, s.Section, alias)
 		}
-		if a.Pin != nil {
+		if a.Pin != nil && a.Pin.Section != "overrides" {
+			// The :rig/overrides pin lines print in the section's net
+			// diff block (printOverridesDiff), not per fix.
 			if a.Pin.From == nil {
 				fmt.Printf("  %s: add %s %q\n", a.Pin.Section, a.Coord, a.Pin.Value)
 			} else {
@@ -799,14 +988,92 @@ func runAuditFix(ctx context.Context, o *opts, jsonOut, explain, breaking bool) 
 	}
 
 	targets, _ := fixTargets(findings)
-	resp, lock, err := o.auditFixCall(ctx, root, targets, breaking)
+	ovBefore := overridesOf(root)
+	// The stale-pin sweep: the fixes apply, and a dry re-derivation
+	// (the :rig/overrides force pins stripped from the basis, no lock)
+	// judges which of the section's pins — the fix's included — still
+	// protect anything. The stale ones are dropped in the single real
+	// re-lock, which carries the applied fixes' targets. When the
+	// section is empty after the fix the kernel short-circuits to the
+	// plain re-lock — one call, today's behavior.
+	resp, lock, err := o.auditFixCall(ctx, root, targets, breaking, true, nil, nil)
 	if err != nil {
 		return err
 	}
+	var (
+		drops    []string
+		ovAfter1 map[string]string
+	)
+	if lock == nil {
+		ovAfter1 = overridesOf(root)
+		dm, err := o.sweepDrops(ctx, resp.Sweep, ovAfter1)
+		if err != nil {
+			// The verdict failed (OSV unreachable after the retries):
+			// keep every pin, complete the fixes' re-lock.
+			fmt.Fprintf(os.Stderr, "audit: pin verdict failed (%v): pins kept\n", err)
+			dm = make(map[string]bool)
+		}
+		drops = make([]string, 0, len(dm))
+		for c, d := range dm {
+			if d {
+				drops = append(drops, c)
+			}
+		}
+		sort.Strings(drops)
+		reqOv := appliedTargets(resp.Applied)
+		if len(drops) > 0 || len(reqOv) > 0 {
+			edits := make([]pinEdit, 0, len(drops))
+			for _, c := range drops {
+				edits = append(edits, pinEdit{Coord: c})
+			}
+			_, l, err := o.auditFixCall(ctx, root, nil, breaking, false, edits, reqOv)
+			if err != nil {
+				return err
+			}
+			lock = l
+		}
+	}
+	// The verification runs before the report prints: the overrides
+	// net-diff below reports the final section, and a pin the verdict
+	// got wrong comes back at the value the fix left it, with its keep
+	// line.
+	var (
+		v        *auditFixVerified
+		verErr   error
+		restored []string
+	)
+	if lock != nil {
+		v, verErr = o.verifyFix(ctx, lock, findings, drops)
+		if verErr == nil {
+			for _, c := range drops {
+				for _, r := range v.Remaining {
+					if r.Coord == c {
+						restored = append(restored, c)
+						break
+					}
+				}
+			}
+			if len(restored) > 0 {
+				edits := make([]pinEdit, 0, len(restored))
+				for _, c := range restored {
+					val := ovAfter1[c]
+					edits = append(edits, pinEdit{Coord: c, Requirement: &val})
+				}
+				_, l, err := o.auditFixCall(ctx, root, nil, breaking, false, edits, nil)
+				if err != nil {
+					return err
+				}
+				lock = l
+				v, verErr = o.verifyFix(ctx, lock, findings, restored)
+			}
+		}
+	}
+	ovDiff := overridesDiff(ovBefore, overridesOf(root), restored)
 	report.Fix = &auditFix{
-		Plan:     resp.Plan,
-		Applied:  resp.Applied,
-		Verified: verifiedOf(findings, state),
+		Plan:      resp.Plan,
+		Applied:   resp.Applied,
+		Overrides: ovDiff,
+		Verified:  verifiedOf(findings, state),
 	}
 	if report.Fix.Plan == nil {
 		report.Fix.Plan = []auditFixPlan{}
@@ -816,6 +1083,7 @@ func runAuditFix(ctx context.Context, o *opts, jsonOut, explain, breaking bool) 
 	}
 	if !jsonOut {
 		printFixHuman(findings, &resp, chainsByScope, state)
+		printOverridesDiff(ovDiff)
 	}
 	if lock != nil {
 		if !jsonOut {
@@ -823,15 +1091,14 @@ func runAuditFix(ctx context.Context, o *opts, jsonOut, explain, breaking bool) 
 				root.LockPath(), len(lock.Artifacts), len(lock.Modules))
 			printSkipped(lock)
 		}
-		v, err := o.verifyFix(ctx, lock, findings)
-		if err != nil {
+		if verErr != nil {
 			if jsonOut {
 				if err := printReport(&report); err != nil {
 					return err
 				}
 			}
-			fmt.Fprintf(os.Stderr, "audit: verification failed: %v\n", err)
-			return exitf(4, "audit: verification failed: %v", err)
+			fmt.Fprintf(os.Stderr, "audit: verification failed: %v\n", verErr)
+			return exitf(4, "audit: verification failed: %v", verErr)
 		}
 		report.Fix.Verified = v
 		// The remaining pairs' notes derive from the re-locked state:
