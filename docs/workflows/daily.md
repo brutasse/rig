@@ -120,8 +120,22 @@ buffer is inside the module. A machine-wide process scan finds a running
 scan needs Linux or macOS. Without the scan, type the port from the
 startup banner.
 
-Rig starts the server without nREPL middleware, so CIDER's completion,
-debugger, and refresh stay off. To turn them on, put `cider/cider-nrepl`
+Cursive in IntelliJ connects to the same plain nREPL server. Create a
+remote REPL run configuration (Run → Edit Configurations), select
+nREPL, and connect to `127.0.0.1` on the port from the startup banner.
+The configuration can also read the port from a port file — point it
+at the module's `.nrepl-port` — or pin the port with
+`rig nrepl -p dev --port 7777`. For one-click startup, add a plain
+IntelliJ shell run configuration that runs `rig nrepl -p dev --port
+7777` from the `dev` module; the remote configuration connects to it.
+Connect to the server Rig started; do not use Cursive's own local REPL
+run configuration. It starts its own JVM on a classpath IntelliJ
+resolves from `deps.edn`, which bypasses the lockfile and the dev
+module's `:local/root` wiring.
+
+Rig starts the server without nREPL middleware, so completion, debugger,
+and refresh stay off in CIDER and Cursive alike. To turn them on, put
+`cider/cider-nrepl`
 on the classpath and list the middleware in a `dev/.nrepl.edn`;
 `nrepl.cmdline` reads that file from the module directory:
 
@@ -132,7 +146,8 @@ on the classpath and list the middleware in a `dev/.nrepl.edn`;
 Declare `cider/cider-nrepl` as an `:extra-dep` of a `:dev` alias in
 `dev/deps.edn` and start the server with `rig nrepl -p dev --alias dev`.
 The `^:optional` marker skips the middleware when it is missing from the
-classpath.
+classpath. Cursive uses the same `cider.nrepl` ops, so the same
+`dev/.nrepl.edn` enables its completion, debugger, and refresh.
 
 ## The escape hatch: `rig exec`
 
