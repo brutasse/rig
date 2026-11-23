@@ -39,6 +39,29 @@ const breakingRecord = `{
 	"affected": [{"ranges": [{"type": "ECOSYSTEM", "events": [{"introduced": "0"}, {"fixed": "2.0.0"}]}]}]
 }`
 
+// kaochaFixRecord: a finding on lambdaisland/kaocha 1.66.1034, fixed
+// in 1.71.1119 (seeded) — the newer closure pulls the clean
+// core.rrb-vector 0.1.2 (via deep-diff2), the older one the vulnerable
+// 0.0.14 (via deep-diff).
+const kaochaFixRecord = `{
+	"id": "GHSA-kch-eeee-ffff",
+	"summary": "Path traversal in kaocha",
+	"aliases": ["CVE-2026-0005"],
+	"severity": [{"type": "CVSS_V3", "score": "7.5"}],
+	"published": "2026-07-02T03:04:05Z",
+	"affected": [{"ranges": [{"type": "ECOSYSTEM", "events": [{"introduced": "0"}, {"fixed": "1.71.1119"}]}]}]
+}`
+
+// nofixRecord: a finding with no fix listed.
+const nofixRecord = `{
+	"id": "GHSA-nofx-gggg-hhhh",
+	"summary": "Memory exhaustion in core.rrb-vector",
+	"aliases": ["CVE-2026-0006"],
+	"severity": [{"type": "CVSS_V3", "score": "4.4"}],
+	"published": "2026-08-02T03:04:05Z",
+	"affected": [{"ranges": [{"type": "ECOSYSTEM", "events": [{"introduced": "0"}]}]}]
+}`
+
 // noFixRecord: a finding with no fix listed.
 const noFixRecord = `{
 	"id": "GHSA-nof-eeee-ffff",
@@ -186,7 +209,7 @@ func TestAuditFixBreakingApplied(t *testing.T) {
 	}
 	for _, want := range []string{
 		"fix: mvxcvi/arrangement 1.2.0 → 2.0.0",
-		"overrides: add mvxcvi/arrangement \"2.0.0\"",
+		"overrides:\n  add mvxcvi/arrangement \"2.0.0\"",
 		"fixes: GHSA-brk-cccc-dddd (CVE-2026-0002)",
 		"deps.lock: 26 artifacts, 2 modules",
 		"verified: 1 fixed, 0 remaining",
@@ -252,7 +275,7 @@ func TestAuditFixOverridePinWritten(t *testing.T) {
 	}
 	for _, want := range []string{
 		"fix: org.clojure/core.rrb-vector 0.0.14 → 0.1.2",
-		"overrides: add org.clojure/core.rrb-vector \"0.1.2\"",
+		"overrides:\n  add org.clojure/core.rrb-vector \"0.1.2\"",
 		"fixes: GHSA-rrb-1234-5678 (CVE-2026-0004)",
 		"verified: 1 fixed, 0 remaining",
 	} {
@@ -485,5 +508,314 @@ func TestAuditFixFindingsRemain(t *testing.T) {
 	}
 	if v := lockVersion(t, lock, "mvxcvi", "arrangement"); v != "1.2.0" {
 		t.Errorf("lock arrangement = %s, want 1.2.0 (unfixable stays)", v)
+	}
+}
+
+// Stale-pin sweep tests: the fix applies, a dry re-derivation (the
+// :rig/overrides force pins stripped from the basis) judges which pins
+// still protect anything, the stale ones are dropped in the single real
+// re-lock, and the section's net diff reports the change.
+
+// hotRootWith writes the hot fixture's root manifest, keeping the
+// seeded repo injection and adding the named :rig/deps pool and
+// :rig/overrides force-pin entries (either may be "").
+func hotRootWith(t *testing.T, pool, overrides string) {
+	t.Helper()
+	content := "{:rig/modules [\"modules/app\"]" + seededRepos()
+	if pool != "" {
+		content += "\n :rig/deps " + pool
+	}
+	if overrides != "" {
+		content += "\n :rig/overrides " + overrides
+	}
+	writeFile(t, "deps.edn", content+"}\n")
+}
+
+// A force pin that protects nothing is dropped by the sweep: the
+// pin-less re-derivation resolves its coordinate clean, the emptied
+// section is removed with it, and the fix's re-lock stands. Exit 0.
+func TestAuditFixStalePinDropped(t *testing.T) {
+	hotSetup(t)
+	hotRootWith(t, "", `{org.clojure/spec.alpha "0.3.218"}`)
+	fix := osvFixture{
+		batch:  map[string][]string{"org.clojure:clojure@1.11.0": {"GHSA-fix-aaaa-bbbb"}},
+		detail: map[string]string{"GHSA-fix-aaaa-bbbb": fixRecord},
+	}
+	t.Setenv("RIG_OSV_API", osvServer(t, fix).URL)
+	code, out := runCLI(t, "audit", "--fix", "--cache-dir", t.TempDir())
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0; out: %s", code, out)
+	}
+	for _, want := range []string{
+		"fix: org.clojure/clojure 1.11.0 → 1.12.5",
+		"overrides:\n  remove org.clojure/spec.alpha \"0.3.218\" (no module resolves vulnerable without the pin)",
+		"verified: 1 fixed, 0 remaining",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("out missing %q; out: %s", want, out)
+		}
+	}
+	root, err := os.ReadFile("deps.edn")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(root), ":rig/overrides") || strings.Contains(string(root), "spec.alpha") {
+		t.Errorf("stale pin not dropped; manifest: %s", root)
+	}
+	lock, err := lockfile.Load("deps.lock")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v := lockVersion(t, lock, "org.clojure", "clojure"); v != "1.12.5" {
+		t.Errorf("lock clojure = %s, want 1.12.5", v)
+	}
+	lockVersion(t, lock, "org.clojure", "spec.alpha") // still locked (at whatever the fix's closure pulls)
+}
+
+// A pin the pin-less re-derivation still needs (the coordinate resolves
+// vulnerable without it) is kept, and a section whose net change is
+// empty prints no overrides block at all. Exit 0.
+func TestAuditFixLoadBearingPinKept(t *testing.T) {
+	hotSetup(t)
+	// The pin is load-bearing: without it the test alias pulls
+	// core.rrb-vector 0.0.14 (via deep-diff), which is vulnerable.
+	hotRootWith(t, "", `{org.clojure/core.rrb-vector "0.1.2"}`)
+	fix := osvFixture{
+		batch: map[string][]string{
+			"org.clojure:clojure@1.11.0":         {"GHSA-fix-aaaa-bbbb"},
+			"org.clojure:core.rrb-vector@0.0.14": {"GHSA-rrb-1234-5678"},
+		},
+		detail: map[string]string{"GHSA-fix-aaaa-bbbb": fixRecord, "GHSA-rrb-1234-5678": rrbFixRecord},
+	}
+	t.Setenv("RIG_OSV_API", osvServer(t, fix).URL)
+	code, out := runCLI(t, "audit", "--fix", "--cache-dir", t.TempDir())
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0; out: %s", code, out)
+	}
+	for _, want := range []string{
+		"fix: org.clojure/clojure 1.11.0 → 1.12.5",
+		"unfixable: org.clojure/core.rrb-vector 0.0.14:",
+		"verified: 2 fixed, 0 remaining",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("out missing %q; out: %s", want, out)
+		}
+	}
+	if strings.Contains(out, "overrides:") {
+		t.Errorf("zero-net section printed an overrides block; out: %s", out)
+	}
+	root, err := os.ReadFile("deps.edn")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(root), `core.rrb-vector "0.1.2"`) {
+		t.Errorf("load-bearing pin dropped; manifest: %s", root)
+	}
+	lock, err := lockfile.Load("deps.lock")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v := lockVersion(t, lock, "org.clojure", "core.rrb-vector"); v != "0.1.2" {
+		t.Errorf("lock core.rrb-vector = %s, want 0.1.2 (the pin force-pins it)", v)
+	}
+}
+
+// The restore round (a dropped pin the final lock shows was
+// load-bearing, re-added at the value the fix left it, with its keep
+// line) needs the surviving pins' mediation to pull a dropped
+// coordinate vulnerable in the final lock while the pin-less
+// re-derivation resolves it clean — a relation the pinned seed's pom
+// graphs cannot express, so it stands without an end-to-end test. The
+// pin edit it issues is the kernel's tested set path (a pinEdit with a
+// value, as the pin writes of the fixes use).
+
+// A pin the :rig/deps pool already covers is stale: the pool survives
+// the dry re-derivation (only :rig/overrides is stripped), so the
+// pool's version is what the pin-less resolution pulls — and the
+// override pin is dropped while the pool entry is never touched.
+func TestAuditFixPoolCoversPin(t *testing.T) {
+	hotSetup(t)
+	hotRootWith(t, `{org.clojure/spec.alpha "0.3.218"}`, `{org.clojure/spec.alpha "0.3.218"}`)
+	fix := osvFixture{
+		batch:  map[string][]string{"org.clojure:clojure@1.11.0": {"GHSA-fix-aaaa-bbbb"}},
+		detail: map[string]string{"GHSA-fix-aaaa-bbbb": fixRecord},
+	}
+	t.Setenv("RIG_OSV_API", osvServer(t, fix).URL)
+	code, out := runCLI(t, "audit", "--fix", "--cache-dir", t.TempDir())
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0; out: %s", code, out)
+	}
+	if want := "overrides:\n  remove org.clojure/spec.alpha \"0.3.218\" (no module resolves vulnerable without the pin)"; !strings.Contains(out, want) {
+		t.Errorf("out missing %q; out: %s", want, out)
+	}
+	root, err := os.ReadFile("deps.edn")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(root), ":rig/overrides") {
+		t.Errorf("stale pin not dropped; manifest: %s", root)
+	}
+	if !strings.Contains(string(root), ":rig/deps") || !strings.Contains(string(root), `spec.alpha "0.3.218"`) {
+		t.Errorf("pool entry touched; manifest: %s", root)
+	}
+}
+
+// A pin the fix updates and the sweep then drops is one net remove,
+// at the pre-fix version: no add, no update, no keep line.
+func TestAuditFixUpdateThenDrop(t *testing.T) {
+	hotSetup(t)
+	// The pin sits at the vulnerable version: the fix updates it to
+	// 1.12.5 with the declaration, and the pin-less re-derivation then
+	// shows the pin protects nothing.
+	hotRootWith(t, "", `{org.clojure/clojure "1.11.0"}`)
+	fix := osvFixture{
+		batch:  map[string][]string{"org.clojure:clojure@1.11.0": {"GHSA-fix-aaaa-bbbb"}},
+		detail: map[string]string{"GHSA-fix-aaaa-bbbb": fixRecord},
+	}
+	t.Setenv("RIG_OSV_API", osvServer(t, fix).URL)
+	code, out := runCLI(t, "audit", "--fix", "--cache-dir", t.TempDir())
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0; out: %s", code, out)
+	}
+	for _, want := range []string{
+		"fix: org.clojure/clojure 1.11.0 → 1.12.5",
+		"overrides:\n  remove org.clojure/clojure \"1.11.0\" (no module resolves vulnerable without the pin)",
+		"verified: 1 fixed, 0 remaining",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("out missing %q; out: %s", want, out)
+		}
+	}
+	for _, not := range []string{"update org.clojure/clojure", "add org.clojure/clojure", "keep org.clojure/clojure"} {
+		if strings.Contains(out, not) {
+			t.Errorf("out has %q; out: %s", not, out)
+		}
+	}
+	root, err := os.ReadFile("deps.edn")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(root), ":rig/overrides") {
+		t.Errorf("updated pin not dropped; manifest: %s", root)
+	}
+	lock, err := lockfile.Load("deps.lock")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v := lockVersion(t, lock, "org.clojure", "clojure"); v != "1.12.5" {
+		t.Errorf("lock clojure = %s, want 1.12.5", v)
+	}
+}
+
+// A pin the fix writes that its own sibling fix makes unnecessary
+// (the kaocha fix moves the declaration to 1.71.1119, whose closure
+// pulls the clean rrb-vector) is dropped in the same run: added and
+// dropped, the coordinate stands for no line at all.
+func TestAuditFixAddThenDropSilent(t *testing.T) {
+	hotSetup(t)
+	hotRootWith(t, "", "")
+	fix := osvFixture{
+		batch: map[string][]string{
+			"org.clojure:core.rrb-vector@0.0.14": {"GHSA-rrb-1234-5678"},
+			"lambdaisland:kaocha@1.66.1034":      {"GHSA-kch-eeee-ffff"},
+		},
+		detail: map[string]string{"GHSA-rrb-1234-5678": rrbFixRecord, "GHSA-kch-eeee-ffff": kaochaFixRecord},
+	}
+	t.Setenv("RIG_OSV_API", osvServer(t, fix).URL)
+	code, out := runCLI(t, "audit", "--fix", "--cache-dir", t.TempDir())
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0; out: %s", code, out)
+	}
+	for _, want := range []string{
+		"fix: lambdaisland/kaocha 1.66.1034 → 1.71.1119",
+		"fix: org.clojure/core.rrb-vector 0.0.14 → 0.1.2",
+		"verified: 2 fixed, 0 remaining",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("out missing %q; out: %s", want, out)
+		}
+	}
+	if strings.Contains(out, "overrides:") {
+		t.Errorf("add-then-drop printed an overrides block; out: %s", out)
+	}
+	root, err := os.ReadFile("deps.edn")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(root), "core.rrb-vector") {
+		t.Errorf("the fix's pin was not dropped; manifest: %s", root)
+	}
+	lock, err := lockfile.Load("deps.lock")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v := lockVersion(t, lock, "org.clojure", "core.rrb-vector"); v != "0.1.2" {
+		t.Errorf("lock core.rrb-vector = %s, want 0.1.2 (the fix target rides the re-lock)", v)
+	}
+	if v := lockVersion(t, lock, "lambdaisland", "kaocha"); v != "1.71.1119" {
+		t.Errorf("lock kaocha = %s, want 1.71.1119", v)
+	}
+}
+
+// A drop with nothing applied: the finding is unfixable, the stale pin
+// is still swept, and the re-lock rides the pin edit alone. Exit 1.
+func TestAuditFixDropWithoutFix(t *testing.T) {
+	hotSetup(t)
+	hotRootWith(t, "", `{org.clojure/spec.alpha "0.3.218"}`)
+	fix := osvFixture{
+		batch:  map[string][]string{"org.clojure:core.rrb-vector@0.0.14": {"GHSA-nofx-gggg-hhhh"}},
+		detail: map[string]string{"GHSA-nofx-gggg-hhhh": nofixRecord},
+	}
+	t.Setenv("RIG_OSV_API", osvServer(t, fix).URL)
+	code, out := runCLI(t, "audit", "--fix", "--cache-dir", t.TempDir())
+	if code != 1 {
+		t.Fatalf("exit = %d, want 1; out: %s", code, out)
+	}
+	for _, want := range []string{
+		"unfixable: org.clojure/core.rrb-vector 0.0.14: no fix listed",
+		"overrides:\n  remove org.clojure/spec.alpha \"0.3.218\" (no module resolves vulnerable without the pin)",
+		"verified: 0 fixed, 1 remaining",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("out missing %q; out: %s", want, out)
+		}
+	}
+	root, err := os.ReadFile("deps.edn")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(root), ":rig/overrides") {
+		t.Errorf("stale pin not dropped; manifest: %s", root)
+	}
+}
+
+// The --json report carries the section's net diff: one row per net
+// change, action and from/to, applied[].pin unchanged.
+func TestAuditFixOverridesJSON(t *testing.T) {
+	hotSetup(t)
+	hotRootWith(t, "", `{org.clojure/spec.alpha "0.3.218"}`)
+	fix := osvFixture{
+		batch:  map[string][]string{"org.clojure:clojure@1.11.0": {"GHSA-fix-aaaa-bbbb"}},
+		detail: map[string]string{"GHSA-fix-aaaa-bbbb": fixRecord},
+	}
+	t.Setenv("RIG_OSV_API", osvServer(t, fix).URL)
+	code, out := runCLI(t, "audit", "--fix", "--json", "--cache-dir", t.TempDir())
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0; out: %s", code, out)
+	}
+	report := auditJSONDoc(t, out)
+	if report.Fix == nil {
+		t.Fatalf("report missing the fix section; report: %+v", report)
+	}
+	if len(report.Fix.Applied) != 1 || report.Fix.Applied[0].Pin != nil {
+		t.Errorf("applied = %+v, want one site-only fix", report.Fix.Applied)
+	}
+	if len(report.Fix.Overrides) != 1 {
+		t.Fatalf("overrides = %+v, want one row", report.Fix.Overrides)
+	}
+	r := report.Fix.Overrides[0]
+	if r.Coord != "org.clojure/spec.alpha" || r.Action != "remove" || r.To != nil ||
+		r.From == nil || *r.From != "0.3.218" {
+		t.Errorf("row = %+v", r)
 	}
 }

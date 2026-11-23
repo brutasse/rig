@@ -11,7 +11,7 @@ import (
 	"github.com/brutasse/rig/internal/lockfile"
 )
 
-var ErrNotAProject = errors.New("workspace: not a rig project (no deps.edn, deps.lock or project.clj found)")
+var ErrNotAProject = errors.New("workspace: no rig project found (no deps.edn or deps.lock)")
 
 type Root struct {
 	Dir       string

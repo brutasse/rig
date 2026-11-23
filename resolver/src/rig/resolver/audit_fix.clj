@@ -185,6 +185,8 @@
         args (or (:args request) {})
         targets (get args :targets [])
         breaking (true? (get args :breaking))
+        dry-sweep (true? (get args :dry-sweep))
+        pin-edits (get args :pin-edits [])
         lock (resolve/lock-of request)
         meta (id-meta lock)
         ;; lock-of keywordizes the document, so the module keys are keywords
@@ -283,18 +285,52 @@
                       {:file "deps.edn"
                        :coord (:coord a)
                        :requirement (:value p)
-                       :section (:section p)}))
+                       :section (:section p)})
+                    ;; Caller-supplied :rig/overrides pin edits (the stale-pin
+                    ;; drops of audit --fix): requirement nil removes the entry,
+                    ;; a string sets it.
+                    (for [pe pin-edits]
+                      {:file "deps.edn"
+                       :coord (get pe :coord)
+                       :requirement (get pe :requirement)
+                       :section "overrides"}))
         edits (when (seq edits-spec) (edit/apply-edits ws edits-spec))
-        relock (resolve/resolve-lock
-                (assoc request
-                       :args (assoc args
-                                    :requirement-overrides
-                                    (into {} (for [a applied]
-                                               [(:coord a) (:target a)])))))]
+        ;; :rig/overrides force pins carrying an mvn version after the
+        ;; edits — the pins a dry re-derivation tests against their
+        ;; absence.
+        ov-pins (for [[c s] (get (or (:data (manifest/read-manifest ws)) root-data)
+                                 :rig/overrides {})
+                      :let [v (if (map? s) (get s :mvn/version) (when (string? s) s))]
+                      :when (string? v)]
+                  c)
+        relock (if (and dry-sweep (seq ov-pins))
+                 ;; The dry re-derivation: :rig/overrides stripped from
+                 ;; the basis, no repository probed, no lock document —
+                 ;; the caller tests the pins against their absence.
+                 (let [res (resolve/resolve-lock
+                            (assoc request :args (assoc args :dry true)))]
+                   (cond-> {"sweep" (get res "resolved")}
+                     (seq (get res "refused"))
+                     (assoc "refused" (vec (get res "refused")))))
+                 (resolve/resolve-lock
+                  (assoc request
+                         :args (assoc args
+                                      :requirement-overrides
+                                      (merge (get args :requirement-overrides)
+                                             (into {} (for [a applied]
+                                                        [(:coord a) (:target a)])))))))]
     (cond-> (cond-> {"plan" rows
                      "applied" applied}
               (seq edits) (assoc "edits" edits))
-      (seq edits)
+      ;; The re-lock's result rides back whenever it did real work:
+      ;; edits applied, or the caller's requirement overrides decided
+      ;; the lock (the pin-edit re-lock of audit --fix). The dry
+      ;; re-derivation carries no lock, so a dry-sweep call never
+      ;; does.
+      (and (get relock "lock")
+           (or (seq edits) (some? (get args :requirement-overrides))))
       (merge (select-keys relock ["lock"])
              (when (seq (get relock "refused"))
-               {"refused" (vec (get relock "refused"))})))))
+               {"refused" (vec (get relock "refused"))}))
+      (some? (get relock "sweep"))
+      (assoc "sweep" (get relock "sweep")))))

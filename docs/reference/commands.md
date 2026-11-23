@@ -344,17 +344,39 @@ re-lock that picks the pin up, not an edit. A coordinate with no fix
 listed, with only a higher-major fix without `--breaking`, with only a
 fix below the locked version, or with a fix version the workspace's
 repositories do not serve stands the same way: the report names it
-`unfixable` with the reason. Rig then re-locks once. The verification
-re-queries OSV for every version the new lock carries of the original
-findings' coordinates. The report lists the vuln ids the re-query no
-longer returns (`fixed`) and the ones it still returns (`remaining`),
-with the note the re-locked state derives for each.
+`unfixable` with the reason.
+
+The root's `:rig/overrides` pins are swept in the same run, against
+their own absence: after the fixes apply, a dry re-derivation of the
+workspace with the section stripped from the basis judges each pin —
+the ones the fix just wrote included — per module and scope. A pin no
+module resolves its coordinate at an OSV-vulnerable version without —
+the coordinate absent, or every resolved version clean — is dropped; a
+pin the pin-less resolution still pulls vulnerable stands; a pin whose
+resolution a query cannot reach (a git or local version) keeps. The
+stale pins are dropped, and the fixes' targets ride the single real
+re-lock.
+
+The report prints the section's net change between the run's start and
+its end, one line per coordinate whose entry changed: `add` (the fix
+wrote a pin that stands), `remove` (the pin was stale and dropped),
+`update` (the fix moved the pin's version), `keep` (the pin was
+dropped, the verification showed it was load-bearing in the end, and it
+came back at the value the fix left it). A pin added and dropped by the
+same run stands for no line; a pin updated and dropped is one `remove`.
+The verification re-queries OSV for every version the final lock
+carries of the original findings' coordinates and of the dropped pins';
+the `:rig/deps` pool is never swept. The report lists the vuln ids the
+re-query no longer returns (`fixed`) and the ones it still returns
+(`remaining`), with the note the re-locked state derives for each.
 
 ```
 fix: org.clojure/clojure 1.11.0 → 1.12.5
   used in modules/app, modules/app:test
   modules/app/deps.edn: set org.clojure/clojure "1.12.5" (deps)
   fixes: GHSA-… (CVE-…)
+overrides:
+  remove org.clojure/spec.alpha "0.3.218" (no module resolves vulnerable without the pin)
 wrote deps.lock: 26 artifacts, 2 modules
 verified: 1 fixed, 0 remaining
 ```
@@ -368,8 +390,10 @@ requirement's: `--fix`'s own pins are exempt from the cooldowns. Rig
 restores every manifest it edited, byte for byte. `--fix` needs the
 kernel and a JVM (the re-lock) and the network (OSV). It composes
 with `--explain` and `--json`; the report gains a `fix` section: the
-plan rows, the applied fixes with their edit sites and force pins, and
-the verification. Keep `rig audit` bare in CI: `--fix` edits
+plan rows, the applied fixes with their edit sites and force pins, the
+`:rig/overrides` net diff (one row per net change: `action` —
+`add`, `remove`, `update`, `keep` — with `from` and `to`), and the
+verification. Keep `rig audit` bare in CI: `--fix` edits
 manifests and re-locks, so its changes belong to a commit you review,
 not to a pipeline step ([CI](../workflows/ci.md)).
 

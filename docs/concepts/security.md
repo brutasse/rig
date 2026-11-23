@@ -156,6 +156,26 @@ artifacts from other `:mvn/repos` repositories are private and skipped
 sha. The OSV API is a trust boundary like the Maven repositories or the
 Adoptium API: Rig reports what OSV knows, and pins nothing from it.
 
+`rig audit --fix` closes the loop on the force pins it writes. A force
+pin is a promise that a version must not be pulled — but the promise
+ages: the pull it stops may go away (a module starts declaring the
+coordinate, a dependency moves on), and the pin then only costs — it
+pins a version nothing else would have picked. So the fix sweeps the
+root's `:rig/overrides` section against the pins' own absence: it
+re-derives the workspace with the section stripped from the basis and
+judges each pin — the ones it just wrote included. A pin no module
+resolves its coordinate at a vulnerable version without is stale and is
+dropped; a pin the pin-less resolution still pulls vulnerable is
+load-bearing and stands; a pin whose resolution OSV cannot query (a git
+or local version) is kept, conservatively. The pins that stand ride the
+fix's single re-lock, and the verification re-queries the dropped
+pins' coordinates in the final lock: a pin the final lock shows was
+load-bearing after all comes back at the version the fix left it, and
+the report says so (`keep`). The section's net change — which pins were
+added, removed, updated, or kept — is the `overrides` block of the
+report, and the JSON's `fix.overrides` list. The `:rig/deps` pool, a
+durable declaration rather than a security pin, is never swept.
+
 ## Reproducibility
 
 A build is a function of three things: your source tree, `deps.lock`, and

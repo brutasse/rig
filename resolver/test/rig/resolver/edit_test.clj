@@ -370,6 +370,19 @@
         (is (nil? (get-in (read-manifest dir "deps.edn")
                           [:rig/overrides 'org.clojure/tools.logging]))
             "the entry is removed")
+        (edit/apply-edits dir [{:file "deps.edn"
+                                :coord "org.clojure/clojure"
+                                :requirement nil
+                                :section "overrides"}])
+        (is (nil? (get-in (read-manifest dir "deps.edn")
+                          [:rig/overrides]))
+            "the emptied section is removed with its last entry")
+        (is (not (str/includes? (slurp (io/file dir "deps.edn"))
+                                ":rig/overrides"))
+            "no text of the section survives")
+        (is (= "1.12.5" (get-in (read-manifest dir "deps.edn")
+                                [:rig/deps 'org.clojure/clojure]))
+            "the pool is untouched")
         (is (cljfmt-clean? (slurp (io/file dir "deps.edn"))))))))
 
 (deftest overrides-section-entries-one-per-line
