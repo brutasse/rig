@@ -2,14 +2,15 @@
   "version": 2,
   "tool": {
     "name": "rig",
-    "version": "v0.6.1"
+    "version": "v0.3.1"
   },
   "resolver": {
     "lib": "io.github.brutasse/rig-resolver",
-    "version": "v0.6.1",
-    "git/sha": "3eda2c0",
-    "sha256": "843f26f019d722c2ea648af2e6333fb6ab4bdbf70fe9e8091068c86d5dc16006"
+    "version": "v0.3.1",
+    "git/sha": "4fa9c46c6c8801d791fed0bae303fd97cdbcbc5e",
+    "sha256": "ea03b818c284abc116e9ff9f63b3c39895546e475e366c392ff572ca640706ce"
   },
+  "locked_at": "2026-11-26T07:32:10Z",
   "workspace": {
     "modules": [
       ".",
@@ -1396,7 +1397,8 @@
         "jar": true,
         "uberjar": {
           "file": "target/rig-resolver-v0.6.1.jar",
-          "main": "Main"
+          "main": "Main",
+          "opts": {}
         }
       },
       "publish": {
@@ -1433,7 +1435,8 @@
         "jar": true,
         "uberjar": {
           "file": "target/rig-runner-v0.6.1.jar",
-          "main": ""
+          "main": "",
+          "opts": {}
         }
       },
       "publish": {
