@@ -15,7 +15,7 @@
 #
 #   COPY --from=ghcr.io/brutasse/rig:latest /usr/local/bin/rig /usr/local/bin/
 
-FROM eclipse-temurin:21-jdk-jammy
+FROM eclipse-temurin:21-jdk-jammy@sha256:b2711c65970c1227197c29c46e669bfdbb137524e9da0e664703a140ec25a040
 
 # TARGETARCH is set per-platform by buildx; plain `docker build` injects the
 # host arch. No default: one would override the per-platform value in every
